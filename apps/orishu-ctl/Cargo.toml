@@ -1,0 +1,31 @@
+[package]
+name = "orishuctl"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ivan Ryabov <abbyssoul@gmail.com>"]
+description = "Operator CLI for administering an orishu cluster"
+homepage = "https://github.com/abbyssoul/orishu"
+repository = "https://github.com/abbyssoul/orishu"
+readme = "README.md"
+license = "Apache-2.0"
+
+[package.metadata.deb]
+maintainer = "Ivan Ryabov <abbyssoul@gmail.com>"
+copyright = "2026, Ivan Ryabov <abbyssoul@gmail.com>"
+license-file = ["../LICENSE", "4"]
+section = "utils"
+priority = "optional"
+extended-description = """\
+Operator CLI for administering an orishu cluster.
+Suitable for local administration, remote operations, and automation scripts."""
+assets = ["$auto"]
+
+[dependencies]
+chrono = "0.4"
+clap = { version = "4.5.60", features = ["derive", "env"] }
+humantime = "2.3.0"
+orishu = { path = "../orishu" }
+serde_json = "1"
+serde_yaml = "0.9"
+tabled = "0.21"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-std"] }

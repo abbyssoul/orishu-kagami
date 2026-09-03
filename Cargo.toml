@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/*",
+    "libs/*"
+]
+
+[workspace.package]
+name = "orishu-kagami"
+version = "0.1.0"
+edition = "2024"
+

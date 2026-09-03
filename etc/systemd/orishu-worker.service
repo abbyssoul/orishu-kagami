@@ -1,0 +1,34 @@
+[Unit]
+Description=orishu worker daemon
+Documentation=https://github.com/abbyssoul/orishu
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+# The system service socket is intentionally protected by Unix file permissions.
+# Non-root local administration is expected to use a network listener plus auth/TLS,
+# or an explicit local override if an operator wants looser access.
+RuntimeDirectory=orishu
+RuntimeDirectoryMode=0755
+StateDirectory=orishu
+WorkingDirectory=/var/lib/orishu
+ExecStart=/usr/bin/orishu-worker --config /etc/orishu/orishu-worker.conf
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
