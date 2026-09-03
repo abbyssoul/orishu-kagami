@@ -1,0 +1,21 @@
+[package]
+name = "kagami"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native authoring and visualization client for Orishu"
+
+[[bin]]
+name = "kagami"
+path = "src/main.rs"
+
+[dependencies]
+iced = { workspace = true, features = ["wgpu", "debug", "tokio"] }
+clap.workspace = true
+rfd.workspace = true
+kagami-renderer.workspace = true
+orishu.workspace = true
+env_logger = "0.11"
+log = "0.4"

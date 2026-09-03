@@ -1,0 +1,47 @@
+name: Bug report
+description: Report reproducible incorrect behaviour in Orishu Kagami.
+title: "bug: "
+labels: [bug]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Orishu worker/runtime
+        - Orishu operator clients
+        - Kagami
+        - Shared model or protocol
+        - Build, packaging, or documentation
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the smallest commands, inputs, or scene needed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include relevant logs without credentials or sensitive data.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Commit/version, OS, architecture, Rust version, and graphics backend where relevant.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here; follow SECURITY.md.

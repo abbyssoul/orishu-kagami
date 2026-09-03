@@ -2,11 +2,22 @@
 resolver = "3"
 members = [
     "apps/*",
-    "libs/*"
+    "crates/*",
 ]
 
 [workspace.package]
-name = "orishu-kagami"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.94"
+license = "Apache-2.0"
+repository = "https://github.com/abbyssoul/orishu-kagami"
+
+[workspace.dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
+glam = { version = "0.33", features = ["bytemuck"] }
+iced = "0.14.0"
+kagami-renderer = { path = "crates/kagami-renderer" }
+orishu = { path = "crates/orishu" }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 

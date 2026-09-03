@@ -11,8 +11,8 @@ rewrite of any one project's architecture.
 
 This guide covers *why* to shape code a certain way. It does not restate
 this repository's concrete conventions (error types, derives, unit types,
-naming, crate layout) — those live in [`AGENTS.md`](../AGENTS.md)'s "Code
-conventions" section. It also does not cover performance trade-offs in
+naming, crate layout) — those live in the [engineering
+guidelines](../GUIDELINES.md). It also does not cover performance trade-offs in
 depth — allocation, data layout, and hot-path design are the subject of
 [`high-performance-rust.md`](high-performance-rust.md), which this guide
 cross-references rather than duplicates. Where the two guides pull in
@@ -190,15 +190,12 @@ property — query performance, or a decoupled plugin boundary — matters
 more, and that in turn depends on access patterns that are not always known
 up front.
 
-Field CAD's own history is a useful worked example of *deferring* this
-choice rather than defaulting either way: [ADR
-0002](adr/0002-no-ecs-for-the-world-model.md) chose a plain object model
-over an ECS specifically because the query pattern was not yet known and
-because an ECS would have leaked host storage layout into the plugin
-contract, then revisited the same question in [ADR
-0021](adr/0021-objects-are-composed-from-independent-components.md) once
-the real requirement turned out to be authoring-time composition rather
-than a storage decision at all. The lesson generalizes: prefer the storage
+The predecessor Field CAD project is a useful worked example of *deferring*
+this choice rather than defaulting either way. It chose a plain object model
+because the query pattern was not yet known and an ECS would have leaked host
+storage layout into the plugin contract. It revisited the question once the
+real requirement turned out to be authoring-time composition rather than a
+storage decision. The lesson generalizes: prefer the storage
 model that fits a measured access pattern, and be willing to revisit the
 choice when a system demonstrates a different one — not to adopt or reject
 ECS as a default.
@@ -232,9 +229,8 @@ return for a condition a caller can legitimately trigger, or a `debug_assert!`
 / `assert!` for a condition that should be structurally impossible given the
 rest of the program's contracts. A guard clause that fails immediately and
 close to the violated assumption is far cheaper to diagnose than an
-incorrect result discovered several calls later. [ADR
-0007](adr/0007-validate-before-adopting-a-world-edit.md) is a concrete
-example of enforcing a contract (a proposed edit is validated) at the
+incorrect result discovered several calls later. Validating a proposed world
+edit before adopting it is a concrete example of enforcing a contract at the
 single point where it can be checked authoritatively, rather than trusting
 every caller to have checked it already.
 
@@ -291,13 +287,11 @@ Before proposing a new type or module:
 
 ## References
 
-- [`AGENTS.md`](../AGENTS.md) — this project's concrete code conventions
+- [Engineering guidelines](../GUIDELINES.md) — this project's concrete conventions
   (errors, serialization, units, derives, naming, test placement).
 - [`high-performance-rust.md`](high-performance-rust.md) — performance
   trade-offs for data layout, allocation, and hot-path design.
-- [ADR 0002 — A plain object model, not an ECS](adr/0002-no-ecs-for-the-world-model.md)
-- [ADR 0021 — Objects are composed from independent components](adr/0021-objects-are-composed-from-independent-components.md)
-- [ADR 0007 — Validate before adopting a world edit](adr/0007-validate-before-adopting-a-world-edit.md)
+- [Migration strategy](migration.md) — how predecessor code is evaluated
 - [Parse, don't validate (Alexis King)](https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/)
 - [The Elm Architecture](https://guide.elm-lang.org/architecture/)
 - [Functional core, imperative shell](https://www.destroyallsoftware.com/screencasts/catalog/functional-core-imperative-shell)

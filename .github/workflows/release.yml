@@ -1,0 +1,69 @@
+name: Release bundle
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-bundle:
+    name: Test and package Linux binaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: "1.94"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux window-system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - name: Run release gate
+        run: make ci
+      - name: Build release binaries
+        run: cargo build --locked --workspace --release
+      - name: Create bundle
+        id: bundle
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
+          directory="orishu-kagami-${version}-linux-x86_64"
+          mkdir -p "dist/${directory}"
+          cp target/release/orishu-worker "dist/${directory}/"
+          cp target/release/orishuctl "dist/${directory}/"
+          cp target/release/orishu-monitor "dist/${directory}/"
+          cp target/release/kagami "dist/${directory}/"
+          cp README.md LICENSE "dist/${directory}/"
+          tar -C dist -czf "dist/${directory}.tar.gz" "${directory}"
+          echo "archive=dist/${directory}.tar.gz" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-x86_64-bundle
+          path: ${{ steps.bundle.outputs.archive }}
+          if-no-files-found: error
+      - name: Publish GitHub release asset
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.bundle.outputs.archive }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" --clobber

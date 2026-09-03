@@ -1,8 +1,9 @@
-# Target Physics Experiments for Field CAD
+# Target physics experiments
 
-This document serves as the target benchmark list of foundational physics experiments in **Electromagnetism** and **Gravitation** that Field CAD solvers, integrators, and field models aim to numerically reproduce or match.
-
-> See [`target-experiments-prerequisites.md`](file:///home/soultaker/workspace/field-cad/docs/target-experiments-prerequisites.md) for the minimal primitive object types, solver capabilities, and feature gap matrix required to implement these target experiments.
+This is the project-wide benchmark list of foundational physics experiments in
+**electromagnetism** and **gravitation** that Orishu workloads and Kagami
+analysis should eventually reproduce or measure. Inclusion is a research target,
+not a claim that the current implementation supports or validates the experiment.
 
 ---
 

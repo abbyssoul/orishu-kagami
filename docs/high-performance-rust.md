@@ -488,9 +488,10 @@ A performance report should contain:
    maintainability.
 10. **Reproduction:** exact commands and known limitations.
 
-## Field CAD as a case study
+## The Field CAD proof of concept as a case study
 
-Field CAD's performance investigations illustrate several general lessons:
+Performance investigations in the predecessor Field CAD project illustrate
+several general lessons:
 
 - sampling and unconditional diagnostics can cost more than the central
   simulation step, so measure the entire pipeline;
@@ -507,9 +508,9 @@ Field CAD's performance investigations illustrate several general lessons:
 - profiling process, Rust heap, and GPU memory separately can disprove an
   attractive but incorrect explanation.
 
-See [`docs/perf/performance-workflow.md`](perf/performance-workflow.md) and the
-dated reports in `docs/perf/`. Those reports are historical evidence, not a
-permanent backlog; revalidate every finding against current code.
+Those reports remain historical evidence in the predecessor repository, not a
+permanent backlog. Revalidate every finding against current monorepo code before
+using it to justify a change; see the [migration strategy](migration.md).
 
 ## References
 

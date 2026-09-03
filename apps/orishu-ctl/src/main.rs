@@ -36,7 +36,7 @@ use orishu::model::workload::{
 #[command(name = "orishuctl")]
 #[command(about = "Command-line tool for administering an orishu cluster", long_about = None)]
 struct Cli {
-    /// Cluster address: a Unix socket path, IP:port, or hostname[:port].
+    /// Cluster address: a Unix socket path, IP:port, or hostname with optional port.
     /// Defaults to `$XDG_RUNTIME_DIR/orishu/worker.sock`.
     #[arg(
         short = 'H',

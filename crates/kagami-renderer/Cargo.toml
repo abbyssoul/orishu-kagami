@@ -1,0 +1,16 @@
+[package]
+name = "kagami-renderer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU scene renderer for the Kagami simulation client"
+
+[dependencies]
+iced = { workspace = true, features = ["wgpu"] }
+glam.workspace = true
+bytemuck.workspace = true
+
+[dev-dependencies]
+pollster = "0.4"

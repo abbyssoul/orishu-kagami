@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Ivan Ryabov <abbyssoul@gmail.com>"]
 description = "Distributed simulation worker daemon for the orishu runtime"
-homepage = "https://github.com/abbyssoul/orishu"
-repository = "https://github.com/abbyssoul/orishu"
+homepage = "https://github.com/abbyssoul/orishu-kagami"
+repository = "https://github.com/abbyssoul/orishu-kagami"
 readme = "README.md"
 license = "Apache-2.0"
 
 [package.metadata.deb]
 maintainer = "Ivan Ryabov <abbyssoul@gmail.com>"
 copyright = "2026, Ivan Ryabov <abbyssoul@gmail.com>"
-license-file = ["../LICENSE", "4"]
+license-file = ["../../LICENSE", "4"]
 maintainer-scripts = "debian"
 section = "net"
 priority = "optional"
@@ -22,27 +22,35 @@ Installs the worker binary, packaged systemd unit, and a local-socket-first defa
 assets = [
     "$auto",
     [
-        "../etc/orishu-worker.conf",
+        "../../etc/orishu-worker.conf",
         "etc/orishu/orishu-worker.conf",
         "644",
     ],
     [
-        "../etc/systemd/orishu-worker.service.d/tls-credentials.conf.example",
+        "../../etc/systemd/orishu-worker.service.d/tls-credentials.conf.example",
         "usr/share/doc/orishu-worker/examples/tls-credentials.conf.example",
         "644",
     ],
 ]
 
 [package.metadata.deb.systemd-units]
-unit-scripts = "../etc/systemd"
+unit-scripts = "../../etc/systemd"
 enable = true
 start = true
 
 [dependencies]
 clap = { version = "4.5.60", features = ["derive"] }
-orishu = { path = "../orishu" }
+orishu = { workspace = true }
 pretty_assertions = "1.4.1"
-salvo = { version = "0.95", features = ["quinn", "unix", "timeout"] }
+salvo = { version = "0.95", default-features = false, features = [
+    "aws-lc-rs",
+    "http1",
+    "http2",
+    "rustls",
+    "server",
+    "server-handle",
+    "unix",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1.50.0", features = ["macros", "signal"] }

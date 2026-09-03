@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 authors = ["Ivan Ryabov <abbyssoul@gmail.com>"]
 description = "Experimental terminal monitor for administering an orishu cluster"
-homepage = "https://github.com/abbyssoul/orishu"
-repository = "https://github.com/abbyssoul/orishu"
+homepage = "https://github.com/abbyssoul/orishu-kagami"
+repository = "https://github.com/abbyssoul/orishu-kagami"
 readme = "README.md"
 license = "Apache-2.0"
 
 [package.metadata.deb]
 maintainer = "Ivan Ryabov <abbyssoul@gmail.com>"
 copyright = "2026, Ivan Ryabov <abbyssoul@gmail.com>"
-license-file = ["../LICENSE", "4"]
+license-file = ["../../LICENSE", "4"]
 section = "utils"
 priority = "optional"
 assets = ["$auto"]
@@ -22,4 +22,4 @@ This package is published for early testing while the full TUI is still under ac
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
-orishu = { path = "../orishu" }
+orishu = { workspace = true }

@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: Format, lint, and public docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: "1.94"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux window-system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+      - run: make fmt-check
+      - run: make docs-check
+      - run: make lint
+
+  test:
+    name: Root build and test contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: "1.94"
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux window-system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            mesa-vulkan-drivers libgl1-mesa-dri libegl1 xvfb
+      - run: make build
+      - run: make test
+      - run: make test-docs
+      - run: make docs
+      - name: Smoke-test Kagami's offscreen renderer
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: make smoke-kagami
+      - name: Verify the Orishu systemd unit
+        run: |
+          root="$RUNNER_TEMP/systemd-root"
+          mkdir -p "$root/etc/systemd/system" "$root/usr/bin"
+          cp etc/systemd/orishu-worker.service "$root/etc/systemd/system/orishu-worker.service"
+          install -m 0755 /bin/true "$root/usr/bin/orishu-worker"
+          for unit in sysinit.target basic.target multi-user.target network-online.target; do
+            printf '[Unit]\nDescription=%s\n' "$unit" > "$root/etc/systemd/system/$unit"
+          done
+          systemd-analyze verify --root="$root" /etc/systemd/system/orishu-worker.service
+
+  kagami-platforms:
+    name: Kagami (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+        with:
+          toolchain: "1.94"
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test Kagami
+        run: cargo test --locked -p kagami -p kagami-renderer --all-targets

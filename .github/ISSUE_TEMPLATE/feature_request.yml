@@ -1,0 +1,30 @@
+name: Feature or design proposal
+description: Propose a focused product, protocol, or developer improvement.
+title: "proposal: "
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user, operator, or maintainer problem before a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: textarea
+    id: ownership
+    attributes:
+      label: Ownership and compatibility
+      description: Which module should own it, and what protocol, persistence, numerical, or rollout effects exist?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Note rejected approaches and their trade-offs.
