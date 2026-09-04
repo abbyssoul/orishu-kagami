@@ -153,19 +153,51 @@ inheritance-style taxonomy) tends to produce flatter, more composable code,
 because the operation's inputs and outputs are visible instead of buried
 inside a method on a deep object.
 
-### The Elm Architecture (model-action-view)
+### The Elm Architecture (model-message-update, with or without a view)
 
-A unidirectional data-flow UI architecture — one immutable model, a closed
-set of actions/messages that can change it, a pure `update` function that
-folds an action into a new model, and a pure `view` function that renders
-the model — makes UI state changes traceable and replayable: every state
-transition is a value (the action) that can be logged, replayed, or
-asserted on in a test without a running UI. It pays for itself when UI
-state has real invariants worth protecting or when predictable state
-transitions matter more than incremental convenience. It is overhead for a
-small surface with little shared state, where a handful of local mutable
-fields are easier to read than a message enum built for a UI that does not
-yet need one.
+A unidirectional data-flow architecture — one immutable model, a closed set
+of messages that can change it, and a pure `update` function that folds a
+message into a new model — makes state changes traceable and replayable:
+every state transition is a value (the message) that can be logged,
+replayed, or asserted on in a test without any IO running. The optional
+fourth piece, a pure `view` function that renders the model, is what most
+people picture when they hear "TEA," but it is not the load-bearing part.
+
+The load-bearing part is narrower and more general than UI: TEA is a
+specific application of separating pure computation from IO (see
+[above](#separate-pure-computation-from-io)), where the IO boundary is
+named explicitly as *messages* rather than left as an unstructured "the
+shell calls into the core somehow." Anything that produces a message —
+a user clicking a button, a socket delivering a packet, a timer firing,
+another node's gossip update arriving — is IO, and it is uniform from the
+model's point of view: the model does not know or care whether a message
+originated from a human or from the network, only that it is a value
+describing what happened. `update` stays pure and testable regardless of
+how many different IO sources feed it, because every source is normalized
+to the same message type before it reaches the core.
+
+This is why TEA is not a UI-specific pattern in this codebase. A cluster
+membership tracker is a worked example with no view at all: each node holds
+its own model of the cluster (who the members are, and their state — live,
+suspected, departed). That model changes only in response to messages —
+a heartbeat received directly, a piggybacked membership update carried on
+unrelated traffic, a suspicion timer firing with no message received in
+time — each folded through a pure `update(model, message) -> model`. There
+is no rendering step; the "view" a caller might build (a status table, a
+log line, a metric) is just another pure function of the model, optional
+and separate from the update loop. The architecture still buys the same
+thing it buys a UI: every membership transition is a loggable, replayable
+value, and the transition logic can be tested by asserting on
+`(model, message) -> model` triples without a running network.
+
+Reach for named model/message/update whenever a component's state is
+mutated from more than one IO source (network, timers, user input, disk)
+and the transitions matter enough to want them as inspectable values —
+correctness-critical state like cluster membership, workload epoch, or
+ownership tracking is the common case in `orishu`. It is overhead for a
+small surface with a single caller and little shared state, where a
+handful of local mutable fields are easier to read than a message enum
+built for a state machine that does not yet need one.
 
 ### Entity-component-system and other composition/storage patterns
 
@@ -280,6 +312,11 @@ Before proposing a new type or module:
       because the access pattern or requirement demands it, or because it
       is a familiar default? What access pattern would have to change for
       the choice to be wrong?
+- [ ] Does state mutated from more than one IO source (network, timers,
+      user input, disk) have its transitions named as an explicit message
+      type folded through a pure `update`, or is it being mutated ad hoc
+      from each call site? This applies equally to non-UI state such as
+      cluster membership.
 - [ ] Does every non-trivial function state its contract, and does a guard
       clause enforce the part the type system cannot?
 - [ ] Is an intermediate collection being materialized where a lazy

@@ -7,6 +7,22 @@ distributed scientific simulations.
 - **Kagami** is the native client for authoring simulated environments,
   controlling Orishu workloads, and visualizing live or recorded observations.
 
+The product serves three complementary roles:
+
+- **cluster operators** provision and operate workers with `orishuctl` and
+  `orishu-monitor`;
+- **researchers** use Kagami to author experiments, submit them, and inspect
+  live or recorded runs; and
+- **simulation plugin developers** use normal IDEs and build tools to implement
+  additional physical models and numerical methods that researchers can
+  install and select in Kagami.
+
+Kagami is planned to ship with gravity and electrodynamics plugins. Built-in
+and third-party plugins use the same declarative authoring schema and pinned,
+sandboxed WebAssembly workload-component contract. Kagami manages and consumes
+finished plugins; it is not a source-code editor or compiler. See
+[Simulation plugins](docs/simulation-plugins.md).
+
 Field CAD was the original proof of concept for the authoring, simulation, and
 visualization workflow. It is not a separate product in this repository. Proven
 ideas and implementations from Field CAD are being rebuilt behind Orishu's
@@ -86,7 +102,8 @@ scripts/    repository checks and automation helpers
 ```
 
 See the [documentation index](docs/README.md), [architecture](docs/architecture.md),
-and [contribution guide](CONTRIBUTING.md) before making structural or behavioural
+[simulation-plugin model](docs/simulation-plugins.md), and
+[contribution guide](CONTRIBUTING.md) before making structural or behavioural
 changes.
 
 ## License

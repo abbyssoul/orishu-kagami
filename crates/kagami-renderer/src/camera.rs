@@ -43,11 +43,16 @@ impl Camera {
     }
 
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.eye(), self.target, Vec3::Z)
+        glam::camera::rh::view::look_at_mat4(self.eye(), self.target, Vec3::Z)
     }
 
     pub fn projection_matrix(&self, aspect_ratio: f32) -> Mat4 {
-        Mat4::perspective_rh(45.0_f32.to_radians(), aspect_ratio.max(0.01), 0.1, 5000.0)
+        glam::camera::rh::proj::directx::perspective(
+            45.0_f32.to_radians(),
+            aspect_ratio.max(0.01),
+            0.1,
+            5000.0,
+        )
     }
 
     pub fn view_projection_matrix(&self, aspect_ratio: f32) -> Mat4 {

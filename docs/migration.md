@@ -10,12 +10,15 @@ clear in the combined product.
 | --- | --- | --- |
 | Orishu shared models and client | Reuse as the client seam for Orishu-facing applications. | `libs/orishu` |
 | Orishu worker and operator tools | Reuse and maintain as produced binaries. | `apps/orishu-*` |
+| Orishu workload contract | Adopt the lifecycle and responsibility split, but make its implicit security boundary explicit: submitted physics is an untrusted WebAssembly Component with a closed capability ABI; native/Python equivalence is not inherited. | `docs/protocol-workload.md` and ADR 0009 |
 | Kagami Iced application shell | Reuse as the basis of the native client. | `apps/kagami` |
 | Kagami Iced/wgpu scene renderer | Reuse as a deep rendering module. | `libs/kagami-renderer` |
 | Kagami demo scene tree | Keep app-local until an authoritative experiment model replaces it. | `apps/kagami/src/scene_model.rs` |
 | Kagami GPUI experiment | Do not adopt; it duplicates the shell and has a conflicting graphics graph. | Historical reference only |
 | Field CAD egui desktop | Do not adopt; Kagami replaces this presentation implementation. | Historical reference only |
 | Field CAD server and MCP transport | Do not adopt as a second compute/control plane; Orishu owns remote execution. | Rebuild against Orishu where needed |
+| Field CAD expression and variable prototypes | Evaluate together; do not adopt either historical API wholesale. `fieldcad-variables` informs the generic namespaced dependency engine, while `fieldcad-expressions` informs dimension-aware resource integration, retained source, diagnostics, and bounds. | The shared `orishu-variables` subsystem conforming to ADRs 0005 and 0007 |
+| Field CAD object catalog | Reuse its failure-isolation, availability, fingerprint, provenance, safe-write, and explicit-update lessons; replace Field CAD core types, resolved-only values, document-scoped sources, and tracking links with Kagami schemas, shared expressions, a client-owned catalog authority, and snapshot instantiation. | Kagami catalog domain conforming to ADR 0008 |
 
 ## Field CAD extraction candidates
 
@@ -31,12 +34,24 @@ tests before migration:
    backpressure rules suitable for the Orishu client protocol.
 3. **Numerical kernels.** Move independently verified headless kernels below
    both the Kagami client and Orishu workload adapters. A kernel must depend on
-   neither UI state nor cluster runtime state.
+   neither UI state nor cluster runtime state. A kernel is implementation used
+   to build a workload component; it is not by itself the installable
+   simulation plugin or the authoring schema Kagami exposes.
 4. **Visualization algorithms.** Port interpolation, glyph, trajectory, picking,
    and gizmo behaviour into Kagami's renderer only when the required observation
    interface exists.
-5. **Catalog and physical schemas.** Reconcile stable identifiers, SI units, and
-   provenance with workload-package inputs before adopting stored formats.
+5. **Catalog and physical schemas.** Adapt `fieldcad-catalog` behind Kagami's
+   client-owned catalog authority. Reconcile stable identifiers, component
+   schemas, expressions, SI units, fingerprints, and provenance before
+   adopting stored formats. Persist complete instantiated objects rather than
+   catalog dependencies or live tracking links.
+6. **Variables and expressions.** Combine the useful seams demonstrated by
+   Field CAD's `fieldcad-variables` and `fieldcad-expressions`: stable
+   namespaced identities and dependency evaluation beneath a dimension-aware
+   experiment and workload-resource layer. Preserve authored source, validate
+   affected dependencies atomically, and use the same evaluator in Kagami and
+   Orishu workload admission. Do not introduce live solver observations as an
+   implicit document input.
 
 ## Admission test
 
