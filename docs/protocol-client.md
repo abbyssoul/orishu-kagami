@@ -28,7 +28,7 @@ All request and response bodies use **CBOR** ([RFC 8949](https://www.rfc-editor.
 - Clients must set `Content-Type: application/cbor` on requests with a body and should set `Accept: application/cbor`.
 - If a request arrives without an `Accept` header or with `Accept: */*`, the worker responds with CBOR.
 
-Map keys in CBOR payloads are text strings matching the field names defined in this document and in the [design doc data model](./design.md#data-model). Fields with `null` or default values may be omitted from the encoded map to reduce payload size.
+Map keys in CBOR payloads are text strings matching the field names defined in this document and in the [runtime data model](./orishu-data-model.md). Fields with `null` or default values may be omitted from the encoded map to reduce payload size.
 
 ### Diagnostic and debugging aid
 
@@ -37,7 +37,7 @@ For development and debugging convenience, workers may optionally support `appli
 
 ## Access tiers
 
-The system defines two access tiers, as described in the [design doc](./design.md#access-tiers):
+The system defines two access tiers, as described in the [runtime design](./orishu-runtime-design.md#access-tiers):
 
 **Tier 1 — Local unprivileged access:**
 - Client connects over a Unix domain socket or loopback interface to a node running under the same OS user.
@@ -114,7 +114,7 @@ Optimistic concurrency applies to the **versioned, operator-controlled resources
 
 **Missing validator:** if a write omits `If-Match`, the worker does **not** enforce a concurrency check — the write proceeds under last-writer-wins for that resource's normal versioning. Optimistic concurrency is therefore strictly opt-in per request; a client that wants the guard must send the validator. This mechanism protects against stale concurrent writes; it is not an ownership check and does not require the same operator to perform both reads and writes.
 
-Immutable resources (checkpoints, results) also expose an `ETag` (a content-hash validator for caching/`If-None-Match`), but they are never written, so `If-Match` does not apply to them. Operator CLI usage of this opt-in is described in [cluster-admin user stories](./user-stories/cluster-admin.md#optimistic-concurrency-opt-in).
+Immutable resources (checkpoints, results) also expose an `ETag` (a content-hash validator for caching/`If-None-Match`), but they are never written, so `If-Match` does not apply to them. Operator CLI usage of this opt-in is described in [cluster-admin user stories](./user-stories/orishu/cluster-admin.md#optimistic-concurrency-opt-in).
 
 
 ### Error responses
@@ -136,7 +136,7 @@ Status-only responses such as `204 No Content` and `304 Not Modified` carry no r
 
 ## API endpoints
 
-All paths are relative to the worker's client-facing address. The HTTP _method_ conveys the action per resource-oriented design (see [design doc](./design.md#resource-oriented-api-design)).
+All paths are relative to the worker's client-facing address. The HTTP _method_ conveys the action per resource-oriented design (see [runtime design](./orishu-runtime-design.md#resource-oriented-api-design)).
 
 The APIs are versioned and typically exposed on the `/api` path. Although, this can be re-configured using network controllers. 
 
@@ -238,7 +238,7 @@ If no workload is loaded, the endpoint returns `404 Not Found` indicating that n
 
 #### Stepped execution
 
-`PATCH /cluster/workload` with `{"runState": "Running", "stepLimit": N}` enables operator-controlled advancement of the simulation by a fixed number of steps. The `stepLimit` acts as a steps budget (or lease): the simulation consumes steps from this budget as they are committed, and automatically stops when the budget reaches zero. This is designed for interactive debugging, validation, and incremental inspection of simulation state. See the [user story](user-stories/workload.md#step-a-simulation-forward) for the CLI perspective.
+`PATCH /cluster/workload` with `{"runState": "Running", "stepLimit": N}` enables operator-controlled advancement of the simulation by a fixed number of steps. The `stepLimit` acts as a steps budget (or lease): the simulation consumes steps from this budget as they are committed, and automatically stops when the budget reaches zero. This is designed for interactive debugging, validation, and incremental inspection of simulation state. See the [user story](user-stories/orishu/workload.md#step-a-simulation-forward) for the CLI perspective.
 
 When `stepLimit` is present:
 
@@ -252,7 +252,7 @@ When `stepLimit` is present:
 
 #### Reset to checkpoint
 
-`PATCH /cluster/workload` with `{"runState": "Stopped", "resetTo": "<checkpoint-id>"}` rewinds the simulation state to a previously recorded checkpoint without starting execution. This is the "rewind" primitive — the simulation remains in `Stopped` state and the operator can inspect, step, or start it afterward. See the [user story](user-stories/workload.md#reset-simulation-state-to-a-checkpoint) for the CLI perspective.
+`PATCH /cluster/workload` with `{"runState": "Stopped", "resetTo": "<checkpoint-id>"}` rewinds the simulation state to a previously recorded checkpoint without starting execution. This is the "rewind" primitive — the simulation remains in `Stopped` state and the operator can inspect, step, or start it afterward. See the [user story](user-stories/orishu/workload.md#reset-simulation-state-to-a-checkpoint) for the CLI perspective.
 
 When `resetTo` is present:
 
@@ -282,7 +282,7 @@ When `resetTo` is present:
 
 ## Message definitions
 
-This section defines the CBOR structure of request and response bodies for each endpoint. Field names match the data model in the [design doc](./design.md#data-model).
+This section defines the CBOR structure of request and response bodies for each endpoint. Field names match the [runtime data model](./orishu-data-model.md).
 
 ### Common types
 
@@ -501,7 +501,7 @@ This endpoint is only available on a standalone worker (one that has not yet joi
 
 ### `DELETE /membership`
 
-Command the local worker to gracefully leave its current cluster and return to standalone. The worker drains in-flight computation, transfers result data to replicas, announces `Leave` to peers via the peer protocol, drops its cluster-assigned ID (see [Node identity](design.md#node-identity)), and becomes a standalone cluster of one.
+Command the local worker to gracefully leave its current cluster and return to standalone. The worker drains in-flight computation, transfers result data to replicas, announces `Leave` to peers via the peer protocol, drops its cluster-assigned ID (see [Node identity](orishu-runtime-design.md#node-identity)), and becomes a standalone cluster of one.
 
 This is the inverse of `POST /membership`. No membership tombstone is created in the cluster's membership CRDT — the node can rejoin the same cluster via a normal `POST /membership` without any prior membership-tombstone-clearing step. This distinguishes voluntary leave from operator-initiated removal via `DELETE /cluster/nodes/:id`, which creates a membership tombstone for the node.
 
@@ -1140,7 +1140,7 @@ Update the desired run state.
 
 `stepLimit` and `checkpoint` are only valid when `runState` is `"Running"`. The request is rejected with `409 Conflict` if the simulation is already in `Running` state and `stepLimit` is present — stepped execution is only valid from `Ready` or `Stopped`. See [Stepped execution](#stepped-execution) for full semantics.
 
-`resetTo` is only valid when `runState` is `"Stopped"` and the simulation is in `Ready` or `Stopped` state. When provided, the simulation's state is replaced with the specified checkpoint artifact's state and a new workload epoch is created recording which checkpoint artifact it originated from (visible in `GET /cluster/workload` as `status.checkpointId`). The simulation remains in `Stopped` state — to start execution from the reset point, issue a subsequent PATCH with `runState: "Running"`. The checkpoint artifact must belong to the same workload manifest (or a declared compatible successor) and must be complete (no missing chunks). If the checkpoint artifact is incomplete, incompatible, or does not exist, the request is rejected with `422 Unprocessable Entity`. `resetTo` combined with `runState: "Running"` is rejected with `409 Conflict` — reset and start must be separate requests. See the [user story](user-stories/workload.md#reset-simulation-state-to-a-checkpoint) and [Reset to checkpoint](#reset-to-checkpoint) for full semantics.
+`resetTo` is only valid when `runState` is `"Stopped"` and the simulation is in `Ready` or `Stopped` state. When provided, the simulation's state is replaced with the specified checkpoint artifact's state and a new workload epoch is created recording which checkpoint artifact it originated from (visible in `GET /cluster/workload` as `status.checkpointId`). The simulation remains in `Stopped` state — to start execution from the reset point, issue a subsequent PATCH with `runState: "Running"`. The checkpoint artifact must belong to the same workload manifest (or a declared compatible successor) and must be complete (no missing chunks). If the checkpoint artifact is incomplete, incompatible, or does not exist, the request is rejected with `422 Unprocessable Entity`. `resetTo` combined with `runState: "Running"` is rejected with `409 Conflict` — reset and start must be separate requests. See the [user story](user-stories/orishu/workload.md#reset-simulation-state-to-a-checkpoint) and [Reset to checkpoint](#reset-to-checkpoint) for full semantics.
 
 **Response headers:**
 - `ETag: "<opaque>"` — validator for the updated workload resource.
@@ -1434,6 +1434,11 @@ For data download (`?download=true`):
 
 ### `DELETE /cluster/workload/checkpoints/:id`
 
+Deleting a stored checkpoint creates or preserves the purge tombstone defined
+by [ADR 0014](./adr/0014-prevent-purged-artifact-resurrection.md) before stale
+inventory can make the artifact visible again. A successful response does not
+claim that every offline physical copy has already been erased.
+
 **Response `204 No Content`:** entry removed successfully.
 
 **Response `204 No Content`:** entry did not exist (idempotent, same shape).
@@ -1441,7 +1446,9 @@ For data download (`?download=true`):
 
 ### `DELETE /cluster/workload/checkpoints`
 
-Bulk delete.
+Bulk delete. Each matched artifact receives its own idempotent purge intent and
+audit event; partial processing must be reported rather than represented as one
+atomic cluster-wide erasure.
 
 **Query parameters:**
 - `workloadId` — scope to a specific workload.
@@ -1464,7 +1471,7 @@ At least one parameter is required.
 
 ---
 
-> **Stored artifacts, not sequences.** The `/cluster/results` endpoints expose **immutable stored result artifacts** (each a `ResultRecord` with a stable `id` and a content-hash-derived `ETag`). A **result sequence** — the operator-facing "results of this simulation so far" — is *derived/operator-facing terminology*, not a protocol resource in the MVP: it is reconstructed client-side by grouping these immutable artifacts (e.g. by `workloadId` / `workloadEpoch`). There is no mutable result object and no `/cluster/result-sequences` resource; continuing a run adds new immutable artifacts rather than changing existing ones. See [Result sequences vs stored result artifacts](./design.md#result-sequences-vs-stored-result-artifacts) and [decision-003](../backlog/decisions/decision-003%20-%20Result-Sequence-vs-Stored-Result-Artifact.md).
+> **Stored artifacts, not sequences.** The `/cluster/results` endpoints expose **immutable stored result artifacts** (each a `ResultRecord` with a stable `id` and a content-hash-derived `ETag`). A **result sequence** — the operator-facing "results of this simulation so far" — is *derived/operator-facing terminology*, not a protocol resource in the MVP: it is reconstructed client-side by grouping these immutable artifacts (e.g. by `workloadId` / `workloadEpoch`). There is no mutable result object and no `/cluster/result-sequences` resource; continuing a run adds new immutable artifacts rather than changing existing ones. See [Result sequences versus stored result artifacts](./orishu-runtime-design.md#result-sequences-versus-stored-result-artifacts).
 
 ### `GET /cluster/results`
 
@@ -1524,6 +1531,11 @@ For data download (`?download=true`):
 
 ### `DELETE /cluster/results/:id`
 
+Deleting a stored result creates or preserves the purge tombstone defined by
+[ADR 0014](./adr/0014-prevent-purged-artifact-resurrection.md) before stale
+inventory can make the artifact visible again. A successful response does not
+claim that every offline physical copy has already been erased.
+
 **Response `204 No Content`:** entry removed successfully.
 
 **Response `204 No Content`:** entry did not exist (idempotent, same shape).
@@ -1531,7 +1543,9 @@ For data download (`?download=true`):
 
 ### `DELETE /cluster/results`
 
-Bulk delete.
+Bulk delete. Each matched artifact receives its own idempotent purge intent and
+audit event; partial processing must be reported rather than represented as one
+atomic cluster-wide erasure.
 
 **Query parameters:**
 - `workloadId` — scope to a specific workload.

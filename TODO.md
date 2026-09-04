@@ -35,7 +35,7 @@ Motivation: when installed via `cargo install <binary>` - not configs or scripts
 [X] Update Coding style doc to capture wider role of TEA approach in the orishu and kagami design.
 In particular ELM is not UI specific, its a logical cont. of IO separation. Having clear boundaries of where messages originate is the IO boundary (user input, network etc covered uniformly).
 An example - peer list tracking system. Each node in a cluster holds its own model of a cluster, who the members are and what their state (live, suspected etc). Nodes exchange messages directly or piggyback on other traffic messages - updating cluster model. In the elm terms: there is cluster model and actions to update it originating from network message exchanges and/or timers. There is no UI view though.
-**Done** [Coding style](docs/Coding style.md) updated.
+**Done** [Coding style](docs/Coding%20style.md) updated.
 
 [] Document that on multiple levels orishu project is client-server architecture from a client perspective. And peer-to-peer is how individually orishu workers self-organize.
 Fundamentally, a server (orishu) is a producer of streams of simulated states. In that such stream can be pre-recorded or live-produced. Conceptually, serving a pre-recorded stream of previously computed simulation is not different from serving a file (video stream), maybe with provisions that a file might be significant in size and thus split into chunks like BitTorrent protocol would do.
@@ -135,3 +135,18 @@ Lets ensure the all of that is clear from our user-stories.
 
 > the term kernel is a bit narrow as its only a part of the user story. What advance users really craft and manage - are plugins for kagami. A plugin includes manifest and defines what kind of physical phenomenon is modeled, exports variable etc. It also, when loaded, registers the code that simulates the phenomenon - kernel. So from kagami's users perspective they create, share and manage active plugins in kagami. When a scene/experiment is created - it records what phenomenon it models and bundles code to compute it when exported. This way runtime - orishu - can load the experiment bundle and run it independent of kagami instance that produced it. 
 Update user stories accordingly
+
+Perfect. Its time to create a proper implementation roadmap. Maybe place it in the ./docs/roadmap/ Outline milestones, focus areas and exit criteria etc. Pay attention to which work is shared between orishu and kagami and which can be done in parallel. Ideally multiple agents will be working in parallel to implement tasks so its important to annotate interdependencies.
+
+
+[X] I'd like you to start implementation with implementing swarm model, that will be held and update by each orishu-worker.
+The implementation should be in the style of [SANS-IO library design](../swe-llm-wiki/wiki/networking/sans-io-protocol-architecture.md) and in accordance with [TEA](./docs/Coding%20style.md) concept of IO separation from the functional core. That is - a crate should provide type to represent a set of node's peers, and `update(msg) -> tribe_model` that set in response to network originated messages as per [p2p protocol](./docs/protocol-p2p.md)
+
+**Promoted** to [Implement the sans-IO cluster membership core](./docs/tasks/implement-membership-model.md), governed by [ADR 0013](./docs/adr/0013-cluster-formation-and-node-identity.md). Named `orishu-membership` rather than "swarm"/"tribe" — see task file for rationale. ADR 0015 governs committed-artifact transfer and is intentionally outside this membership task.
+
+
+/goal Implement the sans-IO cluster membership crate for orishu-worker. The design as a task file at @docs/tasks/implement-membership-model.md
+Don't forget to add bench similar to @crates/orishu-variables/benches to profile library performance in isolation.
+
+Do adhere to the TEA design principles and SANS-IO library design and coding guidelines as outlined in @docs/Coding style.md
+According to the @docs/roadmap/readme.md this task depend only on S-IDENTITY so you'll need to implement missing parts yourself.

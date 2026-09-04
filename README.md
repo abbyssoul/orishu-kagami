@@ -95,13 +95,14 @@ without opening a window, run `make smoke-kagami`.
 
 ```text
 apps/       deployable binaries
-libs/       shared Rust modules
+crates/     shared Rust modules
 docs/       project-wide architecture and development documentation
 etc/        deployment configuration for Orishu workers
 scripts/    repository checks and automation helpers
 ```
 
 See the [documentation index](docs/README.md), [architecture](docs/architecture.md),
+[implementation roadmap](docs/roadmap/README.md),
 [simulation-plugin model](docs/simulation-plugins.md), and
 [contribution guide](CONTRIBUTING.md) before making structural or behavioural
 changes.

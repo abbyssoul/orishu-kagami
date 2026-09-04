@@ -2,7 +2,7 @@
 
 These stories are written from the administrator persona: the person responsible for running an `orishu` cluster, keeping it safe, understandable, and available for cluster users running scientific workloads.
 
-This document focuses on _day-2_ cluster operations after workers exist: inspecting membership, controlling admission, diagnosing health, and making topology changes safely. Installation and per-worker setup are covered in [config.md](../config.md) and [worker-admin.md](./worker-admin.md).
+This document focuses on _day-2_ cluster operations after workers exist: inspecting membership, controlling admission, diagnosing health, and making topology changes safely. Installation and per-worker setup are covered in [Orishu configuration](../../orishu-configuration.md) and [worker-admin.md](./worker-admin.md).
 
 These stories define what administrators should be able to accomplish and what guarantees the system should provide. They are intentionally implementation-agnostic. Concrete UX details such as CLI command names, API shapes, and UI flows are examples unless and until they are specified elsewhere in corresponding documents.
 
@@ -223,7 +223,7 @@ This story is distinct from related operations:
 
 **Acceptance criteria:**
 - A command is available to command a node to leave its cluster, e.g. `orishuctl leave`, targeting a specific worker node (local by default, or remote via `--host`).
-- The node gracefully leaves its cluster: it finishes in-flight computation, transfers result data to replicas for durability, announces `Leave` to peers, and drops its cluster-assigned ID (see [Node identity](../design.md#node-identity)).
+- The node gracefully leaves its cluster: it finishes in-flight computation, transfers result data to replicas for durability, announces `Leave` to peers, and drops its cluster-assigned ID (see [Node identity](../../orishu-runtime-design.md#node-identity)).
 - After leaving, the node becomes a standalone node, i.e. a cluster of one. It retains its name and certificate identity but has no cluster-assigned ID.
 - The node disappears from `orishuctl ls` on the cluster it left. The cluster reassigns the node's workload partitions to remaining members, as with any graceful departure.
 - No tombstone is created for the node in the cluster's membership CRDT. The node can rejoin the same cluster via a normal `join` command without first clearing a tombstone. This distinguishes voluntary leave from administrative removal.
@@ -250,7 +250,7 @@ The worker then contacts the specified address, performs mTLS handshake, and pre
 
 This is the recommended flow for small clusters, deliberate topology experiments, and environments where administrators want explicit control over cluster composition.
 
-Automatic discovery, auto-join, and mTLS-only admission are intentionally out of MVP scope. A worker that can see introducers on the network still remains a standalone node until an administrator explicitly provides introducer address information and a join token. Post-MVP mDNS-based auto-join is tracked in [Project Change Proposal: mDNS auto join](../../backlog/proposals/2026-03-24-mdns-auto-join-post-mvp.md).
+Automatic discovery, auto-join, and mTLS-only admission are intentionally out of MVP scope. A worker that can see introducers on the network still remains a standalone node until an administrator explicitly provides introducer address information and a join token. Post-MVP mDNS-based auto-join is preserved in [Orishu runtime deferred design work](../../orishu-runtime-future-work.md#discovery-assisted-admission).
 
 **Acceptance criteria:**
 - The administrator can obtain a join token from the cluster and use it to command a worker to join at a specific introducer address.
@@ -276,7 +276,7 @@ As an administrator, I want to command a worker node that is already a member of
 **When** I issue a join command for cluster B
 **Then** the node gracefully leaves cluster A (draining in-flight work, transferring data), drops its cluster A identity, and joins cluster B through the standard admission flow, receiving a new cluster-assigned ID from cluster B.
 
-In larger deployments, administrators routinely rebalance compute capacity across clusters — for example, moving idle nodes from a completed simulation's cluster to one that is under-provisioned, or correcting a node that was accidentally joined to the wrong cluster. This operation reuses the same join mechanism described in "Add a node to a cluster explicitly", with the additional step that the node must first leave its current cluster. A node can be a member of at most one cluster at a time (see [Node identity](../design.md#node-identity)).
+In larger deployments, administrators routinely rebalance compute capacity across clusters — for example, moving idle nodes from a completed simulation's cluster to one that is under-provisioned, or correcting a node that was accidentally joined to the wrong cluster. This operation reuses the same join mechanism described in "Add a node to a cluster explicitly", with the additional step that the node must first leave its current cluster. A node can be a member of at most one cluster at a time (see [Node identity](../../orishu-runtime-design.md#node-identity)).
 
 **Acceptance criteria:**
 - The administrator can command a node that is already in a cluster to join a different cluster using `orishuctl join <address> --token <token>` (or similar) targeting the node. The command is the same as for a standalone node; the system detects that the node is already in a cluster and initiates a leave-then-join sequence.
@@ -419,8 +419,8 @@ As an administrator, I want to opt in to a concurrency check on a write so that 
 - A read command surfaces the resource's current validator (the protocol `ETag`), e.g. via `orishuctl ... --show-version` (or an equivalent field in `-o json` output), so the administrator can discover it explicitly. The validator is never hidden client state.
 - A write command accepts an opt-in flag, e.g. `orishuctl ... --if-match <validator>`, which is sent as the protocol `If-Match` precondition. This is the same opaque validator obtained from the read.
 - If the resource advanced since the read, the command fails with a clear conflict message (mapped from `412 Precondition Failed`) telling the administrator to re-read and retry; it does not silently overwrite.
-- If the administrator omits the flag, no concurrency check is applied and the write follows normal last-writer-wins ordering — the flag is strictly opt-in per command, consistent with [protocol-client.md](../protocol-client.md#optimistic-concurrency).
-- Making optimistic concurrency a CLI default (rather than opt-in) is deferred post-MVP (TASK-056; see [deferred-scope.md](../deferred-scope.md)).
+- If the administrator omits the flag, no concurrency check is applied and the write follows normal last-writer-wins ordering — the flag is strictly opt-in per command, consistent with [protocol-client.md](../../protocol-client.md#optimistic-concurrency).
+- Making optimistic concurrency a CLI default (rather than opt-in) is deferred post-MVP; see [deferred runtime design](../../orishu-runtime-future-work.md).
 
 
 

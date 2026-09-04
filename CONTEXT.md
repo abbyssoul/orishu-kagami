@@ -14,6 +14,7 @@ independent platforms.
 | **Researcher** | A person or agent that uses Kagami to author experiments, submit workloads, and inspect runs without operating cluster membership. |
 | **Simulation plugin developer** | An advanced user who implements and tests physical models or numerical methods with external development tools and packages them for Kagami and Orishu. |
 | **Cluster** | A running set of nodes cooperating to execute one workload and manage its artifacts. |
+| **Cluster formation** | One ephemeral instantiation of a cluster, identified independently of its reusable human-readable name. |
 | **Node** | One running `orishu-worker` process participating in a cluster. |
 | **Experiment** | Editable intent: a world, physical models, parameters, initial conditions, run controls, and requested observations. |
 | **Document authority** | The owner that serializes proposed authoring commands and atomically accepts or rejects experiment revisions. It initially runs inside each Kagami process and may later be hosted by a headless collaboration service. |
@@ -37,6 +38,13 @@ independent platforms.
 | **Observation baseline** | A complete observation that a consumer has validated and adopted and against which a later observation delta is explicitly encoded. |
 | **Result artifact** | Durable workload output intended for analysis, export, or visualization. It is not resumable. |
 | **Checkpoint artifact** | Durable state captured at a simulation boundary and suitable for resuming a workload. |
+| **Artifact record** | Immutable authority for a checkpoint or result artifact's identity, chunks, integrity, completeness at creation, and committed provenance; it contains no live location. |
+| **Result sequence** | A derived operator/client grouping of immutable result artifacts from one run lineage across stop/resume; it is not a stored resource. |
+| **Local inventory** | A node-local, potentially stale claim about artifact chunks a worker can serve; it is advisory until bytes verify. |
+| **Availability view** | A transient projection of current artifact retrievability derived from records, membership, inventory, verified reads, and backend state. |
+| **Membership tombstone** | A formation-scoped barrier recording removal of a node and preventing readmission until explicitly cleared. |
+| **Purge tombstone** | Persisted artifact-deletion intent that prevents stale inventory from resurrecting a deleted artifact; its cross-formation retention remains an open storage contract. |
+| **Durability target** | The accepted number and placement policy for verified artifact copies; current retrievability does not prove it is satisfied. |
 | **Subscription** | The observations, channels, spatial region, and level of detail Kagami currently requests. It never changes simulated values. |
 | **Presentation state** | Camera, selection, window layout, visibility, and display density owned locally by Kagami. |
 
@@ -112,6 +120,10 @@ independent platforms.
   adoption.
 - The runtime is decentralized and runs one workload per cluster; it is not a
   general scheduler or job queue.
+- Cluster and node names are labels, not identity. Formation and membership
+  identities follow ADR 0013.
+- Artifact records, local inventory, availability views, and purge tombstones
+  retain their separate authority levels as defined by the storage spec.
 - Shared numerical kernels do not depend on Kagami UI code or Orishu peer
   runtime code.
 - Built-in and third-party simulation plugins use the same public authoring,

@@ -6,7 +6,7 @@ This document focuses on a single worker instance, especially startup and config
 
 Although `orishu-worker` is designed to run as a service, it can also be launched manually. With proper configuration, multiple instances can coexist on the same machine. These instances can be part of different clusters or the same one.
 
-This document mentions command-line options that can be passed to the executable. These options generally override the default configuration and are used for testing and development purposes. In production, these options are typically set via configuration files or environment variables. For more details on configuration options, refer to the [configuration documentation](../config.md).
+This document mentions command-line options that can be passed to the executable. These options generally override the default configuration and are used for testing and development purposes. In production, these options are typically set via configuration files or environment variables. For more details on configuration options, refer to the [configuration documentation](../../orishu-configuration.md).
 
 ## Shared assumptions
 
@@ -80,7 +80,7 @@ As an administrator, I want to be able to assign a human-readable name to a work
 
 **Acceptance criteria:**
 - The worker can be started with a human-readable name, e.g. `orishu-worker --name <name>` (or equivalent configuration), and should use that name as its identifier.
-- The name is distinct from the node ID. The node ID is an identifier assigned by the cluster to its members and plays a part in partition ownership. The name is a human-friendly label for display purposes. See the [Node identity](../design.md#node-identity) section of the design doc.
+- The name is distinct from the node ID. The node ID is an identifier assigned by the cluster to its members and plays a part in partition ownership. The name is a human-friendly label for display purposes. See [Node identity](../../orishu-runtime-design.md#node-identity).
 - If no `--name` is provided, the worker should generate a random name automatically, ensuring that every instance has a recognizable label even without explicit configuration.
 - The name should appear in cluster node listings (e.g. `orishuctl ls`), detailed node information, log output, and diagnostics to help administrators distinguish between multiple instances.
 - Multiple instances can share the same name. The name is not required to be unique within the cluster and can be interpreted as representing a family of similarly configured workers.

@@ -15,7 +15,7 @@ specification. It explains the storage model, why it fits `orishu`, what invaria
 protects, and what kinds of backend variation are intentionally supported.
 
 For detailed operational behavior, see [storage-spec.md](./storage-spec.md). For the
-formal data model of individual entities, see the relevant sections in [design.md](./design.md).
+formal classification of individual entities, see [orishu-data-model.md](./orishu-data-model.md).
 
 > **How to read this document.** This is rationale, not a normative specification. It records
 > *why* the storage model is shaped the way it is and which invariants any backend must
@@ -65,7 +65,7 @@ from being coupled to transient node membership.
 
 Artifact **chunk transfer** is QUIC-native: chunks are fetched, content-addressed and verified,
 over the cluster's existing authenticated peer streams. Per
-[decision-010](../backlog/decisions/decision-010%20-%20Adopt-QUIC-native-chunked-artifact-transfer-supersedes-decision-006.md)
+[ADR 0015](./adr/0015-use-quic-native-artifact-transfer.md)
 (which superseded the earlier BitTorrent proposal, decision-006, after the TASK-065 comparison),
 the transport reuses what the cluster already has rather than importing a swarm stack:
 
@@ -98,7 +98,7 @@ Key properties, specified operationally in [storage-spec.md](./storage-spec.md):
 > already tells every node who holds what. This matches the same reasoning that rejected Kademlia
 > below ("bounded, known cluster → prefer the simpler model"). A swarm transport may be
 > reconsidered only if a benchmark ever shows a large-artifact fan-out win that matters for
-> `orishu`'s one-workload-per-cluster regime ([deferred-scope.md](./deferred-scope.md)).
+> `orishu`'s one-workload-per-cluster regime ([deferred runtime design](./orishu-runtime-future-work.md)).
 
 ---
 
@@ -152,7 +152,7 @@ later computation, the same way a recorded stream segment does not change after 
 
 Four systems were studied. Each contributed specific ideas that are adopted, adapted,
 or deliberately not adopted for `orishu`. See
-[research/distributed-storage-patterns.md](../backlog/research/distributed-storage-patterns.md)
+[the storage-pattern synthesis below](#synthesis-from-research)
 for the full analysis.
 
 ### From BitTorrent / Kademlia: descriptor-vs-location separation
@@ -168,7 +168,7 @@ Current location is always discovered separately.
 BitTorrent transport. Cluster membership is bounded and known through SWIM-style membership
 rather than an unbounded internet-scale DHT, and chunk transfer is QUIC-native over the existing
 authenticated peer streams (see the transport binding above and
-[decision-010](../backlog/decisions/decision-010%20-%20Adopt-QUIC-native-chunked-artifact-transfer-supersedes-decision-006.md)) — only the descriptor-vs-location *idea* is borrowed.
+[ADR 0015](./adr/0015-use-quic-native-artifact-transfer.md)) — only the descriptor-vs-location *idea* is borrowed.
 
 **Adopted:** Content addressing for integrity. Chunk-level hashes allow the cluster to
 verify retrieved bytes independently of who served them.
@@ -373,11 +373,11 @@ guides, but the architectural model should make those questions natural rather t
 
 ## Relationship to other documents
 
-- [foundations.md](./foundations.md) — core system assumptions
+- [project context](../CONTEXT.md) — canonical terminology, ownership, and invariants
 - [spatiotemporal-foundation.md](./spatiotemporal-foundation.md) — why the compute and storage model share the same spatial/temporal decomposition
 - [architecture.md](./architecture.md#client-server-from-outside-peer-to-peer-inside) — where this document's node-to-node model sits relative to the client-facing stream-of-states view
 - [storage-spec.md](./storage-spec.md) — operational storage semantics and failure behavior
-- [design.md](./design.md) — source of truth for entity shapes and runtime-wide semantics
-- [backlog/research/distributed-storage-patterns.md](../backlog/research/distributed-storage-patterns.md) — research synthesis behind these choices
+- [orishu-data-model.md](./orishu-data-model.md) — runtime entity classification and authority
+- [storage-pattern synthesis](#synthesis-from-research) — research synthesis behind these choices
 - [ADR 0002 — Scope orishu to initial value problems](./adr/0002-initial-value-problem-scope.md) — why artifact simulation-time anchoring is forward-only and never revised
 - [ADR 0003 — Distribute orishu as a single self-sufficient binary](./adr/0003-single-binary-distribution.md) — why chunk serving is a role of every `orishu-worker` node rather than a separate storage service

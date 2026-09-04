@@ -16,3 +16,7 @@ consequences, and status.
 - [0010 — Use content-addressed workload closures and portable bundles](0010-content-addressed-workload-closure-and-portable-bundles.md)
 - [0011 — Classify network flows and baseline observation deltas](0011-classify-network-flows-and-baseline-observation-deltas.md)
 - [0012 — Start with file sharing and preserve collaborative authoring](0012-start-with-file-sharing-and-preserve-collaborative-authoring.md)
+- [0013 — Keep cluster formation and node membership identity distinct from labels](0013-cluster-formation-and-node-identity.md)
+- [0014 — Prevent purged artifacts from returning through stale inventory](0014-prevent-purged-artifact-resurrection.md)
+- [0015 — Use QUIC-native transfer for committed artifact chunks](0015-use-quic-native-artifact-transfer.md)
+- [0016 — Use a narrow Maxwell/Yee profile for first distributed conformance](0016-first-distributed-scientific-profile.md) (**proposed for revalidation**)

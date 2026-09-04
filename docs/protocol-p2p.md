@@ -1,6 +1,6 @@
 # orishu Peer-to-Peer Protocol
 
-This document defines the protocol for communication between `orishu-worker` instances (peers) within a cluster. It covers transport, framing, authentication, message schemas, gossip mechanics, and configuration. An implementer should be able to build a compatible peer node from this document alone, referring to [design.md](./design.md) for the conceptual data model and [architecture.md](./architecture.md) for the internal structure of the worker process.
+This document defines the protocol for communication between `orishu-worker` instances (peers) within a cluster. It covers transport, framing, authentication, message schemas, gossip mechanics, and configuration. An implementer should be able to build a compatible peer node from this document alone, referring to the [Orishu runtime design](./orishu-runtime-design.md) for the conceptual model and [architecture.md](./architecture.md) for product-wide authority boundaries.
 
 For the client-facing protocol (operators and user tools), see [protocol-client.md](./protocol-client.md).
 
@@ -128,7 +128,7 @@ A node may rotate its certificate by sending a signed rotation request over an e
 5. If `HandshakeAck.accepted` is `false`, the initiator must close the connection.
 6. After a successful handshake, both sides may open streams and send datagrams.
 
-The `Handshake`/`HandshakeAck` exchange binds the QUIC connection to logical node identities. This is necessary because the TLS certificate alone does not carry the human-readable cluster name or protocol version. The handshake cluster name is an admission/isolation label, not durable cluster formation identity. For nodes that have already joined, the handshake also communicates the cluster-assigned node ID; for new nodes that have not yet been admitted, the `nodeId` field is null (see [Node identity](design.md#node-identity)).
+The `Handshake`/`HandshakeAck` exchange binds the QUIC connection to logical node identities. This is necessary because the TLS certificate alone does not carry the human-readable cluster name or protocol version. The handshake cluster name is an admission/isolation label, not durable cluster formation identity. For nodes that have already joined, the handshake also communicates the cluster-assigned node ID; for new nodes that have not yet been admitted, the `nodeId` field is null (see [Node identity](orishu-runtime-design.md#node-identity)).
 
 ```
 Handshake payload:
@@ -167,9 +167,9 @@ The handshake stream is closed after the `HandshakeAck` is sent.
 After a successful `Handshake`/`HandshakeAck` exchange:
 
 1. The joining node opens a new bidirectional stream and sends `JoinReq`.
-2. The introducer evaluates [admission criteria](./design.md#member-acceptance) (`accepts.peers`, `membershipLocked`, capacity, blocklist, token validity).
+2. The introducer evaluates [admission criteria](./orishu-runtime-design.md#member-acceptance) (`accepts.peers`, `membershipLocked`, capacity, blocklist, token validity).
 3. The introducer replies with `JoinReply` on the same stream.
-4. On `ACK`: the introducer generates a unique node ID (see [Node identity](design.md#node-identity)), creates a `NodeRecord` keyed by this ID, and begins gossiping it. The joining node adopts the `assignedNodeId`, `formationId` and `clusterName` from the `JoinReply`.
+4. On `ACK`: the introducer generates a unique node ID (see [Node identity](orishu-runtime-design.md#node-identity)), creates a `NodeRecord` keyed by this ID, and begins gossiping it. The joining node adopts the `assignedNodeId`, `formationId` and `clusterName` from the `JoinReply`.
 5. On `NACK` or `Redirect`: the joining node may retry with another introducer after backoff.
 6. The stream is closed after the `JoinReply`.
 
@@ -339,8 +339,8 @@ JoinReply payload:
 
 **Behavioral rules:**
 
-- The introducer must evaluate ALL [admission criteria](./design.md#member-acceptance) before replying: `accepts.peers == true` AND `membershipLocked == false` AND `limits.peers` not exceeded AND joining node not blocklisted AND join token valid.
-- On `ACK`, the introducer generates a unique node ID for the joining node (see [Node identity](design.md#node-identity)), creates a `NodeRecord` keyed by this ID, and begins gossiping it. The `assignedNodeId` field contains this newly generated ID. The `membership` field contains the full current membership so the joining node can bootstrap its cluster view.
+- The introducer must evaluate ALL [admission criteria](./orishu-runtime-design.md#member-acceptance) before replying: `accepts.peers == true` AND `membershipLocked == false` AND `limits.peers` not exceeded AND joining node not blocklisted AND join token valid.
+- On `ACK`, the introducer generates a unique node ID for the joining node (see [Node identity](orishu-runtime-design.md#node-identity)), creates a `NodeRecord` keyed by this ID, and begins gossiping it. The `assignedNodeId` field contains this newly generated ID. The `membership` field contains the full current membership so the joining node can bootstrap its cluster view.
 - On `Redirect`, the `redirectTo` field contains addresses of other introducers believed to have capacity. Only nodes with `accepts.peers == true` are included.
 - On `NACK`, the joining node should back off before retrying. Recommended: exponential backoff starting at 1 second, capped at 60 seconds.
 
@@ -469,7 +469,7 @@ PullReply payload:
 
 ### PartitionIntent / PartitionAck
 
-Ownership transfer proposals for simulation space partitions. Sent over a dedicated bidirectional stream. See [partition ownership](./design.md#partition-ownership-and-rebalancing) in the design.
+Ownership transfer proposals for simulation space partitions. Sent over a dedicated bidirectional stream. See [partition ownership](./orishu-runtime-design.md#partition-ownership-and-rebalancing) in the runtime design.
 
 ```
 PartitionIntent payload:
@@ -614,12 +614,12 @@ CheckpointReply payload:
 - The receiver must verify `contentHash` against the received `data` before accepting the checkpoint.
 - The stream is closed after the reply.
 
-> **CheckpointReq/Reply vs FetchChunk.** `CheckpointReq`/`CheckpointReply` carries *live, in-progress* partition state during an active run (late-joiner catch-up, reassignment). Retrieval of a **committed, immutable artifact** (checkpoint or result) from storage uses `FetchChunk` (below). Committed-artifact bytes are never moved over a swarm/torrent transport — see [decision-010](../backlog/decisions/decision-010%20-%20Adopt-QUIC-native-chunked-artifact-transfer-supersedes-decision-006.md).
+> **CheckpointReq/Reply vs FetchChunk.** `CheckpointReq`/`CheckpointReply` carries *live, in-progress* partition state during an active run (late-joiner catch-up, reassignment). Retrieval of a **committed, immutable artifact** (checkpoint or result) from storage uses `FetchChunk` (below). Committed-artifact bytes are never moved over a swarm/torrent transport — see [ADR 0015](./adr/0015-use-quic-native-artifact-transfer.md).
 
 
 ## Artifact transfer
 
-Bulk transfer of committed artifact chunks (checkpoint and result artifacts) is **QUIC-native**: a node fetches a chunk by `ChunkRef` over the existing authenticated peer streams and verifies it end-to-end against the chunk's SHA-256 `contentHash`. There is no separate transport, swarm, or new wire format ([decision-010](../backlog/decisions/decision-010%20-%20Adopt-QUIC-native-chunked-artifact-transfer-supersedes-decision-006.md)).
+Bulk transfer of committed artifact chunks (checkpoint and result artifacts) is **QUIC-native**: a node fetches a chunk by `ChunkRef` over the existing authenticated peer streams and verifies it end-to-end against the chunk's SHA-256 `contentHash`. There is no separate transport, swarm, or new wire format ([ADR 0015](./adr/0015-use-quic-native-artifact-transfer.md)).
 
 ### FetchChunkReq / FetchChunkReply
 
@@ -753,7 +753,7 @@ For datagram-based messages, errors are not acknowledged (fire-and-forget). A pe
 
 ## Configuration parameters
 
-All settings follow the [configuration precedence](./config.md): config file < environment variable < command-line argument.
+All settings follow the [configuration precedence](./orishu-configuration.md): config file < environment variable < command-line argument.
 
 | Setting | CLI flag | Env var | Default | Description |
 |---|---|---|---|---|

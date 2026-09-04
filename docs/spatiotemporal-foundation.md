@@ -4,7 +4,7 @@
 
 This is not an implementation detail. It is the foundational property that makes `orishu`'s runtime model, storage model, and decentralized coordination model fit together.
 
-This document expands one specific assumption summarized in [Foundations and assumptions of orishu](./foundations.md): the assumption that `orishu` workloads are spatiotemporal, partitionable, checkpointable, and advanced through ordered simulation boundaries. Read `foundations.md` first for the system-level assumptions and operator-facing constraints. This document exists to explain the architectural why behind one of those assumptions and to normalize the time/space/artifact vocabulary used elsewhere.
+This document expands one specific assumption summarized in the [project context](../CONTEXT.md): the assumption that `orishu` workloads are spatiotemporal, partitionable, checkpointable, and advanced through ordered simulation boundaries. Read `CONTEXT.md` first for system-level terminology, ownership, and invariants. This document exists to explain the architectural why behind that assumption and to normalize the time/space/artifact vocabulary used elsewhere.
 
 ## Why this matters
 
@@ -167,12 +167,12 @@ Instead, it means the runtime is optimized for workloads that can expose:
 
 This document is intended to explain the architectural why behind several design elements already present elsewhere:
 
-- `docs/foundations.md` — the primary source for system-level assumptions and constraints;
-- [`docs/design.md#partition-ownership-and-rebalancing`](./design.md#partition-ownership-and-rebalancing) — authoritative ownership and fenced transfer semantics;
-- [`docs/design.md#deterministic-execution-contract`](./design.md#deterministic-execution-contract) — deterministic stepping expectations;
+- `CONTEXT.md` — the primary source for system-level terminology, ownership, and invariants;
+- [`docs/orishu-runtime-design.md#partition-ownership-and-rebalancing`](./orishu-runtime-design.md#partition-ownership-and-rebalancing) — authoritative ownership and fenced transfer semantics;
+- [`docs/orishu-runtime-design.md#deterministic-execution-contract`](./orishu-runtime-design.md#deterministic-execution-contract) — deterministic stepping expectations;
 - [`docs/storage-model.md`](./storage-model.md) — checkpoint/result storage rationale, and [`docs/storage-spec.md`](./storage-spec.md) — operational storage semantics and lifecycle;
-- [`docs/design.md#local-inventory-and-availability-view`](./design.md#local-inventory-and-availability-view) — availability view and rediscovery mechanics;
+- [`docs/orishu-runtime-design.md#local-inventory-and-availability-view`](./orishu-runtime-design.md#local-inventory-and-availability-view) — availability view and rediscovery mechanics;
 - `docs/workload.md` — spatial domain, time stepping, initial conditions, checkpoints and results;
 - `docs/protocol-client.md` and workload user stories — operator-facing lifecycle around start, stop, checkpoint, resume, and result retrieval.
 
-Those documents should remain the source of truth for protocol shape and resource semantics. This document exists to make the spatiotemporal rationale explicit and to keep that rationale separate from the broader assumptions catalog in `foundations.md`.
+Those documents should remain the source of truth for protocol shape and resource semantics. This document exists to make the spatiotemporal rationale explicit and to keep that rationale separate from the broader invariant catalog in `CONTEXT.md`.

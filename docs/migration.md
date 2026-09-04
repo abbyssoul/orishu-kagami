@@ -11,6 +11,12 @@ clear in the combined product.
 | Orishu shared models and client | Reuse as the client seam for Orishu-facing applications. | `libs/orishu` |
 | Orishu worker and operator tools | Reuse and maintain as produced binaries. | `apps/orishu-*` |
 | Orishu workload contract | Adopt the lifecycle and responsibility split, but make its implicit security boundary explicit: submitted physics is an untrusted WebAssembly Component with a closed capability ABI; native/Python equivalence is not inherited. | `docs/protocol-workload.md` and ADR 0009 |
+| Orishu runtime goals and scaling plan | Retain scaling as a runtime-platform objective covering compute, capacity, storage, recovery, and hostile-input cost. Restore staged evidence and the 10,000-worker research target without presenting either as implemented. | `docs/orishu-scaling-objectives.md` and the roadmap |
+| Orishu formation, node identity, and synthetic cluster resource | Retain the distinction between non-unique labels, formation identity, and cluster-assigned membership identity. | ADR 0013 and `docs/orishu-runtime-design.md` |
+| Orishu artifact storage and deletion | Retain record/inventory/availability authority levels, QUIC-native verified transfer, and purge tombstones; rewrite them against content-addressed workload closure and current security rules. | ADRs 0014-0015, `docs/storage-model.md`, and `docs/storage-spec.md` |
+| Orishu output provenance | Retain committed artifact provenance as authoritative and step/audit history as diagnostic. Extend it with current component, schema, observation, and execution-profile identity. | `docs/orishu-provenance.md` |
+| Historical runtime proposals | Preserve live role changes, mDNS admission, replication changes, API compaction, and storage open questions as deferred design, not current behavior. | `docs/orishu-runtime-future-work.md` |
+| Field CAD/Orishu Maxwell profile | Retain the narrow profile only as a proposal requiring revalidation because Kagami supersedes Field CAD and submission ownership changed. | ADR 0016 |
 | Kagami Iced application shell | Reuse as the basis of the native client. | `apps/kagami` |
 | Kagami Iced/wgpu scene renderer | Reuse as a deep rendering module. | `libs/kagami-renderer` |
 | Kagami demo scene tree | Keep app-local until an authoritative experiment model replaces it. | `apps/kagami/src/scene_model.rs` |
