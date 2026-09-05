@@ -72,10 +72,12 @@ manifest.
 
 ### 2. Implement one shared domain API and canonical codec
 
-- Keep the initial implementation in `crates/orishu`, which is already the
-  shared model and client seam used by Kagami and Orishu applications. Extract
-  a narrower crate only if a second independent dependency boundary makes that
-  complexity real.
+- Reuse the generic envelope from the
+  [shared resource task](extract-shared-resource-envelope.md); Kagami's catalog
+  is now the second independent consumer that justifies that extraction. Keep
+  workload identity, artifact closure, domain validation, and canonical codec
+  in the shared workload domain rather than moving them into the structural
+  resource crate.
 - Introduce domain types such as `WorkloadManifest`, `WorkloadDigest`,
   `ArtifactDigest`, `ArtifactDescriptor`, `ArtifactRole`, and
   `WorkloadClosure`; do not expose transport URLs through them.

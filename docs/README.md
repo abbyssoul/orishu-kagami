@@ -6,6 +6,8 @@ cross-cutting design decisions belong in `docs/adr/`.
 
 Start here:
 
+- [Why Orishu exists](why-orishu-exists.md) — product motivation, audiences,
+  objectives, success measures, and explicit non-goals.
 - [Architecture](architecture.md) — product roles, ownership, and runtime flow.
 - [Orishu runtime design](orishu-runtime-design.md) — decentralized worker
   semantics assumed by the client and peer protocols.

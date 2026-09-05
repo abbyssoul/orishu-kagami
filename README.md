@@ -1,5 +1,22 @@
 # Orishu Kagami
 
+<p align="center">
+    <picture>
+        <source width="420" media="(prefers-color-scheme: dark)" srcset="./assets/logo-dark.png">
+        <img alt="your project logo" src="./assets/logo-light.png">
+    </picture>
+</p>
+
+[![Crates.io](https://img.shields.io/crates/v/orishu)](https://crates.io/crates/orishu)
+[![Unit Tests](https://github.com/abbyssoul/orishu-kagami/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/abbyssoul/orishu-kagami/actions/workflows/unit-tests.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE.md)
+
+<br/>
+
+A distributed simulator: _many nodes co-dreaming a single coherent world._
+
+---
+
 Orishu Kagami is a Rust monorepo for authoring, running, and inspecting
 distributed scientific simulations.
 
@@ -27,6 +44,29 @@ Field CAD was the original proof of concept for the authoring, simulation, and
 visualization workflow. It is not a separate product in this repository. Proven
 ideas and implementations from Field CAD are being rebuilt behind Orishu's
 models and client protocol as Kagami develops.
+
+## Why Orishu Kagami?
+
+Scientific simulations can outgrow one machine in compute time, live-state
+memory, durable storage, or the ability to serve large results. Orishu explores
+a focused alternative to a general task scheduler: a peer cluster cooperatively
+advances one spatially partitioned workload, commits coherent simulation
+boundaries, and manages its checkpoints and results. One worker is a cluster of
+one, using the same workload and observation model as a multi-worker formation.
+
+Kagami makes that runtime usable as a scientific product. Researchers author an
+editable experiment, compile it into an immutable workload, submit it to a
+configured cluster, and independently inspect live or recorded observations.
+Extension code uses pinned, capability-limited WebAssembly Components, while
+the runtime retains authority over time, partitioning, networking, storage, and
+commit.
+
+The project prioritizes scientific correctness, explicit provenance, bounded
+behavior on hostile inputs, capacity, and operator clarity alongside measured
+performance. Its 10,000-worker and near-linear-scaling goals are research
+targets, not claims about the current implementation. See
+[Why Orishu exists](docs/why-orishu-exists.md) and the
+[scaling objectives](docs/orishu-scaling-objectives.md).
 
 ## Status
 
@@ -108,7 +148,8 @@ etc/        deployment configuration for Orishu workers
 scripts/    repository checks and automation helpers
 ```
 
-See the [documentation index](docs/README.md), [architecture](docs/architecture.md),
+See [why Orishu exists](docs/why-orishu-exists.md), the
+[documentation index](docs/README.md), [architecture](docs/architecture.md),
 [implementation roadmap](docs/roadmap/README.md),
 [simulation-plugin model](docs/simulation-plugins.md), and
 [contribution guide](CONTRIBUTING.md) before making structural or behavioural

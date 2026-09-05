@@ -3,6 +3,10 @@
 Orishu Kagami separates editable intent, distributed execution, and
 presentation without treating them as separate products.
 
+[Why Orishu exists](why-orishu-exists.md) explains the problem and product
+objectives behind these boundaries; this document defines how the parts divide
+authority to meet them.
+
 ```text
 Kagami authoring and presentation
         |

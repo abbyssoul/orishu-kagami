@@ -113,11 +113,12 @@ the core in isolation.
 
 ### Deliberately not closed
 
-- **The membership lock is node-local.** The runtime design treats it as
-  cluster-replicated state, which needs a versioned cluster-policy entity of
-  its own. It must be closed before an operator-facing cluster lock is exposed;
+- **The worker lock adapter is not wired.** N-FORMATION now adds a versioned
+  `MembershipPolicy` to core gossip and anti-entropy, separate from node-local
+  `AdmissionPolicy`. Core convergence, conflict, overflow and admission tests
+  cover it; the worker/API and policy-aware transport/catch-up contract remain
   [N-FORMATION](implement-cluster-formation-poc.md#3-cluster-wide-membership-policy)
-  owns that work. Recorded in the crate documentation.
+  work. Hash domains advance to version 2; mixed-profile transport is unsupported.
 - **`swim.antiEntropyRounds` and `swim.antiEntropyDepth`** are new
   configuration keys documented in the peer protocol but not yet wired into the
   worker's configuration loader, which is an N-FORMATION concern.
