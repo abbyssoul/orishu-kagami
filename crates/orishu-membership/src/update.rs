@@ -362,11 +362,21 @@ fn absorb_gossip(ctx: &mut Context, from: Option<&NodeId>, deltas: Vec<GossipDel
 /// diagnostics.
 fn absorb_outcome(ctx: &mut Context, outcome: MergeOutcome) {
     match outcome {
-        MergeOutcome::Adopted { body, change } => {
+        MergeOutcome::Adopted {
+            body,
+            change,
+            diagnostic,
+        } => {
             let limits = ctx.model.limits().clone();
+            // `body` is the locally merged record, so what goes back out is
+            // what this node holds rather than what it was told.
             ctx.model.gossip_mut().enqueue(body, &limits);
             if let Some(change) = change {
                 ctx.emit(Effect::Publish(change));
+            }
+            // A partial adoption still reports the part that was refused.
+            if let Some(diagnostic) = diagnostic {
+                ctx.note(diagnostic);
             }
         }
         MergeOutcome::Idempotent => {}

@@ -20,12 +20,17 @@
 //! addresses could also overwrite a suspicion, or that a stale suspicion could
 //! revert an address change. So a single delta may be adopted in part.
 
-use orishu_identity::{Incarnation, MembershipTombstone, NodeId, VersionTuple};
+use std::cmp::Ordering;
+
+use orishu_identity::{
+    CertFingerprint, Incarnation, MembershipTombstone, NodeId, ProtocolVersion, VersionTuple,
+    WorkerName,
+};
 
 use crate::{
     effect::{Announcement, ChangeRecord, Diagnostic},
     gossip::DeltaBody,
-    model::{Liveness, Member, Membership},
+    model::{Accepts, Capabilities, Endpoints, Liveness, Member, Membership, NodeCapacity},
 };
 
 /// What merging one delta did.
@@ -44,6 +49,11 @@ pub(crate) enum MergeOutcome {
     Adopted {
         body: DeltaBody,
         change: Option<ChangeRecord>,
+        /// A conflict observed *alongside* the adopted part. A delta whose
+        /// liveness is news but whose description disputes the held one is
+        /// both: dropping the diagnostic would hide the dispute, and dropping
+        /// the adoption would discard valid failure-detector information.
+        diagnostic: Option<Diagnostic>,
     },
     /// The delta matched what is already held, exactly. Replay is a no-op.
     Idempotent,
@@ -104,6 +114,77 @@ pub(crate) fn merge_delta(model: &mut Membership, body: DeltaBody) -> MergeOutco
     }
 }
 
+/// The version-ordered projection of a member record: everything except the
+/// SWIM liveness pair and the version that orders it.
+///
+/// Built by an exhaustive destructure so that a field added to [`Member`]
+/// fails to compile here rather than quietly escaping conflict detection.
+#[derive(PartialEq, Eq)]
+struct Description<'a> {
+    id: &'a NodeId,
+    name: &'a WorkerName,
+    cert_fingerprint: &'a CertFingerprint,
+    protocol: &'a ProtocolVersion,
+    endpoints: &'a Endpoints,
+    accepts: &'a Accepts,
+    capacity: &'a NodeCapacity,
+    capabilities: &'a Capabilities,
+}
+
+impl<'a> Description<'a> {
+    fn of(member: &'a Member) -> Self {
+        let Member {
+            id,
+            name,
+            cert_fingerprint,
+            protocol,
+            endpoints,
+            accepts,
+            capacity,
+            capabilities,
+            // Ordered by the SWIM table instead, by a different writer.
+            liveness: _,
+            incarnation: _,
+            // The ordering itself, not one of the things it orders.
+            version: _,
+        } = member;
+        Self {
+            id,
+            name,
+            cert_fingerprint,
+            protocol,
+            endpoints,
+            accepts,
+            capacity,
+            capabilities,
+        }
+    }
+}
+
+/// How an incoming description ranks against the held one.
+enum DescriptionOrder {
+    /// Strictly newer: adopt it.
+    Newer,
+    /// Strictly older: keep what is held. Not news, not a dispute.
+    Older,
+    /// Same version, same description. Nothing to adopt, nothing wrong — the
+    /// records may still differ in liveness, which is ordered separately.
+    Settled,
+    /// Same version, different description: two writers disagree.
+    Conflict,
+}
+
+fn compare_descriptions(incoming: &Member, current: &Member) -> DescriptionOrder {
+    match incoming.version.cmp(&current.version) {
+        Ordering::Greater => DescriptionOrder::Newer,
+        Ordering::Less => DescriptionOrder::Older,
+        Ordering::Equal if Description::of(incoming) == Description::of(current) => {
+            DescriptionOrder::Settled
+        }
+        Ordering::Equal => DescriptionOrder::Conflict,
+    }
+}
+
 /// Merges a member record.
 fn merge_member(model: &mut Membership, incoming: Member) -> MergeOutcome {
     if let Err(error) = incoming.validate(model.limits()) {
@@ -153,6 +234,7 @@ fn merge_member(model: &mut Membership, incoming: Member) -> MergeOutcome {
         return MergeOutcome::Adopted {
             body: DeltaBody::MembershipUpdate(incoming),
             change: Some(change),
+            diagnostic: None,
         };
     };
 
@@ -167,17 +249,10 @@ fn merge_member(model: &mut Membership, incoming: Member) -> MergeOutcome {
         return MergeOutcome::Idempotent;
     }
 
-    if incoming.version == current.version {
-        // Same version, different payload. Not a tie to break silently: one of
-        // the two writers is buggy or hostile, and picking a winner by arrival
-        // order would make the formation's state depend on packet timing.
-        return MergeOutcome::Rejected(Diagnostic::VersionConflict {
-            entity: format!("member:{}", incoming.id),
-            version: incoming.version,
-        });
-    }
-
-    let descriptive_wins = incoming.version > current.version;
+    // The two projections are decided independently. A description that
+    // disputes the held one says nothing about the failure detector's
+    // opinion, and a stale suspicion says nothing about the addresses.
+    let order = compare_descriptions(&incoming, &current);
     let liveness_wins = swim_supersedes(
         incoming.liveness,
         incoming.incarnation,
@@ -185,36 +260,47 @@ fn merge_member(model: &mut Membership, incoming: Member) -> MergeOutcome {
         current.incarnation,
     );
 
-    if !descriptive_wins && !liveness_wins {
-        return MergeOutcome::Rejected(Diagnostic::StaleDelta {
+    // Same version, different description. Not a tie to break silently: one of
+    // the two writers is buggy or hostile, and picking a winner by arrival
+    // order would make the formation's state depend on packet timing.
+    let conflict =
+        matches!(order, DescriptionOrder::Conflict).then(|| Diagnostic::VersionConflict {
             entity: format!("member:{}", incoming.id),
+            version: incoming.version.clone(),
         });
+    let adopt_description = matches!(order, DescriptionOrder::Newer);
+
+    if !adopt_description && !liveness_wins {
+        return MergeOutcome::Rejected(conflict.unwrap_or_else(|| Diagnostic::StaleDelta {
+            entity: format!("member:{}", incoming.id),
+        }));
     }
 
+    let (incoming_liveness, incoming_incarnation) = (incoming.liveness, incoming.incarnation);
     let mut change = None;
     let merged = {
         let held = model
             .members_mut()
             .get_mut(&incoming.id)
             .expect("member was present a moment ago");
-        if descriptive_wins {
-            held.name = incoming.name;
-            held.protocol = incoming.protocol;
-            held.endpoints = incoming.endpoints;
-            held.accepts = incoming.accepts;
-            held.capacity = incoming.capacity;
-            held.capabilities = incoming.capabilities;
-            held.version = incoming.version;
+        if adopt_description {
+            // Taking the whole record and restoring the held liveness pair,
+            // rather than copying field by field, means a descriptive field
+            // added later cannot be forgotten here.
+            let (liveness, incarnation) = (held.liveness, held.incarnation);
+            *held = incoming;
+            held.liveness = liveness;
+            held.incarnation = incarnation;
         }
         if liveness_wins {
             change = Some(ChangeRecord::LivenessChanged {
                 node: held.id.clone(),
                 from: held.liveness,
-                to: incoming.liveness,
-                incarnation: incoming.incarnation,
+                to: incoming_liveness,
+                incarnation: incoming_incarnation,
             });
-            held.liveness = incoming.liveness;
-            held.incarnation = incoming.incarnation;
+            held.liveness = incoming_liveness;
+            held.incarnation = incoming_incarnation;
         }
         held.clone()
     };
@@ -224,9 +310,13 @@ fn merge_member(model: &mut Membership, incoming: Member) -> MergeOutcome {
         model.suspicions_mut().remove(&merged.id);
     }
 
+    // `merged` is what this node now holds, which is deliberately not the
+    // incoming record when only one projection was adopted: re-gossiping the
+    // incoming description would spread a version no node accepted.
     MergeOutcome::Adopted {
         body: DeltaBody::MembershipUpdate(merged),
         change,
+        diagnostic: conflict,
     }
 }
 
@@ -300,6 +390,7 @@ fn merge_tombstone(model: &mut Membership, incoming: MembershipTombstone) -> Mer
     MergeOutcome::Adopted {
         body: DeltaBody::TombstoneUpdate(incoming),
         change: Some(ChangeRecord::MemberRemoved { node, mode }),
+        diagnostic: None,
     }
 }
 
@@ -344,6 +435,7 @@ fn merge_blocklist(model: &mut Membership, incoming: crate::model::BlocklistEntr
     MergeOutcome::Adopted {
         body: DeltaBody::BlocklistUpdate(incoming),
         change: None,
+        diagnostic: None,
     }
 }
 
@@ -437,6 +529,7 @@ pub(crate) fn apply_announcement(
     MergeOutcome::Adopted {
         body: DeltaBody::MembershipUpdate(merged),
         change: Some(change),
+        diagnostic: None,
     }
 }
 

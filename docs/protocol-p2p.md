@@ -242,6 +242,18 @@ than dependent on delivery order.
   depend on packet timing. Two nodes each holding one of the payloads both
   report it, so the condition is observable rather than absorbed.
 
+These rules order the **version-owned projection** of an entity: the fields
+whose writer is whoever last described it. An entity may carry a second
+projection with a writer and an ordering of its own, and that projection is
+merged separately. `NodeRecord` is the case in point: its `state` and
+`incarnation` are ordered by the [override rules](#announce) — whatever carries
+them — and are written by the failure detector, not by the describing member.
+So an equal version carrying an equal description is **not** a conflict merely
+because liveness differs, a liveness change does **not** advance the version,
+and a receiver may adopt a newer liveness from a record whose description it
+rejects as conflicting — reporting the conflict and re-disseminating the record
+it now holds, never the one it refused.
+
 A version from another formation is meaningless and must be rejected by the
 `formationId` guard before any comparison.
 

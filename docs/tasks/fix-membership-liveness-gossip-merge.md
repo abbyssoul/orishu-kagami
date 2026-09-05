@@ -1,6 +1,6 @@
 # Fix membership liveness propagation through full-record merge
 
-Status: **ready — required for N-MEMBERSHIP acceptance**
+Status: **implemented and accepted — N-MEMBERSHIP acceptance unblocked**
 
 Parent task:
 [Implement the sans-IO cluster membership core](implement-membership-model.md)

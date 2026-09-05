@@ -9,9 +9,9 @@
 use std::collections::BTreeMap;
 
 use orishu_membership::{
-    Address, Command, DeltaBody, Destination, Diagnostic, ForeignDelta, GossipDelta, Incarnation,
-    Liveness, Member, Message, NodeId, OpaquePayload, OutboundBody, PeerBody, PeerInput, ProbeId,
-    RemovalMode, TimerKind, VersionTuple,
+    Address, Announcement, ChangeRecord, Command, DeltaBody, Destination, Diagnostic, Effect,
+    ForeignDelta, GossipDelta, Incarnation, Liveness, Member, Message, NodeId, OpaquePayload,
+    OutboundBody, PeerBody, PeerInput, ProbeId, RemovalMode, TimerKind, VersionTuple,
     antientropy::{MembershipTree, MerkleDigest},
     model::{AntiEntropyCursor, BlocklistAction, Membership},
     testing::{self, Driver},
@@ -31,11 +31,21 @@ fn version(counter: u64, actor: &str) -> VersionTuple {
 
 /// Delivers `deltas` as gossip piggybacked on a probe from `sender`.
 fn gossip(driver: &mut Driver, sender: &str, deltas: Vec<DeltaBody>) {
+    relay(
+        driver,
+        sender,
+        deltas
+            .into_iter()
+            .map(|body| GossipDelta { hops: 0, body })
+            .collect(),
+    );
+}
+
+/// Delivers `deltas` exactly as they left the node that piggybacked them,
+/// hop counts included.
+fn relay(driver: &mut Driver, sender: &str, deltas: Vec<GossipDelta>) {
     let mut context = testing::peer_context(driver.model(), &node(sender), 1);
-    context.gossip = deltas
-        .into_iter()
-        .map(|body| GossipDelta { hops: 0, body })
-        .collect();
+    context.gossip = deltas;
     driver.apply(Message::Peer(PeerInput {
         context,
         body: PeerBody::Ping {
@@ -43,6 +53,65 @@ fn gossip(driver: &mut Driver, sender: &str, deltas: Vec<DeltaBody>) {
             incarnation: Incarnation(1),
         },
     }));
+}
+
+/// Delivers an `Announce` about `target` from `sender`.
+fn announce(
+    driver: &mut Driver,
+    sender: &str,
+    announcement: Announcement,
+    target: &str,
+    incarnation: Incarnation,
+) {
+    let context = testing::peer_context(driver.model(), &node(sender), 7);
+    driver.apply(Message::Peer(PeerInput {
+        context,
+        body: PeerBody::Announce {
+            announcement,
+            target: node(target),
+            incarnation,
+        },
+    }));
+}
+
+/// Gossip `driver` piggybacked on the messages of its last transition.
+fn piggybacked(driver: &Driver) -> Vec<GossipDelta> {
+    driver
+        .effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Send { message, .. } => Some(message.gossip.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+/// Makes `driver` answer a probe, which is how its queued gossip travels, and
+/// returns what that outbound message carried.
+fn next_hop(driver: &mut Driver) -> Vec<GossipDelta> {
+    relay(driver, "node-0002", Vec::new());
+    piggybacked(driver)
+}
+
+/// The delta about `id` among `deltas`.
+fn delta_about<'a>(deltas: &'a [GossipDelta], id: &str) -> Option<&'a GossipDelta> {
+    deltas
+        .iter()
+        .find(|delta| delta.body.entity() == format!("member:{id}"))
+}
+
+fn liveness_of(driver: &Driver, id: &str) -> (Liveness, Incarnation) {
+    let member = driver.model().member(&node(id)).expect("member");
+    (member.liveness, member.incarnation)
+}
+
+fn conflicts(driver: &Driver) -> usize {
+    driver
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| matches!(diagnostic, Diagnostic::VersionConflict { .. }))
+        .count()
 }
 
 /// Members, tombstones, and blocklist, rendered for comparison between models.
@@ -376,6 +445,499 @@ fn a_blocklist_entry_converges_and_can_be_lifted() {
         vec![DeltaBody::BlocklistUpdate(lifted)],
     );
     assert!(!driver.model().is_blocked(&entry.key));
+}
+
+// ── Liveness across a dissemination hop ──────────────────────────────────
+
+/// Carries a liveness change learned from an `Announce` one hop further.
+///
+/// A about C is the first hop; B hears the resulting full record. The record's
+/// descriptive version is unchanged — liveness is not a description — so B
+/// only converges if it orders the two projections separately.
+fn propagate(announcement: Announcement, incarnation: Incarnation) -> Driver {
+    let mut a = Driver::new(testing::model_with_members(4));
+    announce(&mut a, "node-0000", announcement, "node-0001", incarnation);
+    let carried = next_hop(&mut a);
+    let record = delta_about(&carried, "node-0001")
+        .expect("the node that adopted the announcement must gossip the result")
+        .clone();
+    assert_eq!(
+        record.body.version(),
+        &testing::member("node-0001", 1).version,
+        "adopting an announcement must not invent a descriptive version"
+    );
+
+    let mut b = Driver::new(testing::model_with_members(4));
+    relay(&mut b, "node-0000", vec![record]);
+    b
+}
+
+#[test]
+fn a_suspicion_learned_by_announce_survives_the_next_gossip_hop() {
+    let b = propagate(Announcement::Suspect, Incarnation::INITIAL);
+
+    assert_eq!(
+        liveness_of(&b, "node-0001"),
+        (Liveness::Suspected, Incarnation::INITIAL),
+        "an equal descriptive version is not a reason to discard a suspicion"
+    );
+    assert_eq!(conflicts(&b), 0);
+    assert!(
+        b.published().iter().any(|change| matches!(
+            change,
+            ChangeRecord::LivenessChanged {
+                node: subject,
+                to: Liveness::Suspected,
+                ..
+            } if subject == &node("node-0001")
+        )),
+        "the second hop is news to B and must be published once"
+    );
+}
+
+#[test]
+fn a_death_learned_by_announce_survives_the_next_gossip_hop() {
+    let b = propagate(Announcement::Dead, Incarnation::INITIAL);
+    assert_eq!(
+        liveness_of(&b, "node-0001"),
+        (Liveness::Dead, Incarnation::INITIAL)
+    );
+    assert_eq!(conflicts(&b), 0);
+}
+
+#[test]
+fn a_refutation_survives_the_next_gossip_hop() {
+    // A holds a suspicion and hears the subject refute it at a newer
+    // incarnation; B, which also suspects, must accept the refutation even
+    // though the description did not move.
+    let mut a = Driver::new(testing::model_with_members(4));
+    testing::set_liveness(
+        a.model_mut(),
+        &node("node-0001"),
+        Liveness::Suspected,
+        Incarnation::INITIAL,
+    );
+    announce(
+        &mut a,
+        "node-0001",
+        Announcement::Alive,
+        "node-0001",
+        Incarnation(1),
+    );
+    assert_eq!(
+        liveness_of(&a, "node-0001"),
+        (Liveness::Alive, Incarnation(1))
+    );
+
+    let carried = next_hop(&mut a);
+    let record = delta_about(&carried, "node-0001")
+        .expect("a refutation is news")
+        .clone();
+
+    let mut b = Driver::new(testing::model_with_members(4));
+    testing::set_liveness(
+        b.model_mut(),
+        &node("node-0001"),
+        Liveness::Suspected,
+        Incarnation::INITIAL,
+    );
+    relay(&mut b, "node-0000", vec![record]);
+
+    assert_eq!(
+        liveness_of(&b, "node-0001"),
+        (Liveness::Alive, Incarnation(1)),
+        "a strictly newer incarnation refutes, whatever the descriptive version says"
+    );
+    assert_eq!(conflicts(&b), 0);
+}
+
+#[test]
+fn a_suspicion_propagates_through_an_anti_entropy_exchange() {
+    // The same record, carried by the other dissemination path. Anti-entropy
+    // exists to repair what gossip missed, so it must apply the same merge.
+    let mut responder = Driver::new(testing::model_with_members(4));
+    announce(
+        &mut responder,
+        "node-0000",
+        Announcement::Suspect,
+        "node-0001",
+        Incarnation::INITIAL,
+    );
+
+    let mut requester = Driver::new(testing::model_with_members(4));
+    requester.apply(Message::Local(Command::StartAntiEntropyRound));
+    requester.supply_peers(&["node-0002"]);
+    let round = requester.model().anti_entropy().unwrap().round;
+    let (digest, buckets, cursor) = requester
+        .sent()
+        .into_iter()
+        .find_map(|(_, body)| match body {
+            OutboundBody::PullRequest {
+                digest,
+                buckets,
+                cursor,
+                ..
+            } => Some((digest.clone(), buckets.clone(), cursor.clone())),
+            _ => None,
+        })
+        .expect("a round must send a PullRequest");
+
+    let mut context = testing::peer_context(responder.model(), &node("node-0003"), 21);
+    context.seq = 21;
+    responder.apply(Message::Peer(PeerInput {
+        context,
+        body: PeerBody::PullRequest {
+            round,
+            digest,
+            buckets,
+            cursor,
+        },
+    }));
+    let (deltas, complete) = responder
+        .sent()
+        .into_iter()
+        .find_map(|(_, body)| match body {
+            OutboundBody::PullReply {
+                deltas, complete, ..
+            } => Some((deltas.clone(), *complete)),
+            _ => None,
+        })
+        .expect("a reply");
+    assert!(
+        delta_about(&deltas, "node-0001").is_some(),
+        "the suspicion is exactly the divergence the round is repairing"
+    );
+
+    // Delivered with no piggybacked gossip, so only the anti-entropy payload
+    // can be responsible for what the requester adopts.
+    let mut context = testing::peer_context(requester.model(), &node("node-0002"), 22);
+    context.seq = 22;
+    requester.apply(Message::Peer(PeerInput {
+        context,
+        body: PeerBody::PullReply {
+            round,
+            digest: MembershipTree::build(requester.model()).digest(),
+            deltas,
+            complete,
+            cursor: None,
+        },
+    }));
+
+    assert_eq!(
+        liveness_of(&requester, "node-0001"),
+        (Liveness::Suspected, Incarnation::INITIAL)
+    );
+    assert_eq!(conflicts(&requester), 0);
+}
+
+// ── The two orderings, independently ─────────────────────────────────────
+
+/// One row of the description/liveness matrix. The held record is
+/// `node-0001` at version 4, 8 cores, `Alive(2)`.
+struct Row {
+    what: &'static str,
+    incoming_version: u64,
+    incoming_cores: u32,
+    incoming_liveness: (Liveness, Incarnation),
+    expected_version: u64,
+    expected_cores: u32,
+    expected_liveness: (Liveness, Incarnation),
+    expected_conflicts: usize,
+}
+
+#[test]
+fn description_and_liveness_are_ordered_independently() {
+    let rows = [
+        Row {
+            what: "equal version, same description, winning liveness",
+            incoming_version: 4,
+            incoming_cores: 8,
+            incoming_liveness: (Liveness::Suspected, Incarnation(2)),
+            expected_version: 4,
+            expected_cores: 8,
+            expected_liveness: (Liveness::Suspected, Incarnation(2)),
+            expected_conflicts: 0,
+        },
+        Row {
+            what: "equal version, same description, stale liveness",
+            incoming_version: 4,
+            incoming_cores: 8,
+            incoming_liveness: (Liveness::Alive, Incarnation(1)),
+            expected_version: 4,
+            expected_cores: 8,
+            expected_liveness: (Liveness::Alive, Incarnation(2)),
+            expected_conflicts: 0,
+        },
+        Row {
+            what: "equal version, conflicting description, winning liveness",
+            incoming_version: 4,
+            incoming_cores: 64,
+            incoming_liveness: (Liveness::Suspected, Incarnation(2)),
+            expected_version: 4,
+            expected_cores: 8,
+            expected_liveness: (Liveness::Suspected, Incarnation(2)),
+            expected_conflicts: 1,
+        },
+        Row {
+            what: "equal version, conflicting description, stale liveness",
+            incoming_version: 4,
+            incoming_cores: 64,
+            incoming_liveness: (Liveness::Alive, Incarnation(1)),
+            expected_version: 4,
+            expected_cores: 8,
+            expected_liveness: (Liveness::Alive, Incarnation(2)),
+            expected_conflicts: 1,
+        },
+        Row {
+            what: "newer description, non-winning liveness",
+            incoming_version: 9,
+            incoming_cores: 64,
+            incoming_liveness: (Liveness::Alive, Incarnation(1)),
+            expected_version: 9,
+            expected_cores: 64,
+            expected_liveness: (Liveness::Alive, Incarnation(2)),
+            expected_conflicts: 0,
+        },
+        Row {
+            what: "older description, winning liveness",
+            incoming_version: 2,
+            incoming_cores: 64,
+            incoming_liveness: (Liveness::Suspected, Incarnation(2)),
+            expected_version: 4,
+            expected_cores: 8,
+            expected_liveness: (Liveness::Suspected, Incarnation(2)),
+            expected_conflicts: 0,
+        },
+    ];
+
+    for row in rows {
+        let mut driver = Driver::new(testing::model_with_members(4));
+        let mut current = testing::member("node-0001", 4);
+        current.capabilities.cpu_cores = 8;
+        current.liveness = Liveness::Alive;
+        current.incarnation = Incarnation(2);
+        testing::insert_member(driver.model_mut(), current);
+
+        let mut incoming = testing::member("node-0001", row.incoming_version);
+        incoming.capabilities.cpu_cores = row.incoming_cores;
+        incoming.liveness = row.incoming_liveness.0;
+        incoming.incarnation = row.incoming_liveness.1;
+        gossip(
+            &mut driver,
+            "node-0000",
+            vec![DeltaBody::MembershipUpdate(incoming)],
+        );
+
+        let held = driver.model().member(&node("node-0001")).unwrap().clone();
+        assert_eq!(held.version.counter, row.expected_version, "{}", row.what);
+        assert_eq!(
+            held.capabilities.cpu_cores, row.expected_cores,
+            "{}",
+            row.what
+        );
+        assert_eq!(
+            (held.liveness, held.incarnation),
+            row.expected_liveness,
+            "{}",
+            row.what
+        );
+        assert_eq!(conflicts(&driver), row.expected_conflicts, "{}", row.what);
+
+        // Whatever travels onward is what this node holds, never the record it
+        // was handed: a partially adopted delta no node holds must not spread.
+        let carried = piggybacked(&driver);
+        let changed = held.version.counter != 4
+            || held.capabilities.cpu_cores != 8
+            || (held.liveness, held.incarnation) != (Liveness::Alive, Incarnation(2));
+        match delta_about(&carried, "node-0001") {
+            Some(delta) => {
+                assert!(
+                    changed,
+                    "nothing changed, so nothing should travel: {}",
+                    row.what
+                );
+                assert_eq!(
+                    delta.body,
+                    DeltaBody::MembershipUpdate(held),
+                    "{}",
+                    row.what
+                );
+            }
+            None => assert!(
+                !changed,
+                "an adopted change must be disseminated: {}",
+                row.what
+            ),
+        }
+    }
+}
+
+/// Hop count of the queued delta about `id`.
+fn queued_hops(driver: &Driver, id: &str) -> Option<u32> {
+    driver
+        .model()
+        .gossip()
+        .iter()
+        .find(|(_, _, body)| body.entity() == format!("member:{id}"))
+        .map(|(_, hops, _)| hops)
+}
+
+#[test]
+fn an_exact_replay_does_not_restart_dissemination() {
+    let mut driver = Driver::new(testing::model_with_members(4));
+    let mut updated = testing::member("node-0001", 5);
+    updated.liveness = Liveness::Suspected;
+    gossip(
+        &mut driver,
+        "node-0000",
+        vec![DeltaBody::MembershipUpdate(updated.clone())],
+    );
+    assert_eq!(
+        queued_hops(&driver, "node-0001"),
+        Some(1),
+        "the answering Ack carried the adopted record once"
+    );
+
+    // Replayed on an `Announce`, which the core answers with nothing, so only
+    // the merge can touch the queue.
+    let mut context = testing::peer_context(driver.model(), &node("node-0002"), 3);
+    context.gossip = vec![GossipDelta {
+        hops: 0,
+        body: DeltaBody::MembershipUpdate(updated),
+    }];
+    driver.apply(Message::Peer(PeerInput {
+        context,
+        body: PeerBody::Announce {
+            announcement: Announcement::Alive,
+            target: node("node-0002"),
+            incarnation: Incarnation(1),
+        },
+    }));
+
+    assert!(driver.diagnostics.is_empty(), "{:?}", driver.diagnostics);
+    assert!(driver.published().iter().all(|change| !matches!(
+        change,
+        ChangeRecord::LivenessChanged { node: subject, .. } if subject == &node("node-0001")
+    )));
+    assert_eq!(
+        queued_hops(&driver, "node-0001"),
+        Some(1),
+        "a replay must not restart a delta already on its way to retirement"
+    );
+}
+
+#[test]
+fn description_and_liveness_news_converge_under_every_delivery_order() {
+    // The two projections arrive on different deltas; neither disputes the
+    // other, so every interleaving must end in the same place.
+    let mut described = testing::member("node-0001", 9);
+    described.endpoints.peers = vec![Address("10.7.7.7:6655".into())];
+
+    let mut suspected = testing::member("node-0001", 1);
+    suspected.liveness = Liveness::Suspected;
+    suspected.incarnation = Incarnation(1);
+
+    let deltas = vec![
+        DeltaBody::MembershipUpdate(described),
+        DeltaBody::MembershipUpdate(suspected),
+    ];
+
+    for order in permutations(&deltas) {
+        let mut driver = Driver::new(testing::model_with_members(4));
+        for delta in order.iter().chain(order.iter()) {
+            gossip(&mut driver, "node-0000", vec![delta.clone()]);
+        }
+        let held = driver.model().member(&node("node-0001")).unwrap();
+        assert_eq!(held.version.counter, 9);
+        assert_eq!(held.endpoints.peers[0], Address("10.7.7.7:6655".into()));
+        assert_eq!(
+            (held.liveness, held.incarnation),
+            (Liveness::Suspected, Incarnation(1)),
+            "a suspicion must survive a re-description, in either order"
+        );
+        assert_eq!(conflicts(&driver), 0);
+    }
+}
+
+// ── Safety fences, unchanged by independent ordering ─────────────────────
+
+#[test]
+fn a_mismatched_certificate_cannot_smuggle_in_a_liveness_update() {
+    let mut driver = Driver::new(testing::model_with_members(4));
+    let mut impostor = testing::member("node-0001", 1);
+    impostor.cert_fingerprint = testing::fingerprint(0xEE);
+    impostor.liveness = Liveness::Dead;
+    impostor.incarnation = Incarnation(9);
+    gossip(
+        &mut driver,
+        "node-0000",
+        vec![DeltaBody::MembershipUpdate(impostor)],
+    );
+
+    assert_eq!(
+        liveness_of(&driver, "node-0001"),
+        (Liveness::Alive, Incarnation::INITIAL),
+        "a rebinding attempt is refused whole; its liveness is not salvaged"
+    );
+    assert!(matches!(
+        driver.diagnostics.as_slice(),
+        [Diagnostic::CertificateMismatch { .. }]
+    ));
+    assert!(delta_about(&piggybacked(&driver), "node-0001").is_none());
+}
+
+#[test]
+fn a_tombstone_outranks_any_liveness_claim() {
+    let mut driver = Driver::new(testing::model_with_members(4));
+    driver.apply(Message::Local(Command::RemoveMember {
+        node: node("node-0001"),
+        mode: RemovalMode::Force,
+        reason: None,
+    }));
+
+    let mut resurrected = testing::member("node-0001", u64::MAX);
+    resurrected.liveness = Liveness::Alive;
+    resurrected.incarnation = Incarnation(u64::MAX);
+    gossip(
+        &mut driver,
+        "node-0000",
+        vec![DeltaBody::MembershipUpdate(resurrected)],
+    );
+
+    assert!(driver.model().member(&node("node-0001")).is_none());
+    assert!(matches!(
+        driver.diagnostics.as_slice(),
+        [Diagnostic::TombstoneFenced { .. }]
+    ));
+}
+
+#[test]
+fn a_record_about_this_node_is_refuted_rather_than_adopted() {
+    let mut driver = Driver::new(testing::model_with_members(4));
+    let local = driver.model().member(&node("node-self")).unwrap().clone();
+    let mut spoof = local.clone();
+    spoof.liveness = Liveness::Suspected;
+    spoof.incarnation = driver.model().incarnation();
+    spoof.endpoints.peers = vec![Address("10.6.6.6:6655".into())];
+    spoof.version = version(u64::MAX, "node-0000");
+
+    gossip(
+        &mut driver,
+        "node-0000",
+        vec![DeltaBody::MembershipUpdate(spoof)],
+    );
+
+    let held = driver.model().member(&node("node-self")).unwrap();
+    assert_eq!(held.liveness, Liveness::Alive);
+    assert!(
+        held.incarnation > local.incarnation,
+        "only this node may speak for itself, and it answers by refuting"
+    );
+    assert_eq!(
+        held.endpoints, local.endpoints,
+        "a peer cannot re-describe this node's own identity"
+    );
+    assert_eq!(conflicts(&driver), 0);
 }
 
 // ── The foreign-gossip boundary ──────────────────────────────────────────
