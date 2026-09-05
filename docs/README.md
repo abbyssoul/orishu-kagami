@@ -11,6 +11,8 @@ Start here:
   semantics assumed by the client and peer protocols.
 - [Orishu configuration](orishu-configuration.md) — shared configuration,
   precedence, startup, and trust rules.
+- [Orishu operational observability](orishu-observability.md) — planned
+  Prometheus metrics, process probes, OTLP traces and operator delivery gates.
 - [Implementation roadmap](roadmap/README.md) — milestone gates, workstreams,
   dependencies, parallel lanes, and exit criteria.
 - [Simulation plugins](simulation-plugins.md) — how advanced users add physical

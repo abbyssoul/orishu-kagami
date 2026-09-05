@@ -47,3 +47,31 @@ credentials never become shareable run-reference data.
 
 Binary-specific supported options belong in each application's README. This
 document defines the cross-application rules, including precedence and trust.
+
+## Planned worker observability configuration
+
+[ADR 0017](adr/0017-worker-operational-observability.md) adds optional build
+features `observability` (Prometheus and probe HTTP listener) and `otlp-tracing`
+(trace exporter). These features and settings are planned, not current options.
+Official operator builds will include both; Cargo default/minimal builds omit
+them. All runtime exposure/export is disabled by default.
+
+The [implementation task](tasks/implement-worker-observability.md) must document
+and test one typed configuration path for:
+
+- listener enablement, bind address/port, route switches, TLS, monitoring-only
+  credentials and explicit remote probe-only access;
+- request/scrape bounds and control-loop supervision thresholds; and
+- trace enablement, OTLP destination/transport/trust/credentials, sampling,
+  bounded queue/batch sizes, export deadlines and shutdown flush deadline.
+
+Use file < environment < CLI precedence and startup-only changes. A requested
+feature missing from the build, unsafe exposure, invalid TLS or a failed bind
+is a clear startup error. A valid collector becoming unavailable drops bounded
+telemetry without making the worker unready. Enabling diagnostics defaults to
+loopback; it never implicitly opens a wildcard interface. Client/peer/work
+admission flags do not silently enable or disable diagnostics.
+
+Exact flags, environment variables, port and numeric limits land with the
+task and the [worker manual](../apps/orishu-worker/README.md); examples must not
+claim those switches already exist.

@@ -15,6 +15,8 @@ cross-task dependencies, unrefined work packages, and parallel-agent ownership.
 | [Define and adopt the shared workload format](define-and-adopt-shared-workload-format.md) | Ready; foundational priority |
 | [Implement resumable observation streaming](implement-resumable-observation-streaming.md) | Ready |
 | [Implement time-addressable run playback](implement-time-addressable-run-playback.md) | Ready |
-| [Implement the sans-IO cluster membership core](implement-membership-model.md) | Implemented; acceptance blocked by one merge correction |
-| [Fix membership liveness propagation through full-record merge](fix-membership-liveness-gossip-merge.md) | Ready; next corrective task |
-| [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | Ready after N-MEMBERSHIP acceptance |
+| [Implement the sans-IO cluster membership core](implement-membership-model.md) | Implemented and accepted |
+| [Fix membership liveness propagation through full-record merge](fix-membership-liveness-gossip-merge.md) | Implemented and accepted |
+| [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | Contract slice ready; membership accepted; adapters follow preflight |
+| [Implement worker operational observability](implement-worker-observability.md) | Contract slice ready; formation/runtime instrumentation follows owning services |
+| [Document and verify operator observability workflows](document-worker-observability.md) | Planned; ships alongside observability slices |

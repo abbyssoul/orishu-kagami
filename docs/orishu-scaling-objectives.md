@@ -82,6 +82,13 @@ Compute speedup alone is insufficient. Tests must separately demonstrate:
 
 ## Claim discipline
 
+The planned [worker observability instruments](orishu-observability.md) provide
+bounded operational measurements for these harnesses. Record feature/runtime
+enablement, trace sampling, dropped telemetry and measured instrumentation
+overhead with each run; missing telemetry is not a zero-cost measurement.
+Compare enabled and disabled configurations while holding scientific inputs
+and validation fixed. Metrics/traces complement, not replace, result evidence.
+
 Documentation and release material must distinguish architectural targets,
 laboratory results, and supported guarantees. A result is not a scaling success
 if scientific semantics changed, invalid output was discarded, durability was

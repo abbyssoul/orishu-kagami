@@ -20,3 +20,4 @@ consequences, and status.
 - [0014 — Prevent purged artifacts from returning through stale inventory](0014-prevent-purged-artifact-resurrection.md)
 - [0015 — Use QUIC-native transfer for committed artifact chunks](0015-use-quic-native-artifact-transfer.md)
 - [0016 — Use a narrow Maxwell/Yee profile for first distributed conformance](0016-first-distributed-scientific-profile.md) (**proposed for revalidation**)
+- [0017 — Expose bounded worker metrics, traces and health probes](0017-worker-operational-observability.md) (**accepted; implementation planned**)

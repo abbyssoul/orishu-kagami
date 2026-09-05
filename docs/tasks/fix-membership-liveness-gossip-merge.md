@@ -26,13 +26,13 @@ order.
 Completing this task unblocks acceptance of N-MEMBERSHIP and assignment of
 [N-FORMATION](implement-cluster-formation-poc.md).
 
-## Defect
+## Original defect
 
 `apply_announcement` correctly changes only liveness/incarnation and queues the
 locally merged full member record without incrementing its descriptive
-`VersionTuple`. On the receiving path, however, `merge_member` currently treats
-any non-identical member record at the same version as `VersionConflict` before
-calling `swim_supersedes`.
+`VersionTuple`. On the receiving path, however, `merge_member` previously
+treated any non-identical member record at the same version as
+`VersionConflict` before calling `swim_supersedes`.
 
 For three nodes A, B, and C:
 
@@ -43,7 +43,7 @@ A receives Announce(Suspect, C, incarnation n)
         v
 B receives that update through gossip or anti-entropy
         |
-        | current defect: equal VersionTuple => VersionConflict
+        | former defect: equal VersionTuple => VersionConflict
         v
 B incorrectly keeps C Alive instead of applying SWIM ordering
 ```

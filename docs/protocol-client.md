@@ -21,6 +21,10 @@ Fallback: if a client cannot negotiate HTTP/3 (e.g. UDP blocked by a firewall), 
 
 ## Payload format
 
+The following CBOR rules apply to the client API. The separate planned
+[worker diagnostics listener](#worker-operational-diagnostics) uses the
+explicit exposition and probe formats described below.
+
 All request and response bodies use **CBOR** ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) as the serialization format.
 
 - Content type: `application/cbor`
@@ -34,6 +38,34 @@ Map keys in CBOR payloads are text strings matching the field names defined in t
 
 For development and debugging convenience, workers may optionally support `application/json` as an alternative payload format, negotiated via the `Accept` header. When JSON is requested, the worker transcodes the CBOR response to JSON. Binary fields (hashes, fingerprints) are encoded as base64url strings in the JSON representation. This is a convenience feature; CBOR is the canonical format and all clients should support it.
 
+
+## Worker operational diagnostics
+
+Status: **accepted design; routes not implemented**
+
+[ADR 0017](adr/0017-worker-operational-observability.md) specifies a dedicated,
+feature-gated HTTP/1.1-compatible listener, configured independently of client
+and peer admission. It serves this process, never a relayed cluster view:
+
+| Method/path | Success | Not healthy/ready | Format |
+| --- | --- | --- | --- |
+| `GET /metrics` | `200` | Not a health check | Prometheus text exposition |
+| `GET /livez` | `200` | `503` | Bounded plain-text status/reason |
+| `GET /readyz` | `200` | `503` | Bounded plain-text status/reason |
+| `GET /startupz` | `200` | `503` | Bounded plain-text status/reason |
+
+These responses do not use CBOR, the client response envelope, or require an
+assigned `X-Node-Id` during startup. The implementation task finalizes content
+types, error/method behavior, resource limits and configuration before handlers
+ship. Probe meaning is defined in the [observability guide](orishu-observability.md).
+
+Loopback diagnostic reads may be unauthenticated. Remote metrics require the
+ADR's TLS and monitoring-only access policy; these credentials cannot authorize
+client API mutations. An explicit restricted-network remote probe exemption
+applies only to the three minimal health routes, never `/metrics` or the
+client API. Existing client access tiers remain unchanged. Trace export is
+outbound OTLP, not another client-control endpoint; propagated trace context
+must be separately specified and bounded before client/peer wiring lands.
 
 ## Access tiers
 

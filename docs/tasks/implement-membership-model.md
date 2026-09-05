@@ -1,6 +1,8 @@
 # Implement the sans-IO cluster membership core
 
-Status: **implemented; acceptance blocked by liveness-gossip merge correction**
+Status: **implemented and accepted**; the
+[liveness-gossip merge correction](fix-membership-liveness-gossip-merge.md)
+that acceptance waited on has landed
 
 Decision: [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md)
 
@@ -75,20 +77,21 @@ filesystem, TLS, or RNG crate appears.
 The implementation was reviewed on 2026-09-05. Package tests, formatting,
 strict Clippy, dependency-purity tests, wire fixtures, and documentation checks
 all pass, and the identity/effect/admission/probe/removal boundaries match this
-task. Acceptance remains blocked by one merge-path defect not covered by the
-current suite: a SWIM announcement changes liveness/incarnation while retaining
-the member's descriptive `VersionTuple`, but `merge_member` rejects any
+task. That review found one merge-path defect not covered by the suite at the
+time: a SWIM announcement changes liveness/incarnation while retaining the
+member's descriptive `VersionTuple`, but `merge_member` rejected any
 same-version non-identical record as a conflict before evaluating the
-independent SWIM ordering. A direct `Announce` therefore works while the full
-record subsequently carried through gossip or anti-entropy can be rejected by
-a third node instead of propagating suspicion/death.
+independent SWIM ordering, so a direct `Announce` worked while the full record
+subsequently carried through gossip or anti-entropy could be rejected by a
+third node instead of propagating suspicion or death.
 
-The independently assignable
-[liveness-propagation follow-up](fix-membership-liveness-gossip-merge.md)
-specifies the merge decision, three-node gossip/anti-entropy regression,
-mixed-conflict behavior, safety matrix, and acceptance commands. Cluster-wide
-policy and the IO shell remain separate work tracked by
-[N-FORMATION](implement-cluster-formation-poc.md).
+The [liveness-propagation follow-up](fix-membership-liveness-gossip-merge.md)
+corrected that: `merge_member` now orders the descriptive projection and the
+SWIM liveness pair independently, and one merge may adopt liveness while
+reporting a descriptive conflict. Its three-node gossip and anti-entropy
+regressions, the independent-ordering matrix, and the safety regressions live
+in `tests/convergence.rs`. Cluster-wide policy and the IO shell remain separate
+work tracked by [N-FORMATION](implement-cluster-formation-poc.md).
 
 The preflight decisions were recorded in `docs/protocol-p2p.md` before the code
 depended on them: probe correlation IDs on `Ping`/`Ack`/`PingReq`/`PingReply`
@@ -372,7 +375,9 @@ pub fn update(model: Membership, message: Message) -> Transition {
   operator removal retain their distinct meanings.
 - Merge and anti-entropy behavior is canonical, bounded, resumable, idempotent
   for exact replay, convergent for the specified non-conflicting CRDT inputs,
-  and explicit about equal-version conflicts.
+  and explicit about equal-version conflicts. Member description and SWIM
+  liveness are ordered independently, so a liveness change still propagates
+  through a full record at an unchanged descriptive version.
 - The core revalidates all logical limits and caps emitted work; the task also
   documents which allocation bounds remain mandatory in the future decoder.
 - `cargo test -p orishu-membership`, `cargo fmt --all -- --check`, and

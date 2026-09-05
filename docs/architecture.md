@@ -25,7 +25,7 @@ result and checkpoint artifacts
 
 - `apps/orishu-worker` runs a node and owns cluster/runtime behaviour.
 - `apps/orishu-ctl` provides scriptable operator administration.
-- `apps/orishu-monitor` is the interactive terminal operator client.
+- `apps/orishu-monitor` is the more coprehensive TUI interactive terminal operator client.
 - `apps/kagami` is the native experiment-authoring and visualization client.
 
 Applications compose library modules; other applications do not depend on an
@@ -33,9 +33,9 @@ application crate.
 
 ### Shared libraries
 
-- `libs/orishu` owns shared cluster/workload models and the Orishu client
+- `crates/orishu` owns shared cluster/workload models and the Orishu client
   interface. It is the seam used by every operator or visualization client.
-- `libs/kagami-renderer` hides Kagami's GPU pipeline behind Iced's shader-program
+- `crates/kagami-renderer` hides Kagami's GPU pipeline behind Iced's shader-program
   interface. It renders presentation state and must not own simulation state.
 
 The prototype scene tree currently lives in `apps/kagami` because it is demo UI
@@ -392,6 +392,19 @@ transports. See
 [MCP user stories](./user-stories/kagami/mcp.md).
 
 ## Trust and data flow
+
+### Operational observability
+
+Worker IO adapters own operational metrics, traces and health projections.
+[ADR 0017](./adr/0017-worker-operational-observability.md) plans a feature-gated,
+separately configured HTTP diagnostics listener for Prometheus and process
+probes, plus independently enabled OTLP trace export. Both remain off at
+runtime by default. Telemetry consumes domain outcomes and never determines
+membership, simulation commit or scientific validity. The sans-IO membership
+core acquires no exporter, clock or network dependency. See the
+[observability guide](./orishu-observability.md) for delivery and operator scope.
+
+### Untrusted payloads
 
 All network payloads are untrusted. Control messages and streamed observation
 chunks require size limits, checked offsets, schema/version validation,

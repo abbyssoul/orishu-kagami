@@ -209,6 +209,42 @@ As an administrator, I want to be able to start a worker process that does not a
 - Once restarted with work acceptance enabled, the instance should be eligible for workload partition assignments according to normal scheduling rules.
 
 
+## Operational observability
+
+### Monitor worker metrics and process health
+
+Status: **planned — ADR 0017; not current CLI/API behavior**
+
+As an administrator, I want to enable a Prometheus scrape endpoint and
+startup/liveness/readiness probes so that I can monitor a worker and configure
+service/container health checks without granting monitoring tools cluster
+administration privileges.
+
+**Given** a worker built with the optional observability capability
+**When** I explicitly configure its diagnostics listener
+**Then** I can scrape that worker's metrics and distinguish initialization,
+process responsiveness and readiness for its configured roles.
+
+**Acceptance criteria:**
+
+- Build capabilities and file/env/CLI options are documented. An unsupported
+  feature request fails clearly; default startup opens no monitoring port.
+- Monitoring works independently of client/peer/work admission flags and uses
+  the least-privilege access policy from
+  [ADR 0017](../../adr/0017-worker-operational-observability.md).
+- Idle, stopped and intentionally non-compute workers are not falsely reported
+  dead. Peer loss or collector failure alone does not trigger a restart signal.
+  Startup, joining/recovery, draining and a stalled control loop follow the
+  published probe matrix.
+- Slow scrapes and unavailable collectors cannot stop cluster work. Metrics
+  have documented units, bounded labels and no credentials or authored data.
+- The manual provides tested Prometheus, service/container probe and optional
+  OTLP collector examples, explains remote access, and distinguishes readiness
+  from workload admission and scientific validity.
+
+Delivery: [implementation](../../tasks/implement-worker-observability.md) and
+[operator documentation](../../tasks/document-worker-observability.md).
+
 ## Storage
 
 ### Configure the storage backend

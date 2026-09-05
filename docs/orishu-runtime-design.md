@@ -134,3 +134,13 @@ rotation, tombstone clearing, and artifact purge.
 Audit dissemination is best-effort unless a later durable audit design says
 otherwise. It supports traceability, not total ordering, artifact-content
 authority, or ownership of cluster state.
+
+## Operational metrics, traces and probes
+
+[ADR 0017](adr/0017-worker-operational-observability.md) defines planned
+feature-gated Prometheus metrics, local process probes and optional OTLP traces.
+Worker adapters instrument real domain outcomes with bounded labels, sampling
+and export queues. Collection/export failures cannot stall the functional core
+or change a committed result. Local readiness is distinct from workload
+admission, cluster capacity and SWIM liveness. See
+[operational observability](orishu-observability.md) and its probe matrix.

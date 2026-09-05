@@ -20,6 +20,15 @@ and weekly so newly published advisories are detected without a code change.
 
 ## Release delivery
 
+Planned observability requirement: once
+[ADR 0017](adr/0017-worker-operational-observability.md) is implemented, official
+worker artifacts include the `observability` and `otlp-tracing` capabilities
+while keeping listener/export runtime defaults disabled. Publish included
+features and test minimal, each-feature and combined builds. The
+[operator documentation task](tasks/document-worker-observability.md) owns
+tested scrape/probe/collector examples and metric/probe compatibility notes.
+This is future release work, not a description of the current build flags.
+
 Pushing a `v*` tag runs the complete release gate, builds the workspace in
 release mode, and publishes a Linux x86-64 bundle containing:
 

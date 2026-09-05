@@ -150,3 +150,7 @@ Don't forget to add bench similar to @crates/orishu-variables/benches to profile
 
 Do adhere to the TEA design principles and SANS-IO library design and coding guidelines as outlined in @docs/Coding style.md
 According to the @docs/roadmap/readme.md this task depend only on S-IDENTITY so you'll need to implement missing parts yourself.
+
+[X] Looking at the roadmap file - I'd like to be able to see the roadmap as a mermaid timeline diagram with stages/tasks
+not dates. and task/steps completion registry. Can you crate a new file in docs/roadmap as to not pollute existing roadmap
+readme. Will it an report artifact?

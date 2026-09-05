@@ -124,6 +124,10 @@ independent platforms.
   identities follow ADR 0013.
 - Artifact records, local inventory, availability views, and purge tombstones
   retain their separate authority levels as defined by the storage spec.
+- Worker operational metrics, traces and process probes are bounded diagnostic
+  projections owned by the IO shell (ADR 0017). They are not scientific
+  observations, membership decisions, durable audit or committed provenance;
+  unavailable telemetry cannot block or change authoritative transitions.
 - Shared numerical kernels do not depend on Kagami UI code or Orishu peer
   runtime code.
 - Built-in and third-party simulation plugins use the same public authoring,

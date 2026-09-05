@@ -20,6 +20,12 @@ Runtime performance, capacity, and resilience claims are governed by the
 scaling evidence” in this roadmap is a release gate, not a replacement for the
 long-term 10,000-worker research target.
 
+[ADR 0017](../adr/0017-worker-operational-observability.md) adds operational
+metrics, traces and process probes as an accepted, unimplemented delivery
+requirement. Initial worker/formation observability ships with M4, without
+waiting for scientific execution; runtime/storage/observation instrumentation
+and operator documentation ship with their owning slices.
+
 ADRs 0013–0015 are accepted constraints on formation identity, artifact purge,
 and committed-chunk transport. [ADR 0016](../adr/0016-first-distributed-scientific-profile.md)
 is different: Maxwell/Yee remains a proposed conformance profile until its
@@ -46,9 +52,18 @@ The initial collaboration model is file-based experiment sharing plus
 independent observation of a shared run. A headless multi-writer document
 service is a later product milestone, not part of the first release path.
 
-## Current implementation baseline
+The [target experiments](../target-experiments.md) describe the broader
+scientific research horizon. Shipping a gravity or electrodynamics plugin does
+not imply coverage of that entire list: each delivered profile needs explicit
+supported phenomena, limits and numerical evidence within the accepted
+[initial-value-problem scope](../adr/0002-initial-value-problem-scope.md).
 
-As of this review:
+## Documented implementation baseline
+
+The following summarizes the status recorded in the project documentation and
+tracked tasks. This roadmap review did not inspect implementation or rerun
+runtime tests; these statements are inputs to planning, not fresh verification.
+Recheck the affected task's source and acceptance evidence before assigning work.
 
 - Repository CI, release workflows, a Rust workspace, public documentation,
   and packaging scaffolding exist.
@@ -60,8 +75,7 @@ As of this review:
   certificate fingerprints, version tuples, incarnations, and membership
   tombstones. `crates/orishu-membership` implements the deterministic sans-IO
   core for admission, join adoption, SWIM, gossip, removal fencing, and bounded
-  anti-entropy; acceptance is blocked by the liveness-gossip merge correction
-  recorded in its task.
+  anti-entropy, including the accepted liveness-gossip merge correction.
 - Imported Orishu client/projection models still reuse some generic manifest
   shapes and do not yet expose the explicit formation identity consistently.
   Their membership subset must be reconciled in N-FORMATION; run identity and
@@ -75,7 +89,10 @@ As of this review:
   sockets, but serves only a placeholder handler; cluster membership,
   admission, execution, storage, and documented APIs are not wired.
 - `apps/orishu-monitor` is a placeholder.
-- Kagami opens a native window and has an offscreen-capable renderer, but its
+- Prometheus exposition, startup/liveness/readiness probes and OTLP trace
+  export have planned contracts in ADR 0017 and P-OBSERVABILITY; no implemented
+  endpoint or exporter is claimed by this documentation review.
+- [Kagami](../../apps/kagami/) opens a native window and has an offscreen-capable renderer, but its
   scene tree, open/save, playback, simulation, networking, and run controls are
   prototypes or stubs rather than the accepted experiment authority.
 - The tracked workload-format, catalog, MCP, live-observation, and
@@ -117,7 +134,7 @@ slices and acceptance criteria before implementation begins.
 | ID | Work package | Lane | State | Depends on |
 | --- | --- | --- | --- | --- |
 | S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Ready; foundational | M0; S-VARIABLES for expression integration |
-| S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Generic engine present; slices 2–4 remain | M0 |
+| S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Generic engine present; verify slice 1 bounds; slices 2–4 remain | M0 for core; K-DOCUMENT for slice 3; S-WORKLOAD for slice 4 |
 | S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types landed in `orishu-identity`; cluster projection and run identity still require specification/reconciliation | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
@@ -133,19 +150,28 @@ slices and acceptance criteria before implementation begins.
 | O-API-SHAPE | Resolve imported [client-API compaction findings](../orishu-runtime-future-work.md#client-api-compaction-review) and version the initial resource surface | O/P/S | **Decision/task specification required before O-CLIENT** | S-IDENTITY; runtime data model; storage authority model |
 | O-CLIENT | Implement authenticated client API and align `orishuctl` with real server behavior | O/P | **Task specification required** | O-API-SHAPE; O-RUNTIME; O-STORAGE; S-OBSERVE |
 | K-RUN | Kagami Orishu adapter, workload submission, run projection and renderer handoff | K/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
+| K-PREVIEW | Local preview of a supported pinned workload through the same sandbox lifecycle and observation semantics | K/O/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-WASM; S-OBSERVE; coordinate projection interface with K-RUN |
 | V-LIVE | [Resumable live observation streaming](../tasks/implement-resumable-observation-streaming.md) slices 3–6 | V/O | Ready after shared frame types | S-OBSERVE; O-RUNTIME; O-CLIENT |
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
-| N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | Implemented; acceptance blocked by the ready [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
-| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Ready after N-MEMBERSHIP acceptance; next Orishu network slice | N-MEMBERSHIP; trust/codec preflight; cluster-policy reconciliation; membership subset of O-API-SHAPE |
-| N-CLUSTER | Fenced ownership, halo exchange and distributed step commit over the proven formation transport | N/O | **Task specification required** | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD |
+| N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | **Accepted**, including the [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
+| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Contract slice ready; membership accepted; adapters follow preflight | N-MEMBERSHIP; trust/codec preflight; cluster-policy reconciliation; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
+| N-CLUSTER | Fenced ownership, halo exchange and distributed step commit over the proven formation transport | N/O | **Task specification required** | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD; X-DIST-PROFILE candidate fixtures for scientific acceptance |
 | N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-FORMATION authenticated transport |
 | N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
 | N-ARTIFACT | [Availability, replication, re-replication, repair](../storage-spec.md) and committed-artifact discovery | N/O | **Task specification required** | O-STORAGE; N-CLUSTER; N-TRANSFER; N-PURGE |
 | P-SCALE | Reproducible [1/3/5/12/32-worker](../orishu-scaling-objectives.md#staged-evidence) compute, capacity, storage, retrieval and churn evidence | P/N/O | **Task specification required**; implement harness incrementally | O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
 | P-INSTALL | Native packages, Homebrew, `cargo install`, containers and config-free startup | P | **Task specification required** | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
+| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Contract slice ready; adapters gated by their owning services | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
+| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Planned; ships alongside each observability slice | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
 | P-MONITOR | Replace `orishu-monitor` placeholder with read-only operational views | P | **Task specification required** | N-FORMATION membership/status models; remaining O-CLIENT views |
 
 ## Dependency graph
+
+This graph shows the main integration gates. Edges consume the required
+contract or slice, not necessarily completion of the whole upstream package.
+For example, N-FORMATION needs only membership identity and membership API
+decisions; S-VARIABLES core precedes K-DOCUMENT, while its document integration
+follows it. The registry and linked task specify the finer dependencies.
 
 ```mermaid
 flowchart TD
@@ -167,6 +193,7 @@ flowchart TD
     OC["O-CLIENT<br/>real client service"]
 
     KR["K-RUN<br/>compile/submit/observe"]
+    KP["K-PREVIEW<br/>sandboxed local run"]
     VL["V-LIVE<br/>resumable live stream"]
     VR["V-REPLAY<br/>historical seek/playback"]
     KC["K-CATALOG"]
@@ -180,12 +207,24 @@ flowchart TD
     NP["N-PURGE<br/>tombstone reconciliation"]
     NA["N-ARTIFACT<br/>availability/replication/repair"]
     PS["P-SCALE<br/>staged evidence"]
+    PO["P-OBSERVABILITY<br/>metrics + probes + traces"]
+    PD["P-OBS-DOCS<br/>operator monitoring workflows"]
+    M7["M7: external plugin/export<br/>and authoring parity"]
+    PI["P-INSTALL<br/>distribution + compatibility"]
     PR["Release candidate"]
 
     M0 --> SW
     M0 --> SV
     M0 --> SI
     M0 --> OA
+    M0 -->|worker contract| PO
+    NF -->|formation instruments| PO
+    OR -->|runtime instruments| PO
+    NA -->|artifact instruments| PO
+    VL -->|observer instruments| PO
+    PO --> PD
+    PO --> PS
+    PD --> PR
     SI --> SO
     SV --> KD
     SW --> KD
@@ -209,6 +248,10 @@ flowchart TD
     XP --> KR
     OC --> KR
     SO --> KR
+    KD --> KP
+    SW --> KP
+    OW --> KP
+    SO --> KP
     OR --> VL
     OC --> VL
     SO --> VL
@@ -224,9 +267,9 @@ flowchart TD
     SW --> DP
     XP --> DP
     OW --> DP
-    SI --> NM
+    SI -->|membership subset| NM
     NM --> NF
-    OA --> NF
+    OA -->|membership subset| NF
     NF --> NC
     OR --> NC
     DP --> NC
@@ -247,16 +290,35 @@ flowchart TD
     NC --> PR
     NA --> PR
     PS --> PR
+    KP --> PR
+    XP --> M7
+    XB --> M7
+    KC --> M7
+    KM --> M7
+    KR --> M7
+    M7 --> PR
+    PI --> PR
 ```
 
-The critical path is M0 → identity/workload/observation contracts → sans-IO
-membership core and sandboxed single-node execution → real Kagami
-submission/observation → operational cluster formation → selected distributed
-conformance profile → distributed execution and artifact safety → staged release evidence. API shape
-and committed provenance are early gates, not cleanup after clients or
-artifacts ship. Catalog polish, MCP transport, monitor UI, and package
-prototypes have useful parallel slices but must not redefine contracts on that
-path.
+Milestone numbers identify delivery outcomes, not a mandatory serial schedule.
+Two paths converge at distributed execution:
+
+- Membership identity → membership correction and acceptance → operational
+  cluster formation (M4). This path can proceed before M1–M3 finish and has no
+  Kagami, workload, storage, or physics dependency.
+- Workload/observation contracts → sandboxed single-node execution and storage
+  (M3), with candidate scientific-profile fixtures → distributed execution
+  (M5), joined by the proven M4 transport.
+
+Kagami authoring/submission demonstrates the M3 product outcome but does not
+gate the peer adapter. Multi-client observation (M6) can start against the
+single-node service and storage; distributed verification follows M5. Plugin,
+catalog, export and MCP work converges at M7. M8 requires all these outcomes
+plus operations, compatibility and staged scaling evidence.
+
+API shape and committed provenance are early gates for their consumers. Each
+lane settles only the contracts its next slice consumes; unrelated decisions
+must not become a global prerequisite.
 
 ## Milestone 0 — Green and truthful foundation
 
@@ -287,9 +349,10 @@ without using stale documentation or placeholder behavior as a contract.
   mark every placeholder CLI/server/UI behavior honestly.
 - Run the complete existing build/test/lint/docs/smoke baseline and record any
   platform-only manual checks.
-- Promote every work package marked “task specification required,” including
-  S-IDENTITY, S-PROVENANCE, O-API-SHAPE, X-DIST-PROFILE, N-TRANSFER, N-PURGE,
-  and P-SCALE, before assigning its code.
+- Promote each work package marked “task specification required” before
+  assigning its code. Specify the next bounded slices first; later packages
+  may remain registry entries until their input contracts are sufficiently
+  stable. M0 does not require the entire roadmap to be implementation-ready.
 - Give each new task an owning boundary, expected public inputs/outputs,
   hostile-input tests, migration strategy, and explicit non-goals.
 
@@ -308,11 +371,13 @@ without using stale documentation or placeholder behavior as a contract.
 - `make docs-check` continues to pass; no restored document links back to an
   absent historical source as implementation authority.
 - Root README status and component maps match the actual workspace.
-- Every Milestone 1 or 2 work package is linked to an implementation task or
-  explicitly removed from scope, and accepted ADRs 0013–0015 have task owners.
-- The initial client resource paths are settled before compatibility code is
-  written. Proposed ADR 0016 has a bounded validation task but is not described
-  as accepted merely to satisfy the roadmap.
+- Every slice selected to start has a linked task, an owning boundary, stable
+  consumed contracts and acceptance criteria. Deferred specifications remain
+  visible in the registry, and accepted ADRs 0013–0015 have work-package owners.
+- Client resource paths are settled before their handlers or compatibility
+  commitments land. N-FORMATION settles its membership subset independently.
+  Proposed ADR 0016 requires a bounded validation task before its experiment
+  begins; accepting it is not an M0 gate.
 - No user story or protocol is cited as proof that behavior is implemented.
 - Baseline fixture locations and owners are documented.
 
@@ -323,10 +388,14 @@ to build independently.
 
 ### Focus areas
 
-- **S-WORKLOAD slices 1–3:** immutable manifest/artifact types, canonical
-  bytes/digests, bounded closure validation, and golden fixtures.
-- **S-VARIABLES slices 1–2:** review and land the present generic namespaced
-  engine, then add dimension/unit semantics, limits, and source-located errors.
+- **S-WORKLOAD slices 1–2 and the structural portion of slice 3:** immutable
+  manifest/artifact types, canonical bytes/digests, bounded closure integrity
+  checks, and golden fixtures. Full expression, profile and component-policy
+  validation completes in M2 with the relevant validators; a structural
+  closure check alone cannot authorize execution.
+- **S-VARIABLES slices 1–2:** verify the present generic namespaced engine
+  against slice 1, then complete dimension/unit semantics, limits, and
+  source-located errors.
 - **S-IDENTITY:** explicit `FormationId`, formation-assigned `NodeId`, cluster
   projection, membership-tombstone, run-identity, and label types with
   JSON/CBOR fixtures. Reconcile the generic optional manifest IDs now used by
@@ -423,10 +492,10 @@ workload it would submit, before attempting distributed execution.
   Milestone 5 validation, not a private electrodynamics runtime path.
 - K-MCP slices 1–7 may proceed entirely in parallel because its honest
   `kagami_status` transport does not require authoring or run parity.
-- Complete N-MEMBERSHIP's
-  [liveness-gossip merge regression](../tasks/fix-membership-liveness-gossip-merge.md)
-  and acceptance review; its deterministic model/message/update/effect core and hostile
-  sequence/property tests then provide the base for N-FORMATION. QUIC, codecs,
+- N-MEMBERSHIP is accepted, including its
+  [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md);
+  its deterministic model/message/update/effect core and hostile
+  sequence/property tests provide the base for N-FORMATION. QUIC, codecs,
   timer wheels, worker integration, and the minimal operator surface remain
   Milestone 4 work.
 
@@ -486,8 +555,14 @@ product using a single worker—the degenerate one-node cluster.
   contract; start electrodynamics only when the same lifecycle is proven.
 - Implement K-RUN's connection, compatibility check, exact-revision submission,
   control, observation projection, and renderer handoff.
-- Implement a minimal V-LIVE snapshot stream sufficient for the first client;
-  full resumption/backpressure hardening remains Milestone 6.
+- Implement a minimal V-LIVE snapshot stream sufficient for the first client,
+  with byte/count limits, complete-frame validation and slow-consumer isolation
+  from the start. Resume, delta baselines and multi-client recovery coverage
+  complete in Milestone 6.
+- Deliver the applicable P-OBSERVABILITY runtime, guest, storage and client
+  instruments with these owners, using the shared metric/probe/trace contract.
+  P-OBS-DOCS documents real instruments as they land; M4's placement does not
+  defer telemetry for a single-node runtime delivered earlier.
 
 ### Parallel execution
 
@@ -525,10 +600,12 @@ product using a single worker—the degenerate one-node cluster.
 **Objective:** form, inspect, and safely change a real authenticated peer
 cluster through operator interfaces, without distributing computation yet.
 
+This milestone is the next operational demonstration now that the membership
+core is accepted. Its number does not require M3 to finish first.
+
 ### Focus areas
 
-- After N-MEMBERSHIP acceptance, complete
-  [N-FORMATION](../tasks/implement-cluster-formation-poc.md): settle
+- Complete [N-FORMATION](../tasks/implement-cluster-formation-poc.md): settle
   join trust bootstrap and the membership subset of the client resource
   surface, then implement the mTLS/QUIC adapter, bounded CBOR codec, timers,
   entropy/ID generation, credential verification, serialized membership
@@ -546,6 +623,11 @@ cluster through operator interfaces, without distributing computation yet.
   remain safe.
 - Preserve config-free local startup and ensure peer ports, credentials, and
   remote client access are opened only through explicit configuration.
+- Deliver P-OBSERVABILITY slices 1–3 with this PoC: optional metrics/probe
+  listener, supervision-backed local health, formation metrics and sampled
+  client/peer traces. Metrics/probes can land before trace propagation; M4
+  acceptance requires both and their bounded real-wire tests. P-OBS-DOCS ships
+  tested scrape, probe and collector instructions with the corresponding slice.
 
 ### Parallel execution
 
@@ -574,11 +656,19 @@ cluster through operator interfaces, without distributing computation yet.
 - The PoC uses no workload, kernel, partition, halo, step, checkpoint, result,
   or artifact path. Its multi-process test calls production peer and client
   seams rather than the membership core directly.
+- Each worker can be scraped through the configured Prometheus endpoint and
+  reports startup/liveness/readiness according to its real local state. A
+  sampled client-to-peer operation reaches a test OTLP receiver. Disabled
+  features/exposure, credential separation, bounded scrape/export failures and
+  supervision stalls are tested without changing domain outcomes.
 
 ## Milestone 5 — Distributed Orishu execution
 
-**Objective:** preserve the single-node scientific result while executing it
-across the proven peer cluster with failure-aware coordination.
+**Objective:** preserve the selected conformance profile's single-node
+scientific result across the proven peer cluster with failure-aware
+coordination. M3's gravity demonstration proves the product workflow; it does
+not supply reference evidence for a different Maxwell/Yee workload. Establish
+the candidate profile's own single-worker reference before partitioned tests.
 
 ### Focus areas
 
@@ -609,6 +699,10 @@ across the proven peer cluster with failure-aware coordination.
   then a 5-worker correctness/churn stage. The `2 * y < x` three-worker target
   is measured and explained if missed; it is a research target, not a hidden
   release-pass substitution for correctness.
+- Extend P-OBSERVABILITY to step/halo/barrier, sandbox, ownership, storage,
+  transfer and repair operations as those services land. Include telemetry
+  overhead and bounded-cardinality evidence in P-SCALE, and ship corresponding
+  P-OBS-DOCS dashboards, alerts and incident procedures.
 
 ### Parallel execution
 
@@ -673,8 +767,16 @@ baseline to multiple independent Kagami clients.
   rate, reverse navigation, channel/region/LOD subscriptions and stale state.
 - Exercise two or more Kagami clients with independent presentation and no
   simulation-data relay through the submitting client.
+- Implement K-PREVIEW for a bounded supported profile using the pinned
+  component and O-WASM lifecycle. Share observation semantics with K-RUN and
+  verify both adapters through the same projection contract, as required by
+  the live-streaming task. Specify this task before implementation; local
+  preview must not introduce a second physics or privileged native path.
 - Enable K-MCP run reads/controls only after the same K-RUN authority and
   observation projection are used by the UI.
+- Complete P-OBSERVABILITY observer/replay queue, fallback, coalescing and gap
+  instruments with V-LIVE/V-REPLAY, including overload diagnostics that do not
+  feed back into simulation commit. Update operator queries and runbooks.
 
 ### Parallel execution
 
@@ -697,6 +799,9 @@ baseline to multiple independent Kagami clients.
   explicit; no client silently fabricates continuity or follows another run.
 - Camera, selection, visibility, interpolation, and playback state remain local
   and cannot be persisted as authoritative scientific output.
+- Local preview and a single Orishu worker execute the same pinned fixture
+  within its declared numerical tolerance and publish compatible observations;
+  neither adapter exposes solver-owned memory to the renderer.
 
 ## Milestone 7 — Third-party extensibility and complete authoring parity
 
@@ -758,6 +863,10 @@ supported platforms.
   where its selected operation permits it.
 - Complete P-MONITOR's useful read-only operational surface or explicitly
   remove it from the release bundle until it is honest.
+- Complete P-OBSERVABILITY/P-OBS-DOCS: official builds publish their optional
+  capability matrix, keep runtime exposure/export disabled by default, and
+  ship validated monitoring configuration, metric compatibility notes,
+  dashboards, alerts and service/container probe examples.
 - Define upgrade, persisted-schema, plugin-schema, protocol and rolling-cluster
   compatibility; test supported migrations and reject unsupported ones.
 - Finish security review, fuzzing, resource-limit tests, numerical validation,
@@ -785,6 +894,10 @@ supported platforms.
 - A fresh operator can install and form a cluster using a documented preferred
   native path; `cargo install` and the worker container follow their documented
   config-free defaults.
+- A fresh operator can enable least-privilege scraping/probes and OTLP export
+  using tested instructions. Feature combinations, telemetry outages, probe
+  semantics, bounded resource use and measured instrumentation overhead pass
+  their tasks' acceptance gates; no monitoring backend is required to run.
 - A fresh researcher can install Kagami, run a bundled experiment, export it,
   submit it and inspect live and persisted results.
 - A plugin developer can follow the public conformance workflow without
@@ -800,7 +913,9 @@ supported platforms.
 
 ## Post-first-release horizon
 
-The following work is intentionally outside the critical path:
+These are deferred possibilities or research goals, not promised follow-on
+features. Boundary-value execution, general scheduling and native extensions
+remain outside the accepted product scope unless a new decision changes it:
 
 - a stand-alone headless Kagami document authority for live collaborative
   editing, including user identity, capabilities, ordering, conflicts, shared

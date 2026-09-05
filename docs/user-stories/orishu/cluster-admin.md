@@ -58,6 +58,37 @@ As an administrator, I want to get detailed information about a specific node in
 - Regardless of the source mode used, the response always indicates the manifest origin (direct from the target node vs. gossip-cached from a peer) so the administrator can assess the reliability and freshness of the information.
 
 
+### Correlate cluster metrics and traces
+
+Status: **planned — ADR 0017**
+
+As an administrator, I want per-worker dashboards and sampled traces across
+client and peer operations so that I can locate admission, connectivity,
+coordination or storage problems without treating one entry node's view as
+cluster truth.
+
+**Given** explicitly enabled monitoring and trace export on participating workers
+**When** I investigate a slow or failed operation
+**Then** I can correlate its bounded diagnostic spans and aggregate metrics,
+identify missing telemetry, and consult authoritative runtime/artifact state.
+
+**Acceptance criteria:**
+
+- Formation monitoring ships with the three-worker PoC; runtime, transfer,
+  storage and observation instruments ship with their owning services.
+- Dashboards/alerts distinguish unavailable scrapes from zero errors, local
+  process readiness from cluster progress, and retrieval from durability.
+- Sampled traces correlate authenticated client/peer operations without
+  exposing credentials or requiring workload/peer IDs as metric labels.
+- Monitoring credentials grant no membership/workload mutation authority;
+  probes never replace SWIM, and missing traces are not proof an action failed.
+- Tested runbooks explain peer loss, queue pressure, slow steps and unavailable
+  artifacts; recovery decisions consult the relevant authority rather than
+  automatically removing or resetting nodes based on one diagnostic signal.
+
+Delivery: [observability guide](../../orishu-observability.md) and
+[operator documentation task](../../tasks/document-worker-observability.md).
+
 ### Diagnose node connectivity and health
 As an administrator, I want to diagnose the connectivity and health of nodes in the cluster so that I can identify and troubleshoot issues with cluster members.
 
