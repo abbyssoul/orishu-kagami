@@ -154,3 +154,51 @@ According to the @docs/roadmap/readme.md this task depend only on S-IDENTITY so 
 [X] Looking at the roadmap file - I'd like to be able to see the roadmap as a mermaid timeline diagram with stages/tasks
 not dates. and task/steps completion registry. Can you crate a new file in docs/roadmap as to not pollute existing roadmap
 readme. Will it an report artifact?
+
+
+[]
+As an intermediate step I want to create another crate, salvaging from field-cad prototype, to implement kagami's particle/template catalog. The field-cad's ADR is /home/soultaker/workspace/field-cad/docs/adr/0019-generic-particle-catalog-is-data.md and the task is 
+/home/soultaker/workspace/field-cad/docs/tasks/server-authoritative-catalog.md
+
+I'd like you to create a new task in docs/tasks that an agent can take and work independently to bring this new crate with all of this projects ADRs in mind, Noting that field-cad version was a PoC and is different form what we plan in this project. Main difference being - instantiation of a template in field-cad creates a link and document embedding. If a template later changed, the instance may update. In this project, instantiating a template, just creates a materialized version
+without linkage, because catalog is own by authoring client and two different clients might have different catalogs. 
+Even more, orishu cluster will have no catalog at all - only workload bundle. Thus, anything from client catalog must be in the bundle. One extra consideration when designing this - is the role of variables. Template value can and will use variables.
+They also define and export variable into user's namespace. The use case: as a user I want to define 'planets.yml' - my catalog of planets and later I want to create an object with mass half of the Sun: `new_object.mass = planets.sun.mass / 2`.
+In a way - doing so will make a link from the document object to the catalog. In this new design this link is transitive via capture of exported variables. I guess we need an ADR to describe that first, user-story in kagami second, and only then a task.
+
+Does it make sense to you? What did I miss in use cases? Ask me questions if you need clarification. If not - lets capture all this first.
+
+> It seems like the agent slightly mis-understood the original field-cad design. 
+
+As an intermediate step I want to create another crate, salvaging from field-cad prototype, to implement kagami's particle/template catalog. The field-cad's ADR is /home/soultaker/workspace/field-cad/docs/adr/0019-generic-particle-catalog-is-data.md and the task is 
+/home/soultaker/workspace/field-cad/docs/tasks/server-authoritative-catalog.md
+
+In my example the catalog is a file resource, as defined by field-cad. 
+For example: /home/soultaker/workspace/field-cad/etc/catalogs/planets.yaml defines a set of templates with properties (mass, charge etc) when instantiated they become 'objects' that orishu-kagami simulate. 
+Note that objects in this sense are ECS entities - a named collection of properties. This is what kagami models - a set of entities with properties contributed by plugins (systems in ESC terminology) Property value (charge) can be defined using an expression and constitutes in essence a variable definition: catalogs["planets"].templates['sun'].spec.components['fieldcad.mass-source'].mass
+(or something similar)
+
+The guiding principle for orishu-kagami is that a catalog is a collection of templates - similar in function to idTech 4's entity definition.
+
+Pleas ensure that ARD is consistent.
+To address your identified gaps from the original field-cad design: 
+1. There is no explicit export of properties. Catalog file is loaded into catalog system. Each value property on a template is exported into a variable system with namespace of the catalog.template_name
+I intend to use namespace for visibility boundary with explicit private/public modifiers.
+2. Catalogs are expected to be sharable between user - by copying files. If a value expression in a catalog can not be resolved - it means it depends on a value defined outside of the catalog. We either need to prohibit it - but we can't really as users can modify value expressions in the exported files. Thus we need to diagnose those and warn user that some entries contain errors and can not be instantiated. This is the common issues with the catalog - when a user denies new template, they specify what component an template will have. But component are continued by plugins. Thus catalog authored on one kagami instance may have a different set of 'known' properties from another instance its loaded in. The ADR in field-cad had options: don't allow instantiation of such templates with unknown properties if a user don't have corresponding plugins; or allow, insatiate and link properties to the plugin later on - when a plugin is loaded.
+3. Original field-cad adr called to maintain a link from instance to the catalog entry. In orishu-kagami we want to just use variables, not the instance-template link model. With variables closure captured when exporting bundled workload.
+
+Please address the adr gaps and update the user story accordingly.
+
+[X] /goal Pick up a task docs/tasks/implement-kagami-object-catalog.md
+Base your work on prior PoC implementation in /home/soultaker/workspace/field-cad/crates/fieldcad-catalog but me mindful that new design have significant differences in the way instance is linked back to the template.
+Adhere to the docs/Coding style.md and don't forget to add bench similar to @crates/orishu-variables/benches to profile library performance in isolation.
+For data example use /home/soultaker/workspace/field-cad/etc/catalogs/planets.yaml and /home/soultaker/workspace/field-cad/etc/catalogs/particles.yaml
+
+[X] Extract crates/orishu/src/model/manifest.rs into a shared crate
+A number of resources in orishu as well as in kagami are representable as human readable/editable text files. As such we often follow k8s resource style definition format with version, kind, meta and spec.
+Examples include: kagami-catalog - a list of such resources defining templates for simulated objects. On dist they are represented following k8s-style resources. 
+Similarly, when using `orishuctl` a user is expected to interact with cluster definition and individual cluster resources as k8s style resources (at least when printed out or saved into files)
+crates/orishu/src/model/manifest.rs already defines basic structs to support such resource definitions. The goal of this task is to refactor existing resource usage and use a common crate (perhaps: orishu-resource) that will be shared library for both kagami and orishu to define read and manipulate resources as k8s definitions.
+Related decision has been documented in original orishu repository in '/home/soultaker/workspace/orishu/backlog/decisions/decision-005 - Cluster-manifest-is-a-synthetic-resource-rather-than-a-user-authored-durable-object.md' which I believe is informative in our case.
+
+**Promoted** to [Extract shared resource crate](docs/tasks/extract-shared-resource-envelope.md), governed by [ADR 0013](./docs/adr/0013-cluster-formation-and-node-identity.md).

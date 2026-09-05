@@ -276,7 +276,7 @@ impl VariablesSystem {
         value.map_err(VariablesError::from)
     }
 
-    /// Resolve a raw dotted symbol (as captured verbatim by [`Expr::Symbol`]
+    /// Resolve a raw dotted symbol (as captured verbatim by a symbol node
     /// at parse time) to its handle, with no allocation on the success
     /// path — `raw` is already in the index's canonical form, so this is a
     /// direct lookup rather than a round trip through [`FQName::parse`].

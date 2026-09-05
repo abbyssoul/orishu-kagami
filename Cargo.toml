@@ -19,13 +19,27 @@ criterion = "0.8.2"
 dhat = "0.3.3"
 glam = { version = "0.33", features = ["bytemuck"] }
 iced = "0.14.0"
+kagami-catalog = { path = "crates/kagami-catalog" }
 kagami-renderer = { path = "crates/kagami-renderer" }
 orishu = { path = "crates/orishu" }
 orishu-identity = { path = "crates/orishu-identity" }
 orishu-membership = { path = "crates/orishu-membership" }
+orishu-variables = { path = "crates/orishu-variables" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
+# Field-path decoration for serde errors, so a malformed catalog document
+# reports `spec.components[0].properties.mass` rather than an anonymous
+# "invalid type". Small (no transitive dependencies beyond serde) and used
+# only on the catalog authoring path, never in a hot loop.
+serde_path_to_error = "0.1"
+# YAML for the hand-authored catalog format. Chosen because `orishu-worker`
+# already resolves it, so this adds no second YAML implementation to the tree.
+# Upstream is deprecated and unmaintained; the maintained fork is
+# `serde_norway`, and migrating both users together is tracked as follow-up
+# work rather than done piecemeal here.
+serde_yaml = "0.9"
 sha2 = "0.10"
+tempfile = "3"
 thiserror = "2"
 

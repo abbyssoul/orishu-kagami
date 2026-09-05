@@ -1,0 +1,44 @@
+[package]
+name = "kagami-catalog"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kagami's editable object-template catalog: format, bounded loading, variable projection, and the catalog authority"
+
+# Dependency budget is part of this crate's contract.
+#
+# The catalog is a Kagami-owned authoring domain. It must not acquire a UI,
+# MCP transport, solver, or Orishu runtime dependency: `tests/dependencies.rs`
+# asserts that against the resolved dependency graph. Filesystem access is
+# confined to `load` and `write`; every decision above them is a pure function
+# over values.
+#
+# - orishu-variables:     the one shared expression parser and evaluator.
+# - serde/serde_yaml:     the hand-authored document format.
+# - serde_path_to_error:  field-located diagnostics for a malformed document.
+# - sha2:                 canonical content fingerprints.
+# - thiserror:            structured error types.
+[dependencies]
+dhat = { workspace = true, optional = true }
+orishu-variables = { workspace = true }
+serde = { workspace = true }
+serde_path_to_error = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = "0.23"
+criterion = { workspace = true }
+tempfile = { workspace = true }
+
+[features]
+# Installs `dhat`'s counting allocator for `examples/profile_catalog.rs`.
+# Never enabled by the library itself.
+dhat = ["dep:dhat"]
+
+[[bench]]
+name = "catalog"
+harness = false

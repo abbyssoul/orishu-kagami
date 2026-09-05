@@ -32,14 +32,15 @@ timeline
                                     : S-OBSERVE, S-PROVENANCE, O-API-SHAPE
                                     : N-MEMBERSHIP accepted
     section Author and execute locally
-      M2 — Authoring and admission : K-DOCUMENT, X-PLUGIN, K-CATALOG
+      M2 — Authoring and admission : K-DOCUMENT, X-PLUGIN, K-CATALOG core implemented
+                                    : K-CATALOG core accepted
                                     : Workload compilation and admission
                                     : O-WASM and early K-MCP
       M3 — Single-node simulation  : O-RUNTIME, O-STORAGE, O-CLIENT
                                     : Gravity built-in, K-RUN, minimal V-LIVE
                                     : Runtime and storage observability
     section Form and distribute
-      M4 — Cluster formation PoC   : N-FORMATION is ready next
+      M4 — Cluster formation PoC   : N-FORMATION is in progress
                                     : Real peer IO and operator controls
                                     : Formation observability and three-worker proof
       M5 — Distributed execution  : N-CLUSTER, N-TRANSFER, N-PURGE
@@ -68,9 +69,9 @@ at once.
 | --- | --- | --- | --- |
 | M0 — Green and truthful foundation | In progress; not formally accepted | Documentation checks pass and the restored roadmap is tracked | Close remaining baseline/API decisions and verify every selected slice has a bounded task |
 | M1 — Shared semantic spine | In progress | N-MEMBERSHIP and its shared membership identity prerequisite are accepted | Complete workload, quantity/variable, observation, provenance, API-shape, and remaining identity contracts |
-| M2 — Authoring and admission | In progress | Generic variable engine and catalog core exist; N-MEMBERSHIP is accepted | Implement the document authority, dimensional integration, workload admission, plugin inventory, and Wasm host |
+| M2 — Authoring and admission | In progress | Generic variable engine and the `kagami-catalog` crate, authority, variable projection, shipped examples, and materialization core exist and are accepted; N-MEMBERSHIP is accepted | Implement the document authority, dimensional integration, workload admission, plugin inventory, and Wasm host |
 | M3 — Single-node simulation | Not started as a milestone | Prototype worker/client/Kagami surfaces exist but do not prove the outcome | Stable M1/M2 contracts, then a real admitted single-worker run |
-| M4 — Operational cluster formation PoC | Ready | N-MEMBERSHIP is accepted and N-FORMATION has an implementation-ready task | Complete N-FORMATION preflight, peer/driver integration, operator surface, observability, and three-process proof |
+| M4 — Operational cluster formation PoC | In progress | N-MEMBERSHIP is accepted; replicated lock and codec/TLS adapter tests have landed | Complete remaining preflight, worker integration, operator surface, observability, and three-process proof |
 | M5 — Distributed execution | Planned; specification gates remain | Accepted formation, purge, and transfer constraints exist | N-FORMATION, single-node runtime, storage, workload, and scientific-profile fixtures |
 | M6 — Multi-client observation | Planned; some tasks ready | Live-streaming and replay tasks are specified | Shared observation types, runtime/storage/client service, and K-RUN |
 | M7 — Extension and authoring parity | Planned; specification gates remain | Catalog and MCP tasks are specified in part | Stable plugin, document, workload, run, and sandbox contracts |
@@ -89,6 +90,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 
 | Work package | Primary stage | State | Next step or gate |
 | --- | --- | --- | --- |
+| S-RESOURCE | M1–M2 | Ready | Extract the generic typed resource envelope; migrate Orishu first, then adopt in Kagami (the catalog containment correction it waited on is accepted) |
 | S-WORKLOAD | M1–M2 | Ready | Implement shared identity, closure, codec, compilation, and admission slices |
 | S-VARIABLES | M1–M2 | Partial | Verify core bounds; add dimensions, document integration, and workload integration |
 | S-IDENTITY | M1 | Partial | Complete cluster projection and run identity contracts |
@@ -98,7 +100,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | X-PLUGIN | M1–M2 | Planned | Specify manifest, declarative schema, inventory, and management contracts |
 | X-BUILTINS | M3–M7 | Planned | Implement gravity and electrodynamics through the public plugin/Wasm path |
 | X-DIST-PROFILE | M1–M5 | Decision gate | Define candidate schema and evidence task; accept or replace ADR 0016 only after M5 evidence |
-| K-CATALOG | M2–M7 | Partial | Integrate the existing core with variables, document authority, UI, and MCP |
+| K-CATALOG | M2–M7 | Core implemented and accepted | `kagami-catalog` carries the format, bounded loader, variable projection, guarded writes, catalog authority, shipped examples, and self-contained materialization. Identity collisions, rename events, symlinked ancestors and targets, missing descendants below a symlink, and temporary paths are all refused before any effect outside the catalog root. Later: shared dimension inference, document instantiation, workload capture, UI, and MCP |
 | K-MCP | M2–M7 | Ready; later slices gated | Implement transport/status first; add authoring and run parity after their authorities exist |
 | O-WASM | M2 | Planned | Specify and implement the capability-limited component host |
 | O-RUNTIME | M3 | Planned | Specify the single-node fixed-step run authority and commit loop |
@@ -110,7 +112,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | V-LIVE | M3–M6 | Ready after shared types | Implement minimal snapshots in M3, then resume/delta/multi-client behavior in M6 |
 | V-REPLAY | M6 | Ready after stored observations | Implement exact time-addressable persisted playback |
 | N-MEMBERSHIP | M1–M2 | **Accepted** | Feed the accepted sans-IO core into N-FORMATION |
-| N-FORMATION | M4 | **Ready — next network slice** | Settle its bounded preflight and implement the real peer/admin PoC |
+| N-FORMATION | M4 | **In progress** | Complete remaining preflight, worker integration, operator surface, observability, and real three-process proof |
 | N-CLUSTER | M5 | Planned | Specify after formation and single-node runtime semantics are proven |
 | N-TRANSFER | M5 | Planned | Specify bounded verified QUIC artifact transfer |
 | N-PURGE | M5 | Planned | Specify persisted tombstones and inventory suppression |
@@ -123,10 +125,10 @@ States mirror the authoritative roadmap as of the snapshot date:
 
 ## Immediate assignment
 
-The next implementation-ready Orishu networking package is
+The active Orishu networking package is
 [N-FORMATION](../tasks/implement-cluster-formation-poc.md). Its accepted input is
 [N-MEMBERSHIP](../tasks/implement-membership-model.md), including the completed
 [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md).
-It may proceed independently of workload execution, storage, Kagami, and the
-physics-plugin lanes, subject to the preflight decisions already bounded by its
-task.
+It proceeds independently of workload execution, storage, Kagami, and the
+physics-plugin lanes, subject to the remaining preflight and integration work
+bounded by its task.

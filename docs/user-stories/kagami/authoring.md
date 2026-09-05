@@ -98,9 +98,11 @@ a live Kagami service.
 **Then** another compatible Kagami instance can open the same authored intent.
 
 **Acceptance criteria:**
-- The experiment file is self-contained with respect to instantiated catalog
-  objects; the recipient does not need the sender's object catalog to open,
-  validate, edit, or submit it.
+- The experiment file is self-contained with respect to objects materialized
+  by catalog instantiation. If its authored expressions deliberately retain
+  catalog-qualified variables, the recipient can still open and inspect the
+  source but needs copies of the referenced catalog files and compatible
+  plugin schemas to validate, edit, or compile those expressions.
 - The file contains editable intent only and does not silently carry a live
   cluster connection, run-control capability, presentation state, credentials,
   or observation cache.
@@ -241,8 +243,56 @@ and instantiate it
   properties, expressions, and source provenance. It can be saved, opened,
   edited, and submitted without the source catalog.
 - Changing, deleting, reloading, or losing a template never changes an
-  existing object. Comparing with or applying a newer template is explicit,
-  reviewable, validated, and undoable.
+  existing object. Instantiating the changed template creates a new object;
+  there is no tracking link or automatic/explicit propagation operation.
+- A structurally valid template whose component/property schemas are not
+  supplied by installed plugins remains visible with an `Unavailable`
+  diagnostic and cannot be instantiated. Installing the compatible plugin
+  revalidates the template without changing existing objects.
+
+### Reuse a catalog value in an expression
+
+As a scientist-researcher, I want to reference a specific property of a
+catalog template in my own expression so that I can reuse a known physical
+quantity, such as the Sun's mass, without instantiating that template as an
+object just to read it.
+
+**Given** an experiment is open and a catalog template defines an
+expression-capable property
+**When** I write an expression that references that property by its catalog
+path, such as `planets.sun.mass / 2`, for one of my own variables or object
+properties
+**Then** Kagami resolves the reference through the shared variable system for
+authoring, and compilation captures its complete resolved dependency closure
+inside the immutable workload.
+
+**Acceptance criteria:**
+- Every expression-capable template property participates in a canonical
+  catalog/template/component/property namespace without a separate export
+  list. Public properties can be referenced from document expressions;
+  private properties and helper variables remain visible only within their
+  declared namespace.
+- The short spelling `planets.sun.mass` works only when it is unambiguous. The
+  resolved binding uses stable catalog, template, plugin/component, and
+  property identities rather than editable display names.
+- The document retains the catalog-qualified authored source. Reloading a
+  catalog may update its derived preview or make it unavailable, but does not
+  mutate the document or create an undo entry.
+- A catalog expression may reference another visible catalog binding. Missing
+  files, private dependencies, unknown plugin schemas, unresolved names,
+  cycles, invalid dimensions, and non-finite values produce structured
+  diagnostics; affected templates cannot be instantiated or compiled, while
+  other catalog entries remain usable.
+- Saving and reopening preserves an unresolved catalog-qualified expression
+  without fabricating a value. It becomes valid again when the required
+  catalog files and compatible plugins are available.
+- Compiling an exact document revision captures the complete transitive
+  catalog-variable closure from one immutable catalog snapshot. The workload
+  retains rewritten expression sources, dimensions, canonical resolved values,
+  source identities, and fingerprints, but no reference Orishu must resolve
+  through Kagami's catalog.
+- A catalog change after compilation never changes an accepted or running
+  workload. Compiling again may produce a different workload and fingerprint.
 
 ### Manage the object catalog
 
@@ -257,14 +307,17 @@ the resulting revision.
 **Acceptance criteria:**
 - The catalog is a versioned collection of bounded, human-readable files owned
   by the Kagami client, not by the open experiment or Orishu.
+- Catalog files can be copied between users. Missing catalog dependencies or
+  plugin-provided schemas are reported per entry rather than preventing the
+  rest of the catalog from loading.
 - UI and MCP operations use the same catalog commands, validation, revision,
   conflict detection, availability states, and diagnostics.
 - One malformed or unsupported entry is isolated as invalid or unavailable;
   other entries and Kagami remain usable, and no scientific defaults are
   fabricated.
-- Catalog edits do not mark the experiment modified. Only instantiation or an
-  explicit template update changes the experiment through its document
-  authority.
+- Catalog edits do not mark the experiment modified. Instantiation changes the
+  experiment through its document authority; catalog-variable previews are
+  derived from the current catalog revision.
 - Concurrent or external file changes cannot be silently overwritten; Kagami
   reports stale revisions or source fingerprints and requires a fresh edit.
 

@@ -2,6 +2,12 @@
 
 Status: **accepted**
 
+Direct use of catalog-qualified values is refined by
+[ADR 0018](0018-catalog-values-are-captured-by-reference-not-linked.md):
+instantiation still materializes self-contained object state, while an author
+may separately retain an explicit catalog-variable dependency that is captured
+when compiling a workload.
+
 ## Context
 
 Scientists repeatedly create objects with the same useful composition and
@@ -19,9 +25,9 @@ Field CAD's `docs/adr/0019-generic-particle-catalog-is-data.md` established the
 central lesson: a catalog entry describes generic component data, not a
 particle class or hidden solver dispatch. Its later catalog work also
 demonstrated isolated load failures, explicit availability, content
-fingerprints, provenance, and explicit rather than automatic propagation.
-Kagami must retain those lessons while integrating its shared expression
-language and command-authority boundaries.
+fingerprints, and provenance. Kagami retains those lessons while deliberately
+dropping Field CAD's tracking/propagation relationship and integrating its
+shared expression language and command-authority boundaries.
 
 ## Decision
 
@@ -64,14 +70,14 @@ document authority from ADR 0004. The authority resolves and dimension-checks
 the complete candidate, mints an object identity, and either adds the object as
 one experiment revision and undo entry or rejects the proposal atomically.
 
-The accepted object persists all authored component/property state needed to
-open, edit, compile, and submit the experiment without the catalog. It also
+The accepted object persists all authored component/property state and the
+transitive template definitions needed to use that object without the source
+catalog. It also
 persists provenance sufficient to identify the source catalog, template,
 schema version, and content fingerprint. That provenance is not a live pointer.
 Editing, reloading, removing, or losing a template never changes existing
-objects. Comparing with or applying a newer template is an explicit document
-operation that shows the proposed differences and follows normal validation,
-revision, and undo rules.
+objects. Kagami does not retain Field CAD's template-tracking or propagation
+relationship; creating from a changed template is a new instantiation.
 
 Orishu receives the self-contained object state produced during workload
 compilation. It does not load or interpret Kagami's catalog.
@@ -101,8 +107,8 @@ only the catalog projection and never mutates an experiment.
   a machine with a different or missing catalog.
 - Generic component schemas, not template names, determine simulation
   behavior.
-- Catalog and document revisions are distinct; commands that instantiate or
-  explicitly reapply a template must account for both.
+- Catalog and document revisions are distinct; an instantiation command uses
+  one immutable catalog snapshot and creates one document revision.
 - Kagami needs a catalog domain module, file loader/writer, authority, UI, MCP
   tools, and an explicit instantiation bridge to the document authority.
 - Live inheritance, silent propagation, and treating the catalog as an Orishu

@@ -58,6 +58,10 @@ independent platforms.
   dependency graph, and their resolved values as part of experiment intent.
 - Kagami's separate catalog authority owns object-template files, validation,
   and catalog revision. UI and MCP adapters command that same authority.
+- A template identity has exactly one owner, whatever an entry's load state,
+  and every catalog file effect stays physically inside the configured catalog
+  root. Both are decided before anything is written, so a refused command
+  leaves the files, the projection, and the revision untouched.
 - Kagami owns the installed simulation-plugin inventory and exposes its
   declarative model vocabulary to authoring. Plugin installation never grants
   executable code ambient authority inside Kagami.
@@ -94,8 +98,9 @@ independent platforms.
   the dimensions required by the experiment schema.
 - Instantiating a catalog template persists complete authored object state and
   source provenance in the experiment. Catalog changes never silently mutate
-  existing objects, and neither opening nor submitting the experiment depends
-  on the source catalog being present.
+  existing objects. A separately authored catalog-qualified variable reference
+  remains an explicit authoring dependency; workload compilation captures and
+  rewrites its complete closure so Orishu never depends on a Kagami catalog.
 - Accepted workload expressions are immutable for their workload epoch and are
   never reevaluated as runtime control state. Changing one requires a new
   workload resource and normal replacement.

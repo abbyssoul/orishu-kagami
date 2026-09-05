@@ -21,3 +21,4 @@ consequences, and status.
 - [0015 — Use QUIC-native transfer for committed artifact chunks](0015-use-quic-native-artifact-transfer.md)
 - [0016 — Use a narrow Maxwell/Yee profile for first distributed conformance](0016-first-distributed-scientific-profile.md) (**proposed for revalidation**)
 - [0017 — Expose bounded worker metrics, traces and health probes](0017-worker-operational-observability.md) (**accepted; implementation planned**)
+- [0018 — Catalog template properties are authoring variables captured into workloads](0018-catalog-values-are-captured-by-reference-not-linked.md) (**proposed**)

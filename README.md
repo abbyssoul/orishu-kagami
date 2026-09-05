@@ -73,6 +73,13 @@ make run-ctl ARGS="--help"
 The worker defaults to a per-user Unix socket. Pass `--host` or set
 `ORISHU_HOST` when using a different endpoint.
 
+`make run-ctl ARGS="cluster info"` now reports the worker's real standalone
+formation identity and local membership summary. Authenticated join/catch-up
+and lock/unlock/leave now have three-worker CLI evidence; recovery and full
+formation conformance remain in progress. Each instance needs its
+own private state directory and client socket; see the
+[worker README](apps/orishu-worker/README.md#identity-and-local-inspection).
+
 ### Kagami
 
 Start the native client:

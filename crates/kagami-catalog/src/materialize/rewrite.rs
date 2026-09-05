@@ -1,0 +1,201 @@
+//! Renaming the symbols in an authored expression.
+//!
+//! Instantiation copies definitions into object-local identities, which means
+//! rewriting the references in the expressions that used them. The rewrite is
+//! textual because the authored source is what is retained and persisted, but
+//! it is *tokenised* textually rather than pattern-matched: a naive
+//! search-and-replace would corrupt `mass_of_sun` while renaming `mass`, or
+//! rewrite the `e30` inside `1.989e30`.
+//!
+//! The scanner mirrors `orishu-variables`' own lexer exactly — a symbol
+//! starts with a letter or `_`, continues with alphanumerics and `_`, and a
+//! `.` continues it only when another identifier character follows — so a
+//! rewritten expression tokenises to the same shape the evaluator will see.
+
+use std::collections::BTreeMap;
+
+/// Replace every whole symbol in `source` that appears in `renames`, leaving
+/// numbers, operators, and unmatched symbols untouched.
+///
+/// Renaming is single-pass: a symbol is replaced by its mapped value and the
+/// result is never rescanned, so a rename map whose values collide with its
+/// keys cannot cascade.
+pub fn rewrite_symbols(source: &str, renames: &BTreeMap<String, String>) -> String {
+    if renames.is_empty() {
+        return source.to_owned();
+    }
+    let bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len());
+    let mut position = 0usize;
+
+    while position < bytes.len() {
+        let current = bytes[position] as char;
+        if current.is_ascii_digit() {
+            let end = scan_number(bytes, position);
+            out.push_str(&source[position..end]);
+            position = end;
+        } else if current.is_alphabetic() || current == '_' {
+            let end = scan_symbol(bytes, position);
+            let symbol = &source[position..end];
+            match renames.get(symbol) {
+                Some(replacement) => out.push_str(replacement),
+                None => out.push_str(symbol),
+            }
+            position = end;
+        } else {
+            out.push(current);
+            position += current.len_utf8();
+        }
+    }
+    out
+}
+
+/// Consume a numeric literal, including a `.` fraction and an `e`/`E`
+/// exponent, so `1.989e30` is never mistaken for the symbol `e30`.
+fn scan_number(bytes: &[u8], start: usize) -> usize {
+    let mut position = start;
+    while position < bytes.len() && (bytes[position] as char).is_ascii_digit() {
+        position += 1;
+    }
+    if position < bytes.len() && bytes[position] as char == '.' {
+        position += 1;
+        while position < bytes.len() && (bytes[position] as char).is_ascii_digit() {
+            position += 1;
+        }
+    }
+    if position < bytes.len() && matches!(bytes[position] as char, 'e' | 'E') {
+        let exponent = position;
+        position += 1;
+        if position < bytes.len() && matches!(bytes[position] as char, '+' | '-') {
+            position += 1;
+        }
+        if position < bytes.len() && (bytes[position] as char).is_ascii_digit() {
+            while position < bytes.len() && (bytes[position] as char).is_ascii_digit() {
+                position += 1;
+            }
+        } else {
+            // Not an exponent after all: `1e` is the literal `1` followed by
+            // the symbol `e`, exactly as the lexer reads it.
+            position = exponent;
+        }
+    }
+    position
+}
+
+/// Consume a possibly dotted symbol.
+fn scan_symbol(bytes: &[u8], start: usize) -> usize {
+    let mut position = start + 1;
+    while position < bytes.len() {
+        let current = bytes[position] as char;
+        let dot_continues = current == '.'
+            && position + 1 < bytes.len()
+            && ((bytes[position + 1] as char).is_alphanumeric()
+                || bytes[position + 1] as char == '_');
+        if current.is_alphanumeric() || current == '_' || dot_continues {
+            position += 1;
+        } else {
+            break;
+        }
+    }
+    position
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orishu_variables::CompiledExpression;
+
+    fn renames(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(from, to)| ((*from).to_owned(), (*to).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn an_empty_rename_map_returns_the_source_unchanged() {
+        assert_eq!(rewrite_symbols("a + b", &BTreeMap::new()), "a + b");
+    }
+
+    #[test]
+    fn a_qualified_symbol_is_replaced_whole() {
+        assert_eq!(
+            rewrite_symbols(
+                "planets.sun.mass / 2",
+                &renames(&[("planets.sun.mass", "objects.o.sun_mass")])
+            ),
+            "objects.o.sun_mass / 2"
+        );
+    }
+
+    #[test]
+    fn a_symbol_that_merely_contains_the_renamed_text_is_left_alone() {
+        assert_eq!(
+            rewrite_symbols("mass_of_sun + mass", &renames(&[("mass", "m2")])),
+            "mass_of_sun + m2"
+        );
+    }
+
+    #[test]
+    fn a_prefix_of_a_longer_qualified_name_is_left_alone() {
+        assert_eq!(
+            rewrite_symbols(
+                "planets.sun.mass",
+                &renames(&[("planets.sun", "objects.o")])
+            ),
+            "planets.sun.mass"
+        );
+    }
+
+    #[test]
+    fn an_exponent_is_never_mistaken_for_a_symbol() {
+        assert_eq!(
+            rewrite_symbols("1.989e30 * e", &renames(&[("e", "objects.o.e")])),
+            "1.989e30 * objects.o.e"
+        );
+        assert_eq!(
+            rewrite_symbols("1e+5 - 2E-3", &renames(&[("e", "x"), ("E", "y")])),
+            "1e+5 - 2E-3"
+        );
+    }
+
+    #[test]
+    fn a_bare_e_after_a_number_is_a_symbol_just_as_the_lexer_reads_it() {
+        assert_eq!(rewrite_symbols("1e", &renames(&[("e", "x")])), "1x");
+    }
+
+    #[test]
+    fn operators_parentheses_and_spacing_survive_verbatim() {
+        assert_eq!(
+            rewrite_symbols("-(a ^ 2) / (b + 3.5)", &renames(&[("a", "x"), ("b", "y")])),
+            "-(x ^ 2) / (y + 3.5)"
+        );
+    }
+
+    #[test]
+    fn renaming_does_not_cascade_through_its_own_output() {
+        assert_eq!(
+            rewrite_symbols("a + b", &renames(&[("a", "b"), ("b", "a")])),
+            "b + a"
+        );
+    }
+
+    #[test]
+    fn a_rewritten_expression_parses_to_the_renamed_symbols() {
+        let rewritten = rewrite_symbols(
+            "planets.sun.solar_mass * planets.sun.scale + 1.0e3",
+            &renames(&[
+                ("planets.sun.solar_mass", "objects.o.solar_mass"),
+                ("planets.sun.scale", "objects.o.scale"),
+            ]),
+        );
+        let compiled = CompiledExpression::parse(&rewritten).unwrap();
+        assert_eq!(
+            compiled.variables(),
+            vec![
+                "objects.o.solar_mass".to_owned(),
+                "objects.o.scale".to_owned()
+            ]
+        );
+    }
+}

@@ -6,7 +6,7 @@ ARGS ?=
 
 .DEFAULT_GOAL := build
 
-.PHONY: build test test-docs check ci fmt fmt-check lint docs docs-check clean \
+.PHONY: build test test-docs test-formation check ci fmt fmt-check lint docs docs-check clean \
 	run-kagami run-worker run-ctl run-monitor smoke-kagami coverage deb \
 	install-ctl install-worker docker-worker docker-ctl docker-monitor
 
@@ -18,6 +18,12 @@ test:
 
 test-docs:
 	$(CARGO) test --locked --workspace --doc
+
+# Unix process/QUIC journey; optional telemetry is not required.
+test-formation:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl
+	python3 scripts/test_formation_evidence.py
+	python3 scripts/check-formation-cli.py
 
 fmt:
 	$(CARGO) fmt --all

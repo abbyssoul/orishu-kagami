@@ -1,0 +1,805 @@
+# Notable Solar System bodies, one object template per body.
+#
+# Physical data from NASA/JPL fact sheets and mission results; masses and
+# radii are mean/equatorial values as flagged per entry. Every value is
+# authored in an explicit unit and published in canonical SI.
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: sol
+  description: Sol
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.989e+30", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "6.9634e+8", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: mercury
+  description: Mercury
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "3.30e+23", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.4397e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: venus
+  description: Venus
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "4.87e+24", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "6.052e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: earth
+  description: Earth
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "5.97e+24", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "6.378e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: mars
+  description: Mars
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "6.417e+23", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "3.390e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: jupiter
+  description: Jupiter
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.8982e+27", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "7.1492e+7", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: saturn
+  description: Saturn
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "5.6834e+26", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "6.0268e+7", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: uranus
+  description: Uranus
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "8.6810e+25", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.5559e+7", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: neptune
+  description: Neptune
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.02413e+26", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.4764e+7", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: pluto
+  description: Pluto (dwarf planet)
+  annotations:
+    source: NASA/JPL (New Horizons)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.303e+22", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.1883e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: ceres
+  description: Ceres (dwarf planet, largest main-belt asteroid)
+  annotations:
+    source: NASA/JPL Dawn mission
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "9.38e+20", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "4.697e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: eris
+  description: Eris (dwarf planet)
+  annotations:
+    source: NASA/JPL
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.6466e+22", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.163e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: haumea
+  description: Haumea (dwarf planet)
+  annotations:
+    source: NASA/JPL
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "4.006e+21", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "8.16e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: makemake
+  description: Makemake (dwarf planet)
+  annotations:
+    source: NASA/JPL
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "3.1e+21", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "7.15e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: sedna
+  description: Sedna (extreme trans-Neptunian object)
+  annotations:
+    source: JPL Small-Body Database (mass estimated)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.0e+21", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "4.98e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: moon
+  description: Moon
+  annotations:
+    source: NASA/JPL Planetary Fact Sheet
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "7.35e+22", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.7375e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: phobos
+  description: Phobos (moon of Mars)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.0659e+16", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.1267e+4", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: deimos
+  description: Deimos (moon of Mars)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.4762e+15", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "6.2e+3", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: io
+  description: Io (moon of Jupiter)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "8.9319e+22", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.8216e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: europa
+  description: Europa (moon of Jupiter)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "4.7998e+22", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.5608e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: ganymede
+  description: Ganymede (moon of Jupiter)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.4819e+23", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.6341e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: callisto
+  description: Callisto (moon of Jupiter)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.0759e+23", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.4103e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: titan
+  description: Titan (moon of Saturn)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.3452e+23", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.5747e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: enceladus
+  description: Enceladus (moon of Saturn)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.08022e+20", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.521e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: titania
+  description: Titania (moon of Uranus)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "3.4e+21", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "7.884e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: oberon
+  description: Oberon (moon of Uranus)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "3.014e+21", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "7.614e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: miranda
+  description: Miranda (moon of Uranus)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "6.6e+19", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.358e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: triton
+  description: Triton (moon of Neptune)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "2.139e+22", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.3534e+6", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: charon
+  description: Charon (moon of Pluto)
+  annotations:
+    source: JPL Planetary Satellite Physical Parameters
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.586e+21", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "6.06e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: vesta
+  description: 4 Vesta (main-belt asteroid)
+  annotations:
+    source: NASA Dawn / JPL SSD
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "2.59e+20", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.627e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: pallas
+  description: 2 Pallas (main-belt asteroid)
+  annotations:
+    source: JPL SSD (Baer & Chesley 2008)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "2.04e+20", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.56e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: hygiea
+  description: 10 Hygiea (main-belt asteroid)
+  annotations:
+    source: JPL SSD (Vernazza et al. 2021)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "8.74e+19", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.165e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: psyche
+  description: 16 Psyche (main-belt asteroid)
+  annotations:
+    source: JPL SSD (Baer 2008)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "2.29e+19", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.13e+5", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: eros
+  description: 433 Eros (near-Earth asteroid)
+  annotations:
+    source: NASA NEAR Shoemaker (Yeomans et al. 2000)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "6.687e+15", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "8.4e+3", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: itokawa
+  description: 25143 Itokawa (near-Earth asteroid)
+  annotations:
+    source: JAXA Hayabusa (Fujiwara et al. 2006)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "3.51e+10", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.635e+2", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: mathilde
+  description: 253 Mathilde (main-belt asteroid)
+  annotations:
+    source: NASA NEAR Shoemaker (Yeomans et al. 1997)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "1.033e+17", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.65e+4", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: bennu
+  description: 101955 Bennu (near-Earth asteroid)
+  annotations:
+    source: NASA OSIRIS-REx / JPL PDS
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "7.33e+10", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "2.45e+2", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: ryugu
+  description: 162173 Ryugu (near-Earth asteroid)
+  annotations:
+    source: JAXA Hayabusa2 (Watanabe et al. 2019)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "4.5e+11", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "4.48e+2", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: didymos
+  description: 65803 Didymos (near-Earth asteroid)
+  annotations:
+    source: NASA DART / JPL SSD
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "5.43e+11", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "3.9e+2", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: planets
+  name: apophis
+  description: 99942 Apophis (near-Earth asteroid)
+  annotations:
+    source: Herschel thermophysical model (Mueller et al. 2014)
+spec:
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass: {quantity: {expression: "5.3e+10", unit: kg}}
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.87e+2", unit: m}}

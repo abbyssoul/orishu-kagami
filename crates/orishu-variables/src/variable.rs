@@ -3,7 +3,7 @@ use crate::{expression::CompiledExpression, namespace::FQName};
 /// Opaque handle to a variable registered in a [`crate::VariablesSystem`].
 ///
 /// Cheap to copy and compare; does not carry the variable's name or
-/// namespace, so a lookup through [`crate::VariablesSystem::find`] is needed
+/// namespace, so a lookup through [`crate::VariablesSystem::lookup`] is needed
 /// to go from a qualified name to a handle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VariableId(pub(crate) u32);

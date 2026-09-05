@@ -1,0 +1,95 @@
+# Worked examples of the catalog format's authoring features.
+#
+# Unlike `planets.yaml` and `particles.yaml`, which are reference data, these
+# templates exist to demonstrate parameters, template-local helpers,
+# visibility, and cross-catalog references. Copying this file to another
+# Kagami installation also requires copying `planets.yaml`, because
+# `scaled_earth` declares a dependency on a binding that catalog publishes.
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: scenarios
+  name: scaled_earth
+  description: An Earth-mass body whose mass and radius scale together
+  annotations:
+    note: demonstrates a parameter, a private helper, and a cross-catalog reference
+spec:
+  parameters:
+    mass_fraction:
+      default: "1"
+      description: Fraction of Earth's mass this body carries
+  helpers:
+    # Private by default: `scenarios.scaled_earth.earth_mass` resolves only
+    # from inside this template.
+    earth_mass:
+      expression: planets.earth.mass
+      unit: kg
+      description: Earth's mass, read from the planets catalog
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass:
+        quantity: scenarios.scaled_earth.earth_mass * scenarios.scaled_earth.mass_fraction
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      # Constant density: radius scales with the cube root of the mass.
+      radius:
+        quantity: planets.earth.radius * scenarios.scaled_earth.mass_fraction ^ 0.3333333333333333
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: scenarios
+  name: orbital_probe
+  description: A spacecraft whose dry and propellant masses are separate inputs
+  annotations:
+    note: demonstrates dimensioned parameters authored in different mass units
+spec:
+  parameters:
+    # Each parameter declares the unit its magnitude is authored in, and is
+    # published in canonical SI, so the two compose without a conversion in
+    # the expression.
+    dry_mass:
+      default: "500"
+      unit: kg
+      description: Structure and payload mass
+    propellant_mass:
+      default: "1.5"
+      unit: t
+      description: Propellant mass at launch
+  components:
+  - type: {plugin: kagami.mass_sources, name: inertial_mass}
+    properties:
+      mass:
+        quantity: scenarios.orbital_probe.dry_mass + scenarios.orbital_probe.propellant_mass
+  - type: {plugin: kagami.mass_sources, name: gravitational_mass}
+    properties:
+      follows_inertial: {boolean: true}
+  - type: {plugin: kagami.geometry, name: sphere}
+    properties:
+      radius: {quantity: {expression: "1.2", unit: m}}
+---
+apiVersion: kagami.catalog/v1
+kind: ObjectTemplate
+metadata:
+  catalog: scenarios
+  name: constants
+  description: Shared physical constants other templates may read
+  annotations:
+    source: NIST CODATA 2022
+spec:
+  helpers:
+    # Declared public, so any loaded catalog may read
+    # `scenarios.constants.gravitational_constant`.
+    gravitational_constant:
+      expression: "6.67430e-11"
+      visibility: public
+      description: Newtonian constant of gravitation, in m^3 kg^-1 s^-2
+    speed_of_light:
+      expression: "2.99792458e8"
+      visibility: public
+      description: Speed of light in vacuum, in m/s

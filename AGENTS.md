@@ -56,6 +56,15 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   admission, SWIM, gossip merge, and anti-entropy. It must never acquire a
   networking, async-runtime, clock, filesystem, TLS, or RNG dependency; a test
   enforces that against the resolved dependency graph.
+- `crates/orishu-variables`: the shared idCVar-inspired variables and
+  expressions engine — namespaced variables, retained expression source,
+  stable handles, and cycle-detecting resolution. Deliberately generic: it
+  knows nothing of documents, catalogs, dimensions, or units.
+- `crates/kagami-catalog`: Kagami's object-template catalog — format, bounded
+  loading, the read-only variable projection, safe writes, self-contained
+  instantiation, and the catalog authority. UI and MCP are adapters over that
+  authority; a test enforces that it acquires no UI, transport, or Orishu
+  runtime dependency.
 - `crates/kagami-renderer`: Kagami's Iced/wgpu rendering boundary. It owns GPU
   presentation mechanics, never authoritative experiment or simulation state.
 - `docs/adr`: accepted costly-to-reverse decisions.
@@ -63,6 +72,9 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
 - `docs/user-stories`: user-facing outcomes, not low-level implementation
   specifications.
 - `etc`: worker deployment configuration.
+- `etc/catalogs`: the object catalogs shipped as examples. Kagami installation
+  data, never Orishu workload resources; the catalog integration tests load
+  these exact files.
 - `scripts`: repository validation and automation.
 
 The workspace currently discovers `apps/*` and `crates/*`. Do not create a new

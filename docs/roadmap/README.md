@@ -133,7 +133,8 @@ slices and acceptance criteria before implementation begins.
 
 | ID | Work package | Lane | State | Depends on |
 | --- | --- | --- | --- | --- |
-| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Ready; foundational | M0; S-VARIABLES for expression integration |
+| S-RESOURCE | [Shared Kubernetes-style resource envelope](../tasks/extract-shared-resource-envelope.md) | S | Ready; Orishu and Kagami slices are unblocked | M0; coordinate identity fields with S-IDENTITY/O-API-SHAPE |
+| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Ready; foundational | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
 | S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Generic engine present; verify slice 1 bounds; slices 2–4 remain | M0 for core; K-DOCUMENT for slice 3; S-WORKLOAD for slice 4 |
 | S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types landed in `orishu-identity`; cluster projection and run identity still require specification/reconciliation | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
@@ -142,7 +143,7 @@ slices and acceptance criteria before implementation begins.
 | X-PLUGIN | Simulation-plugin manifest, declarative schemas, inventory and safe management | X/K | **Task specification required** | S-WORKLOAD identity model; S-VARIABLES dimensions |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | **Task specification required** | X-PLUGIN; O-WASM host contract |
 | X-DIST-PROFILE | Concrete first distributed scientific schema, fixtures, limits and validation plan for proposed ADR 0016 or an explicit replacement | X/O/N | **Decision and task specification required**; proposal only until M5 evidence | S-WORKLOAD; X-PLUGIN; O-WASM lifecycle |
-| K-CATALOG | [Kagami object catalog](../tasks/implement-kagami-object-catalog.md) | K | Core ready; integration gated | S-VARIABLES; K-DOCUMENT and component schemas for instantiation |
+| K-CATALOG | [Kagami object catalog](../tasks/implement-kagami-object-catalog.md) and [catalog-variable workload capture](../tasks/capture-catalog-values-in-expressions.md) | K/S | Catalog crate, authority, and materialization core implemented and accepted, including the [authority-boundary correction](../tasks/fix-kagami-catalog-authority-boundaries.md); document/workload/UI/MCP integration gated | S-VARIABLES for dimension inference; K-DOCUMENT and component schemas for instantiation; S-WORKLOAD for capture |
 | K-MCP | [Embedded Kagami MCP server](../tasks/kagami-mcp-server.md) | K | Slices 1–7 ready; 8–9 gated | K-DOCUMENT for authoring; O-CLIENT/K-RUN for run parity |
 | O-WASM | WebAssembly Component host implementing `orishu.workload/v1` limits and lifecycle | O | **Task specification required** | S-WORKLOAD descriptors; protocol-workload contract |
 | O-RUNTIME | Single-node admission, fixed-step run authority and commit loop | O | **Task specification required** | S-IDENTITY; S-WORKLOAD; O-WASM; S-OBSERVE |
@@ -154,7 +155,7 @@ slices and acceptance criteria before implementation begins.
 | V-LIVE | [Resumable live observation streaming](../tasks/implement-resumable-observation-streaming.md) slices 3–6 | V/O | Ready after shared frame types | S-OBSERVE; O-RUNTIME; O-CLIENT |
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
 | N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | **Accepted**, including the [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
-| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Contract slice ready; membership accepted; adapters follow preflight | N-MEMBERSHIP; trust/codec preflight; cluster-policy reconciliation; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
+| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | In progress; public three-worker introducer handoff passes; recovery and lifecycle/fault conformance pending | N-MEMBERSHIP; remaining preflight; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
 | N-CLUSTER | Fenced ownership, halo exchange and distributed step commit over the proven formation transport | N/O | **Task specification required** | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD; X-DIST-PROFILE candidate fixtures for scientific acceptance |
 | N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-FORMATION authenticated transport |
 | N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
@@ -478,8 +479,9 @@ workload it would submit, before attempting distributed execution.
 - Complete S-VARIABLES experiment integration and workload-resource validation.
 - Implement X-PLUGIN inventory/install/remove/compatibility behavior and expose
   the same public path for bundled and third-party plugins.
-- Implement K-CATALOG core/load/authority slices while its instantiation waits
-  for K-DOCUMENT and component schemas; then integrate instantiation.
+- Commit materialized candidates from the accepted `kagami-catalog`
+  core/load/authority, variable-projection, and materialization slices through
+  K-DOCUMENT when it and component schemas are ready.
 - Implement S-WORKLOAD Kagami compilation and Orishu admission slices. Prove a
   deterministic closure with golden fixtures and a thin in-memory/file
   admission round trip; the researcher-facing portable export workflow remains

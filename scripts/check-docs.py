@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
@@ -23,13 +24,33 @@ REQUIRED = (
 LINK = re.compile(r"!?(?:\[[^]]*\])\(([^)]+)\)")
 
 
+def gitignored(paths: list[Path]) -> set[Path]:
+    if not paths:
+        return set()
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-z", "--stdin"],
+            cwd=ROOT,
+            input="\0".join(str(p) for p in paths),
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return set()
+    if result.returncode not in (0, 1):
+        return set()
+    return {ROOT / rel for rel in result.stdout.split("\0") if rel}
+
+
 def markdown_files() -> list[Path]:
-    files: list[Path] = []
+    candidates: list[Path] = []
     for path in ROOT.rglob("*.md"):
         if any(part in {".git", "target"} for part in path.parts):
             continue
-        files.append(path)
-    return sorted(files)
+        candidates.append(path)
+
+    ignored = gitignored(candidates)
+    return sorted(path for path in candidates if path not in ignored)
 
 
 def local_target(raw: str) -> str | None:
