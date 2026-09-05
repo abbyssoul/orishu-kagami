@@ -89,7 +89,7 @@ mod tests {
 
         let status = ClientBuilder::new(Client::new())
             .build()
-            .get(format!("{}/collection", &server.uri()))
+            .get(format!("{}/collection", server.uri()))
             .send()
             .await
             .unwrap()
@@ -102,7 +102,7 @@ mod tests {
         let status = ClientBuilder::new(Client::new())
             .with_init(NetrcMiddleware::from_file(file.as_path()).unwrap())
             .build()
-            .get(format!("{}/collection", &server.uri()))
+            .get(format!("{}/collection", server.uri()))
             .send()
             .await
             .unwrap()

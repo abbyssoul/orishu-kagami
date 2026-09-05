@@ -14,11 +14,13 @@
 //!   cost with no recursive resolution.
 //! - **chain**: a `depth`-long dependency chain (`v1 = v0 + 1`, `v2 = v1 +
 //!   1`, ...). Evaluating the tail variable walks the whole chain, so this
-//!   measures the cost of [`VariablesSystem::value`]'s recursive resolution
-//!   (including its per-call `visiting` allocation) as depth grows.
+//!   measures how [`VariablesSystem::value`]'s iterative resolution — an
+//!   explicit stack over pooled scratch buffers — scales with depth.
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use orishu_variables::{CompiledExpression, Namespace, VariableId, VariableOptions, VariablesSystem};
+use orishu_variables::{
+    CompiledExpression, Namespace, VariableId, VariableOptions, VariablesSystem,
+};
 
 const DEFAULT_COUNTS: [usize; 4] = [10, 100, 1_000, 10_000];
 const DEFAULT_CHAIN_DEPTHS: [usize; 4] = [10, 100, 1_000, 10_000];

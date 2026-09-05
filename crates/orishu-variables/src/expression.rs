@@ -114,7 +114,8 @@ impl<'a> Lexer<'a> {
             let c = bytes[self.pos] as char;
             let dot_continues_identifier = c == '.'
                 && self.pos + 1 < bytes.len()
-                && ((bytes[self.pos + 1] as char).is_alphanumeric() || bytes[self.pos + 1] as char == '_');
+                && ((bytes[self.pos + 1] as char).is_alphanumeric()
+                    || bytes[self.pos + 1] as char == '_');
             if c.is_alphanumeric() || c == '_' || dot_continues_identifier {
                 self.pos += 1;
             } else {
@@ -220,6 +221,24 @@ impl Expr {
             Expr::Binary { lhs, rhs, .. } => {
                 lhs.collect_symbols(out);
                 rhs.collect_symbols(out);
+            }
+        }
+    }
+
+    /// Pushes every symbol reference in this expression into `out`, borrowed
+    /// from the AST rather than cloned, and *with* duplicates — the sibling
+    /// [`Self::collect_symbols`] serves the public
+    /// [`CompiledExpression::variables`] contract (owned, deduplicated),
+    /// while this one feeds dependency resolution, where the caller already
+    /// keys visited variables by handle and a repeat is a cheap map hit.
+    pub(crate) fn collect_symbol_refs<'a>(&'a self, out: &mut Vec<&'a str>) {
+        match self {
+            Expr::Literal(_) => {}
+            Expr::Symbol(name) => out.push(name),
+            Expr::Unary { expr, .. } => expr.collect_symbol_refs(out),
+            Expr::Binary { lhs, rhs, .. } => {
+                lhs.collect_symbol_refs(out);
+                rhs.collect_symbol_refs(out);
             }
         }
     }

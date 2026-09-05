@@ -24,18 +24,10 @@ pub struct TombstoneRecord {
 }
 
 /// How a node was removed from the cluster.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RemovalMode {
-    /// Graceful removal (operator-initiated).
-    Graceful,
-    /// Immediate removal (operator-initiated force).
-    Force,
-    /// Automated removal after the node was confirmed dead.
-    Dead,
-    /// Automated removal after the node matched a blocklist entry.
-    Blocklist,
-}
+///
+/// Defined once in [`orishu_identity`] so the client projection and the
+/// membership core agree on what removal means.
+pub use orishu_identity::RemovalMode;
 
 impl crate::model::ToQueryParam for RemovalMode {
     fn to_query_param(&self) -> Option<String> {

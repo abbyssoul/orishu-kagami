@@ -1,0 +1,18 @@
+[package]
+name = "orishu-identity"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared cluster-formation, node, and label identity types for the Orishu runtime"
+
+# Deliberately dependency-poor: this crate is shared by the networking client in
+# `orishu` and by the sans-IO `orishu-membership` core, which must not acquire a
+# networking, async-runtime, clock, filesystem, TLS, or RNG dependency.
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

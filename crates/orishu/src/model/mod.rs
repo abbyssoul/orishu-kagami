@@ -79,7 +79,7 @@ impl ApiRoute {
 impl std::fmt::Display for ApiRoute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.query {
-            Some(q) => write!(f, "{}?{}", &self.path, q),
+            Some(q) => write!(f, "{}?{}", self.path, q),
             None => f.write_str(&self.path),
         }
     }

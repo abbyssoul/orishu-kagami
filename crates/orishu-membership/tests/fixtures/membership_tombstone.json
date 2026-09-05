@@ -1,0 +1,12 @@
+{
+  "nodeId": "node-0002",
+  "name": "worker-node-0002",
+  "certFingerprint": "090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728",
+  "removalMode": "blocklist",
+  "version": {
+    "epoch": 0,
+    "counter": 1,
+    "actor": "node-actor"
+  },
+  "cleared": false
+}

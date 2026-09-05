@@ -1,0 +1,16 @@
+{
+  "hops": 1,
+  "deltaType": "BlocklistUpdate",
+  "data": {
+    "key": {
+      "name": "worker-banned"
+    },
+    "action": "block",
+    "version": {
+      "epoch": 0,
+      "counter": 1,
+      "actor": "node-actor"
+    },
+    "addedBy": "operator-1"
+  }
+}

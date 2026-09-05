@@ -55,11 +55,17 @@ As of this review:
 - `crates/orishu` contains substantial imported client and model code, but its
   workload model still mixes mutable locations/status with immutable intent and
   does not implement the accepted content-addressed closure.
-- Existing Orishu models partly anticipate ADR 0013—for example, join success
-  returns a cluster-assigned `NodeId`—but they lack an explicit formation-ID
-  type and still reuse generic optional manifest IDs. The client types and
-  future peer messages therefore require contract reconciliation before they
-  become stable implementation authority.
+- `crates/orishu-identity` now provides the membership portion of ADR 0013:
+  explicit formation and cluster-assigned node identities, distinct labels,
+  certificate fingerprints, version tuples, incarnations, and membership
+  tombstones. `crates/orishu-membership` implements the deterministic sans-IO
+  core for admission, join adoption, SWIM, gossip, removal fencing, and bounded
+  anti-entropy; acceptance is blocked by the liveness-gossip merge correction
+  recorded in its task.
+- Imported Orishu client/projection models still reuse some generic manifest
+  shapes and do not yet expose the explicit formation identity consistently.
+  Their membership subset must be reconciled in N-FORMATION; run identity and
+  the remaining cluster projection still need their owning S-IDENTITY work.
 - `crates/orishu-variables` now contains the migrated generic namespaced
   expression engine and its tests pass. Dimension/unit semantics, resource
   bounds, experiment integration, and workload integration remain unfinished;
@@ -112,13 +118,13 @@ slices and acceptance criteria before implementation begins.
 | --- | --- | --- | --- | --- |
 | S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Ready; foundational | M0; S-VARIABLES for expression integration |
 | S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Generic engine present; slices 2–4 remain | M0 |
-| S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | **Task specification required**; accepted semantics, existing types need reconciliation | M0 |
+| S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types landed in `orishu-identity`; cluster projection and run identity still require specification/reconciliation | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
 | K-DOCUMENT | Authoritative experiment model, commands, revisions, persistence and undo | K | **Task specification required** | S-VARIABLES core; schema identities from S-WORKLOAD/X-PLUGIN |
 | X-PLUGIN | Simulation-plugin manifest, declarative schemas, inventory and safe management | X/K | **Task specification required** | S-WORKLOAD identity model; S-VARIABLES dimensions |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | **Task specification required** | X-PLUGIN; O-WASM host contract |
-| X-DIST-PROFILE | Concrete first distributed scientific schema, fixtures, limits and validation plan for proposed ADR 0016 or an explicit replacement | X/O/N | **Decision and task specification required**; proposal only until M4 evidence | S-WORKLOAD; X-PLUGIN; O-WASM lifecycle |
+| X-DIST-PROFILE | Concrete first distributed scientific schema, fixtures, limits and validation plan for proposed ADR 0016 or an explicit replacement | X/O/N | **Decision and task specification required**; proposal only until M5 evidence | S-WORKLOAD; X-PLUGIN; O-WASM lifecycle |
 | K-CATALOG | [Kagami object catalog](../tasks/implement-kagami-object-catalog.md) | K | Core ready; integration gated | S-VARIABLES; K-DOCUMENT and component schemas for instantiation |
 | K-MCP | [Embedded Kagami MCP server](../tasks/kagami-mcp-server.md) | K | Slices 1–7 ready; 8–9 gated | K-DOCUMENT for authoring; O-CLIENT/K-RUN for run parity |
 | O-WASM | WebAssembly Component host implementing `orishu.workload/v1` limits and lifecycle | O | **Task specification required** | S-WORKLOAD descriptors; protocol-workload contract |
@@ -129,14 +135,15 @@ slices and acceptance criteria before implementation begins.
 | K-RUN | Kagami Orishu adapter, workload submission, run projection and renderer handoff | K/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
 | V-LIVE | [Resumable live observation streaming](../tasks/implement-resumable-observation-streaming.md) slices 3–6 | V/O | Ready after shared frame types | S-OBSERVE; O-RUNTIME; O-CLIENT |
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
-| N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | Ready; identity and wire-contract preflight first | Membership portion of S-IDENTITY; no O-RUNTIME dependency |
-| N-CLUSTER | QUIC peer IO, membership adapter, fenced ownership, halo exchange and distributed step commit | N/O | **Task specification required** | N-MEMBERSHIP; proven O-RUNTIME single-node semantics; S-WORKLOAD |
-| N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-CLUSTER authenticated transport |
-| N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-CLUSTER reconciliation |
+| N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | Implemented; acceptance blocked by the ready [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
+| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Ready after N-MEMBERSHIP acceptance; next Orishu network slice | N-MEMBERSHIP; trust/codec preflight; cluster-policy reconciliation; membership subset of O-API-SHAPE |
+| N-CLUSTER | Fenced ownership, halo exchange and distributed step commit over the proven formation transport | N/O | **Task specification required** | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD |
+| N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-FORMATION authenticated transport |
+| N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
 | N-ARTIFACT | [Availability, replication, re-replication, repair](../storage-spec.md) and committed-artifact discovery | N/O | **Task specification required** | O-STORAGE; N-CLUSTER; N-TRANSFER; N-PURGE |
 | P-SCALE | Reproducible [1/3/5/12/32-worker](../orishu-scaling-objectives.md#staged-evidence) compute, capacity, storage, retrieval and churn evidence | P/N/O | **Task specification required**; implement harness incrementally | O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
 | P-INSTALL | Native packages, Homebrew, `cargo install`, containers and config-free startup | P | **Task specification required** | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
-| P-MONITOR | Replace `orishu-monitor` placeholder with read-only operational views | P | **Task specification required** | O-CLIENT; N-CLUSTER status models |
+| P-MONITOR | Replace `orishu-monitor` placeholder with read-only operational views | P | **Task specification required** | N-FORMATION membership/status models; remaining O-CLIENT views |
 
 ## Dependency graph
 
@@ -167,6 +174,7 @@ flowchart TD
     XB["X-BUILTINS"]
 
     NM["N-MEMBERSHIP<br/>sans-IO membership core"]
+    NF["N-FORMATION<br/>real peer/admin PoC"]
     NC["N-CLUSTER<br/>distributed execution"]
     NT["N-TRANSFER<br/>bounded verified FetchChunk"]
     NP["N-PURGE<br/>tombstone reconciliation"]
@@ -217,14 +225,16 @@ flowchart TD
     XP --> DP
     OW --> DP
     SI --> NM
-    NM --> NC
+    NM --> NF
+    OA --> NF
+    NF --> NC
     OR --> NC
     DP --> NC
     OS --> NT
-    NC --> NT
+    NF --> NT
     SI --> NP
     OS --> NP
-    NC --> NP
+    NF --> NP
     NT --> NA
     NP --> NA
     NC --> NA
@@ -241,8 +251,8 @@ flowchart TD
 
 The critical path is M0 → identity/workload/observation contracts → sans-IO
 membership core and sandboxed single-node execution → real Kagami
-submission/observation → selected distributed conformance profile →
-distributed execution and artifact safety → staged release evidence. API shape
+submission/observation → operational cluster formation → selected distributed
+conformance profile → distributed execution and artifact safety → staged release evidence. API shape
 and committed provenance are early gates, not cleanup after clients or
 artifacts ship. Catalog polish, MCP transport, monitor UI, and package
 prototypes have useful parallel slices but must not redefine contracts on that
@@ -384,7 +394,7 @@ to build independently.
   Kagami installation state, or diagnostic history.
 - No O-CLIENT task depends on the three unresolved resource-path findings. ADR
   0016 has a concrete candidate schema and hostile/golden fixtures while its
-  acceptance still awaits Milestone 4 evidence.
+  acceptance still awaits Milestone 5 evidence.
 - Public contract tests are green without starting a GUI, network, or solver.
 
 ## Milestone 2 — Authoring and admission foundations
@@ -404,18 +414,21 @@ workload it would submit, before attempting distributed execution.
 - Implement S-WORKLOAD Kagami compilation and Orishu admission slices. Prove a
   deterministic closure with golden fixtures and a thin in-memory/file
   admission round trip; the researcher-facing portable export workflow remains
-  Milestone 6 work.
+  Milestone 7 work.
 - Implement O-WASM validation, capability filtering, lifecycle invocation,
   metering, cancellation, and hostile-guest tests without yet requiring a
   cluster.
 - Build the candidate X-DIST-PROFILE parser/component fixtures only through the
   public workload and plugin contracts. They remain experimental inputs for
-  Milestone 4 validation, not a private electrodynamics runtime path.
+  Milestone 5 validation, not a private electrodynamics runtime path.
 - K-MCP slices 1–7 may proceed entirely in parallel because its honest
   `kagami_status` transport does not require authoring or run parity.
-- Complete N-MEMBERSHIP's deterministic model/message/update/effect core and
-  hostile sequence/property tests. QUIC, codecs, timer wheels, and worker
-  integration remain Milestone 4 work.
+- Complete N-MEMBERSHIP's
+  [liveness-gossip merge regression](../tasks/fix-membership-liveness-gossip-merge.md)
+  and acceptance review; its deterministic model/message/update/effect core and hostile
+  sequence/property tests then provide the base for N-FORMATION. QUIC, codecs,
+  timer wheels, worker integration, and the minimal operator surface remain
+  Milestone 4 work.
 
 ### Parallel execution
 
@@ -474,7 +487,7 @@ product using a single worker—the degenerate one-node cluster.
 - Implement K-RUN's connection, compatibility check, exact-revision submission,
   control, observation projection, and renderer handoff.
 - Implement a minimal V-LIVE snapshot stream sufficient for the first client;
-  full resumption/backpressure hardening remains Milestone 5.
+  full resumption/backpressure hardening remains Milestone 6.
 
 ### Parallel execution
 
@@ -507,20 +520,68 @@ product using a single worker—the degenerate one-node cluster.
 - Worker, CLI, Kagami, and protocol integration tests exercise real serialized
   requests and responses; no success path depends on the placeholder handler.
 
-## Milestone 4 — Distributed Orishu execution
+## Milestone 4 — Operational cluster formation PoC
 
-**Objective:** preserve the single-node scientific result while executing it
-across a real peer cluster with failure-aware coordination.
+**Objective:** form, inspect, and safely change a real authenticated peer
+cluster through operator interfaces, without distributing computation yet.
 
 ### Focus areas
 
-- Implement N-CLUSTER's IO shell around N-MEMBERSHIP: mTLS/QUIC handshake,
-  bounded codec, authenticated context, entropy/ID generation, timer wheel,
-  persistence/diagnostic adapters, and formation-scoped worker lifecycle.
-  Duplicate display names and reused cluster labels must remain safe.
-- Integrate the already-tested membership effects and outcomes with real
-  admission, gossip, anti-entropy, and multi-process failure detection before
-  adding distributed execution coordination.
+- After N-MEMBERSHIP acceptance, complete
+  [N-FORMATION](../tasks/implement-cluster-formation-poc.md): settle
+  join trust bootstrap and the membership subset of the client resource
+  surface, then implement the mTLS/QUIC adapter, bounded CBOR codec, timers,
+  entropy/ID generation, credential verification, serialized membership
+  driver, and worker lifecycle around the N-MEMBERSHIP core.
+- Split cluster-wide, versioned membership lock from node-local admission
+  configuration and converge it through gossip and anti-entropy before
+  exposing it as a cluster operation.
+- Implement real worker/client routes and the `orishuctl` paths required to
+  inspect cluster/formation status and members, obtain join material, join,
+  lock, unlock, and leave. Mark imported workload, storage, historical, and
+  unsupported mutation paths honestly.
+- Exercise admission, gossip, anti-entropy, liveness, lock/unlock, and leave in
+  a bounded three-process harness using production QUIC/mTLS and serialized
+  client requests. Duplicate display names and reused cluster labels must
+  remain safe.
+- Preserve config-free local startup and ensure peer ports, credentials, and
+  remote client access are opened only through explicit configuration.
+
+### Parallel execution
+
+- Trust/codec fixtures, cluster-policy pure transitions, worker configuration,
+  client resource mapping, and the multi-process harness can be prepared in
+  separate lanes after their public contracts are assigned one integration
+  owner.
+- N-FORMATION does not wait for workload, storage, physics, or partition
+  schemas. Conversely, no distributed-compute task should grow a private peer
+  transport while this adapter is in flight.
+
+### Exit criteria
+
+- Three workers that begin as three standalone formations explicitly join one
+  authenticated formation and converge on the exact same formation ID,
+  assigned node IDs, labels, certificate bindings, and liveness view.
+- Operator `cluster info`, `ls`, and `inspect` output is backed by real worker
+  state and keeps formation/node identity distinct from cluster/worker labels.
+- A lock issued through one worker converges to the others, blocks a join
+  through another introducer, and a later unlock permits it. Invalid tokens,
+  trust bindings, formations, senders, versions, and oversized wire input make
+  no partial state change.
+- Voluntary leave creates a fresh standalone formation without an
+  operator-removal tombstone. Process loss becomes visible through SWIM
+  without fabricating removal or compute recovery.
+- The PoC uses no workload, kernel, partition, halo, step, checkpoint, result,
+  or artifact path. Its multi-process test calls production peer and client
+  seams rather than the membership core directly.
+
+## Milestone 5 — Distributed Orishu execution
+
+**Objective:** preserve the single-node scientific result while executing it
+across the proven peer cluster with failure-aware coordination.
+
+### Focus areas
+
 - Add partition planning, halo exchange, step votes/commit, deterministic
   reduction/ordering, cancellation, and epoch transitions around O-RUNTIME.
 - Implement N-TRANSFER as bounded `FetchChunk` exchanges on authenticated,
@@ -541,9 +602,9 @@ across a real peer cluster with failure-aware coordination.
   profile that exercises the same runtime semantics.
 - Make any eligible entry node present one coherent O-CLIENT service without
   becoming a separate authority.
-- Complete operator CLI coverage needed to form, inspect, lock, diagnose, and
-  safely change a cluster. Begin P-MONITOR read-only views after status models
-  stabilize.
+- Extend the N-FORMATION operator surface with ownership, workload, storage,
+  artifact, and failure details. Begin P-MONITOR read-only views after those
+  status models stabilize.
 - Establish reproducible 1/3-worker correctness and performance measurements,
   then a 5-worker correctness/churn stage. The `2 * y < x` three-worker target
   is measured and explained if missed; it is a research target, not a hidden
@@ -551,11 +612,10 @@ across a real peer cluster with failure-aware coordination.
 
 ### Parallel execution
 
-- Membership IO integration, partition/step coordination, committed-chunk
-  transfer, purge/inventory reconciliation, artifact replication,
-  scientific-profile validation, scaling harnesses, and operator tooling are
-  distinct agents' lanes once message schemas and state machines have named
-  owners.
+- Partition/step coordination, committed-chunk transfer, purge/inventory
+  reconciliation, artifact replication, scientific-profile validation,
+  scaling harnesses, and operator extensions are distinct agents' lanes once
+  message schemas and state machines have named owners.
 - Partition commit cannot be declared complete against mock membership alone;
   merge it with real transport before optimizing.
 - Artifact replication depends on stable membership, storage chunk identity,
@@ -596,7 +656,7 @@ across a real peer cluster with failure-aware coordination.
 - Operator tools expose actionable membership, ownership, workload, storage,
   and failure state without requiring direct internal access.
 
-## Milestone 5 — Multi-client live and recorded observation
+## Milestone 6 — Multi-client live and recorded observation
 
 **Objective:** deliver the accepted file-sharing plus shared-run collaboration
 baseline to multiple independent Kagami clients.
@@ -638,7 +698,7 @@ baseline to multiple independent Kagami clients.
 - Camera, selection, visibility, interpolation, and playback state remain local
   and cannot be persisted as authoritative scientific output.
 
-## Milestone 6 — Third-party extensibility and complete authoring parity
+## Milestone 7 — Third-party extensibility and complete authoring parity
 
 **Objective:** prove that the public extension and command contracts work for
 capabilities not compiled into the product.
@@ -683,7 +743,7 @@ capabilities not compiled into the product.
 - Every shipped UI authoring/run operation has MCP parity of meaning where ADR
   0006 requires it; presentation-only controls remain excluded.
 
-## Milestone 7 — Installable release candidate
+## Milestone 8 — Installable release candidate
 
 **Objective:** make the validated product operable by its three personas on
 supported platforms.

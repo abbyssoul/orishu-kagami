@@ -1,0 +1,35 @@
+[package]
+name = "orishu-membership"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Sans-IO functional core for Orishu cluster membership: admission, SWIM, gossip, and anti-entropy"
+
+# Dependency budget is part of this crate's contract, not an accident.
+#
+# The core is sans-IO: it must contain no networking, async runtime, TLS,
+# filesystem, wall clock, or random-number generator, because every one of
+# those would make `update` non-deterministic and therefore unreplayable.
+# `tests/dependencies.rs` asserts this against the resolved dependency graph,
+# so adding one of them fails the test suite rather than review.
+#
+# - orishu-identity: the shared identity contract (no transitive deps beyond serde/thiserror).
+# - serde:           wire-visible domain types; the codec itself lives in the IO shell.
+# - sha2:            pure computation for canonical anti-entropy digests.
+# - thiserror:       structured error types.
+[dependencies]
+orishu-identity = { workspace = true }
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+cargo_metadata = "0.23"
+criterion = { workspace = true }
+serde_json.workspace = true
+
+[[bench]]
+name = "membership"
+harness = false

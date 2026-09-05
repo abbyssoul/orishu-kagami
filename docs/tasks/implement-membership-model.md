@@ -1,6 +1,6 @@
 # Implement the sans-IO cluster membership core
 
-Status: **ready; identity and wire-contract preflight first**
+Status: **implemented; acceptance blocked by liveness-gossip merge correction**
 
 Decision: [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md)
 
@@ -26,7 +26,7 @@ not integrate with `apps/orishu-worker` in this task.
 
 This is the **N-MEMBERSHIP-CORE** work package: an early slice of the Orishu
 network/cluster lane that may run in late Milestone 1 or in parallel with
-Milestone 2. It is not the Milestone 4 transport/runtime integration package.
+Milestone 2. It is not the N-FORMATION transport/runtime integration package.
 
 ```text
 S-IDENTITY
@@ -37,11 +37,11 @@ N-MEMBERSHIP-CORE                 <- this task
 pure membership transitions + effects
         |
         v
-N-CLUSTER / N-PEER-IO             <- Milestone 4
-QUIC, mTLS, codecs, timer wheel, worker adapter and multi-process tests
+N-FORMATION                       <- next operational slice
+QUIC, mTLS, codecs, timer wheel, worker adapter and multi-process admin tests
         |
         v
-N-DISTRIBUTED-EXECUTION
+N-CLUSTER
 partition ownership, halos, step votes and commits
 ```
 
@@ -55,7 +55,74 @@ this task into run/observation identity.
 No part of this task depends on O-RUNTIME, workload schemas, partitioning,
 artifact transfer, or Kagami.
 
-## Current gap
+## What landed
+
+`crates/orishu-identity` carries the shared identity contract — `FormationId`,
+formation-assigned `NodeId`, the `ClusterName`/`WorkerName` labels,
+`CertFingerprint`, `VersionTuple`, `Incarnation`, `RemovalMode`, and
+`MembershipTombstone`. It exists as its own crate because `crates/orishu`
+carries an HTTP client (and with it `reqwest`, `tokio`, and `chrono`) while the
+membership core must have none of those; `orishu` re-exports `NodeId` and
+`RemovalMode` from it, so there is one definition rather than two.
+
+`crates/orishu-membership` implements the deterministic core: admission, join
+adoption, SWIM direct and indirect probing, announce and refutation, gossip
+merge, and bounded resumable anti-entropy, behind
+`update(model, message) -> Transition`. `tests/dependencies.rs` resolves the
+real dependency graph and fails if a networking, async-runtime, clock,
+filesystem, TLS, or RNG crate appears.
+
+The implementation was reviewed on 2026-09-05. Package tests, formatting,
+strict Clippy, dependency-purity tests, wire fixtures, and documentation checks
+all pass, and the identity/effect/admission/probe/removal boundaries match this
+task. Acceptance remains blocked by one merge-path defect not covered by the
+current suite: a SWIM announcement changes liveness/incarnation while retaining
+the member's descriptive `VersionTuple`, but `merge_member` rejects any
+same-version non-identical record as a conflict before evaluating the
+independent SWIM ordering. A direct `Announce` therefore works while the full
+record subsequently carried through gossip or anti-entropy can be rejected by
+a third node instead of propagating suspicion/death.
+
+The independently assignable
+[liveness-propagation follow-up](fix-membership-liveness-gossip-merge.md)
+specifies the merge decision, three-node gossip/anti-entropy regression,
+mixed-conflict behavior, safety matrix, and acceptance commands. Cluster-wide
+policy and the IO shell remain separate work tracked by
+[N-FORMATION](implement-cluster-formation-poc.md).
+
+The preflight decisions were recorded in `docs/protocol-p2p.md` before the code
+depended on them: probe correlation IDs on `Ping`/`Ack`/`PingReq`/`PingReply`
+plus timer generations; a total order and explicit conflict rule for
+`VersionTuple`; the removal/liveness split including versioned tombstone
+clearing; the full canonical anti-entropy algorithm (leaf keys, leaf and bucket
+hashing, tree layout, subtree addressing, continuation cursors, and round
+bounds); and the reconciled admission gate list with its evaluation order and
+post-verification re-check. Two corrections to the existing contract came out of
+implementing it: `Suspect(n)` must override `Alive(m)` at `n >= m` rather than
+`n > m` — the documented rule made suspicion unreachable, since a probe times
+out against the target's current incarnation — and a `GossipDelta`'s `data`
+must carry the complete record rather than a field diff, because a partial diff
+can be neither canonically hashed nor idempotently merged.
+
+Golden JSON fixtures for the wire-visible types live in
+`crates/orishu-membership/tests/fixtures/`, and `benches/membership.rs` profiles
+the core in isolation.
+
+### Deliberately not closed
+
+- **The membership lock is node-local.** The runtime design treats it as
+  cluster-replicated state, which needs a versioned cluster-policy entity of
+  its own. It must be closed before an operator-facing cluster lock is exposed;
+  [N-FORMATION](implement-cluster-formation-poc.md#3-cluster-wide-membership-policy)
+  owns that work. Recorded in the crate documentation.
+- **`swim.antiEntropyRounds` and `swim.antiEntropyDepth`** are new
+  configuration keys documented in the peer protocol but not yet wired into the
+  worker's configuration loader, which is an N-FORMATION concern.
+- Client DTOs still carry `cert_fingerprint: Vec<u8>` rather than
+  `CertFingerprint`. Migrating them is a client-protocol change with its own
+  compatibility surface, and nothing in the membership core depends on it.
+
+## Original gap
 
 `crates/orishu/src/model/node.rs` and `cluster.rs` contain imported client
 DTOs such as `NodeId`, `MemberState`, `NodeCapabilities`, and

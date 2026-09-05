@@ -48,6 +48,14 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   placeholder.
 - `crates/orishu`: shared Orishu domain models and client interfaces used by
   applications. Persisted and protocol types currently live here.
+- `crates/orishu-identity`: the shared formation/node identity contract
+  (`FormationId`, `NodeId`, labels, certificate fingerprints, version
+  ordering, membership tombstones). Deliberately dependency-poor so that both
+  the networking client and the sans-IO membership core can depend on it.
+- `crates/orishu-membership`: sans-IO functional core for cluster membership —
+  admission, SWIM, gossip merge, and anti-entropy. It must never acquire a
+  networking, async-runtime, clock, filesystem, TLS, or RNG dependency; a test
+  enforces that against the resolved dependency graph.
 - `crates/kagami-renderer`: Kagami's Iced/wgpu rendering boundary. It owns GPU
   presentation mechanics, never authoritative experiment or simulation state.
 - `docs/adr`: accepted costly-to-reverse decisions.

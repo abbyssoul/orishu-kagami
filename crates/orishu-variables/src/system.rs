@@ -43,13 +43,49 @@ pub struct VariablesSystem {
     /// combined string is always the separator), so this has identical key
     /// identity to a `HashMap<FQName, _>`.
     index: HashMap<String, VariableId>,
-    /// Scratch cycle-detection buffer for [`Self::value`]/[`Self::eval`],
+    /// Scratch buffers for [`Self::value`]/[`Self::eval`]'s dependency walk,
     /// checked out for the duration of one top-level call and returned
-    /// (cleared) afterward, so its capacity is amortized across calls
-    /// instead of reallocating a fresh `Vec` every time. A `Mutex` (not
+    /// (cleared) afterward, so their capacity is amortized across calls
+    /// instead of reallocating from scratch every time. A `Mutex` (not
     /// `RefCell`) to keep this type `Sync`-safe, matching `SampleCache`'s
     /// interior-mutability convention elsewhere in the workspace.
-    visiting_pool: Mutex<Vec<VariableId>>,
+    scratch_pool: Mutex<EvalScratch>,
+}
+
+/// One frame of the explicit dependency-resolution stack: which variable is
+/// being resolved, and how far through its dependency list we have got.
+#[derive(Clone, Copy)]
+struct Frame {
+    id: VariableId,
+    /// Where this frame's dependencies start in [`EvalScratch::deps`].
+    deps_start: usize,
+    /// Index of the next dependency to visit, into that same arena.
+    next: usize,
+}
+
+/// The working set of one top-level evaluation, walked iteratively so that
+/// resolution depth is bounded by the heap rather than by the thread's
+/// stack — a long dependency chain used to cost one Rust frame per link.
+#[derive(Default)]
+struct EvalScratch {
+    stack: Vec<Frame>,
+    /// LIFO arena of resolved dependency handles: each frame owns the slice
+    /// from its `deps_start` to the arena's end while it is on top, and
+    /// truncates back to `deps_start` when it pops.
+    deps: Vec<VariableId>,
+    /// `None` = on the stack right now, so a reference back to it is a
+    /// cycle; `Some(value)` = fully evaluated during this call. Doubling as
+    /// the memo means a shared dependency is evaluated once per call rather
+    /// than once per path that reaches it.
+    state: HashMap<VariableId, Option<f64>>,
+}
+
+impl EvalScratch {
+    fn clear(&mut self) {
+        self.stack.clear();
+        self.deps.clear();
+        self.state.clear();
+    }
 }
 
 impl VariablesSystem {
@@ -101,67 +137,142 @@ impl VariablesSystem {
         Ok(())
     }
 
-    /// Compute `id`'s current value, recursively resolving any variables it
-    /// depends on. Recomputed on every call (no caching).
+    /// Compute `id`'s current value, resolving any variables it depends on,
+    /// however deep the chain. Recomputed on every call (no caching across
+    /// calls; within one call each variable is evaluated once).
     pub fn value(&self, id: VariableId) -> Result<f64, VariablesError> {
         if self.variables.get(id.0 as usize).is_none() {
             return Err(VariablesError::UnknownHandle);
         }
-        let mut visiting = self.take_visiting();
-        let result = self.value_with_visiting(id, &mut visiting);
-        self.return_visiting(visiting);
+        let mut scratch = self.take_scratch();
+        let result = self.resolve(id, &mut scratch);
+        self.return_scratch(scratch);
         result.map_err(VariablesError::from)
     }
 
-    /// Checks out the shared cycle-detection scratch buffer, leaving it
-    /// empty behind. The lock is held only for this swap, never across the
-    /// recursive evaluation that follows.
-    fn take_visiting(&self) -> Vec<VariableId> {
-        let mut buffer = self
-            .visiting_pool
+    /// Checks out the shared scratch buffers, leaving empty ones behind. The
+    /// lock is held only for this swap, never across the evaluation that
+    /// follows.
+    fn take_scratch(&self) -> EvalScratch {
+        let mut scratch = self
+            .scratch_pool
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        std::mem::take(&mut *buffer)
+        std::mem::take(&mut *scratch)
     }
 
-    /// Clears and returns a buffer previously obtained from
-    /// [`Self::take_visiting`], so its capacity is reused by the next call.
-    fn return_visiting(&self, mut buffer: Vec<VariableId>) {
-        buffer.clear();
+    /// Clears and returns buffers previously obtained from
+    /// [`Self::take_scratch`], so their capacity is reused by the next call.
+    /// Clearing is what keeps [`Self::value`]'s "recomputed on every call"
+    /// contract honest: the memo never outlives the call that filled it, so
+    /// a later `set` can never be masked by a stale value.
+    fn return_scratch(&self, mut scratch: EvalScratch) {
+        scratch.clear();
         *self
-            .visiting_pool
+            .scratch_pool
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = buffer;
+            .unwrap_or_else(PoisonError::into_inner) = scratch;
     }
 
-    fn value_with_visiting(
-        &self,
-        id: VariableId,
-        visiting: &mut Vec<VariableId>,
-    ) -> Result<f64, ExprEvalError> {
-        if visiting.contains(&id) {
-            return Err(ExprEvalError::Cycle);
+    /// Evaluates `root`, resolving its transitive dependencies with an
+    /// explicit stack rather than by recursing once per link, so a chain
+    /// only as deep as the heap allows still resolves. Every variable
+    /// reached is evaluated exactly once and memoized in `scratch.state`.
+    fn resolve(&self, root: VariableId, scratch: &mut EvalScratch) -> Result<f64, ExprEvalError> {
+        if let Some(&Some(value)) = scratch.state.get(&root) {
+            return Ok(value);
         }
-        visiting.push(id);
-        let ast = &self.variables[id.0 as usize].expression.ast;
-        let result = eval_ast(ast, &mut |raw: &str| {
-            let target = self.resolve_symbol(raw)?;
-            self.value_with_visiting(target, visiting)
+        // Borrows of the ASTs being walked, reused across every frame push
+        // of this call instead of allocated per node.
+        let mut symbols: Vec<&str> = Vec::new();
+        self.push_frame(root, scratch, &mut symbols)?;
+
+        while let Some(&Frame {
+            id,
+            deps_start,
+            next,
+        }) = scratch.stack.last()
+        {
+            let top = scratch.stack.len() - 1;
+            // While this frame is on top, its dependencies are exactly the
+            // tail of the arena from `deps_start` onward.
+            if next < scratch.deps.len() {
+                let dependency = scratch.deps[next];
+                scratch.stack[top].next += 1;
+                match scratch.state.get(&dependency) {
+                    // Already evaluated on another path this call.
+                    Some(Some(_)) => {}
+                    // Still on the stack, so this edge closes a loop.
+                    Some(None) => return Err(ExprEvalError::Cycle),
+                    None => self.push_frame(dependency, scratch, &mut symbols)?,
+                }
+                continue;
+            }
+
+            let ast = &self.variables[id.0 as usize].expression.ast;
+            let state = &scratch.state;
+            let value = eval_ast(ast, &mut |raw: &str| {
+                let target = self.resolve_symbol(raw)?;
+                // Every symbol of this expression was pushed as a dependency
+                // and evaluated above, so this lookup always hits; treating a
+                // miss as a cycle keeps an unforeseen gap an error, not a panic.
+                state
+                    .get(&target)
+                    .copied()
+                    .flatten()
+                    .ok_or(ExprEvalError::Cycle)
+            })?;
+            scratch.state.insert(id, Some(value));
+            scratch.deps.truncate(deps_start);
+            scratch.stack.pop();
+        }
+
+        scratch
+            .state
+            .get(&root)
+            .copied()
+            .flatten()
+            .ok_or(ExprEvalError::Cycle)
+    }
+
+    /// Marks `id` as in progress and pushes a frame for it, appending its
+    /// resolved dependencies to the arena. Fails if any symbol it references
+    /// is undefined.
+    fn push_frame<'a>(
+        &'a self,
+        id: VariableId,
+        scratch: &mut EvalScratch,
+        symbols: &mut Vec<&'a str>,
+    ) -> Result<(), ExprEvalError> {
+        let deps_start = scratch.deps.len();
+        symbols.clear();
+        self.variables[id.0 as usize]
+            .expression
+            .ast
+            .collect_symbol_refs(symbols);
+        for raw in symbols.iter() {
+            let dependency = self.resolve_symbol(raw)?;
+            scratch.deps.push(dependency);
+        }
+        scratch.state.insert(id, None);
+        scratch.stack.push(Frame {
+            id,
+            deps_start,
+            next: deps_start,
         });
-        visiting.pop();
-        result
+        Ok(())
     }
 
     /// Parse and evaluate an ad-hoc expression against this system's
     /// currently defined variables, without registering it as a variable.
     pub fn eval(&self, expr_source: &str) -> Result<f64, VariablesError> {
         let compiled = CompiledExpression::parse(expr_source)?;
-        let mut visiting = self.take_visiting();
+        let mut scratch = self.take_scratch();
         let value = eval_ast(&compiled.ast, &mut |raw: &str| {
             let target = self.resolve_symbol(raw)?;
-            self.value_with_visiting(target, &mut visiting)
+            self.resolve(target, &mut scratch)
         });
-        self.return_visiting(visiting);
+        self.return_scratch(scratch);
         value.map_err(VariablesError::from)
     }
 
@@ -503,6 +614,86 @@ mod tests {
             vars.value(a).unwrap_err(),
             VariablesError::Eval(ExprEvalError::Cycle)
         );
+    }
+
+    /// `v0 = 0`, `v1 = chain.v0 + 1`, ..., returning the tail's handle.
+    fn build_chain(vars: &mut VariablesSystem, depth: usize) -> VariableId {
+        let mut previous = vars
+            .define(
+                &ns("chain"),
+                "v0",
+                CompiledExpression::parse("0").unwrap(),
+                VariableOptions::default(),
+            )
+            .unwrap();
+        for i in 1..depth {
+            previous = vars
+                .define(
+                    &ns("chain"),
+                    format!("v{i}"),
+                    CompiledExpression::parse(&format!("chain.v{} + 1", i - 1)).unwrap(),
+                    VariableOptions::default(),
+                )
+                .unwrap();
+        }
+        previous
+    }
+
+    #[test]
+    fn deep_dependency_chain_does_not_overflow_the_stack() {
+        let mut vars = VariablesSystem::default();
+        let tail = build_chain(&mut vars, 100_000);
+        assert_eq!(vars.value(tail).unwrap(), 99_999.0);
+    }
+
+    #[test]
+    fn deep_dependency_chain_is_resolvable_through_eval() {
+        let mut vars = VariablesSystem::default();
+        build_chain(&mut vars, 100_000);
+        assert_eq!(vars.eval("chain.v99999 + 1").unwrap(), 100_000.0);
+    }
+
+    #[test]
+    fn cycle_deep_in_a_long_chain_is_still_detected() {
+        let mut vars = VariablesSystem::default();
+        let tail = build_chain(&mut vars, 10_000);
+        let head = vars
+            .lookup_in(&ns("chain"), &Name::new("v0").unwrap())
+            .unwrap();
+        vars.set(head, CompiledExpression::parse("chain.v9999").unwrap())
+            .unwrap();
+        assert_eq!(
+            vars.value(tail).unwrap_err(),
+            VariablesError::Eval(ExprEvalError::Cycle)
+        );
+    }
+
+    #[test]
+    fn shared_dependencies_are_evaluated_once_per_call() {
+        // Each level references the one below it twice, so without
+        // memoization this is 2^40 evaluations and never returns.
+        let mut vars = VariablesSystem::default();
+        vars.define(
+            &ns("chain"),
+            "v0",
+            CompiledExpression::parse("1").unwrap(),
+            VariableOptions::default(),
+        )
+        .unwrap();
+        let mut tail = None;
+        for i in 1..40 {
+            let source = format!("(chain.v{prev} + chain.v{prev}) / 2", prev = i - 1);
+            tail = Some(
+                vars.define(
+                    &ns("chain"),
+                    format!("v{i}"),
+                    CompiledExpression::parse(&source).unwrap(),
+                    VariableOptions::default(),
+                )
+                .unwrap(),
+            );
+        }
+        assert_eq!(vars.value(tail.unwrap()).unwrap(), 1.0);
     }
 
     #[test]

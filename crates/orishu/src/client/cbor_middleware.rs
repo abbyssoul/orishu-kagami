@@ -52,7 +52,7 @@ mod tests {
 
         let status = ClientBuilder::new(Client::new())
             .build()
-            .post(format!("{}/collection", &server.uri()))
+            .post(format!("{}/collection", server.uri()))
             .send()
             .await
             .unwrap()
@@ -63,7 +63,7 @@ mod tests {
         let status = ClientBuilder::new(Client::new())
             .with(CborContentMiddleware::default())
             .build()
-            .post(format!("{}/collection", &server.uri()))
+            .post(format!("{}/collection", server.uri()))
             .send()
             .await
             .unwrap()

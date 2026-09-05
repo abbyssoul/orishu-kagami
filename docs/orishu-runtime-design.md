@@ -38,8 +38,15 @@ join flow uses the worker name and certificate identity.
 Admission succeeds only after transport authentication and every applicable
 gate passes: formation/join intent, current join token, membership lock,
 introducer peer-admission flag, capacity, blocklist, membership tombstone, and
-protocol compatibility. A rejection is explicit and bounded; redirect hints
-are untrusted candidates, not authority.
+protocol compatibility. `protocol-p2p.md` fixes their evaluation order and the
+re-check that follows credential verification. A rejection is explicit and
+bounded; redirect hints are untrusted candidates, not authority.
+
+Removal is distinct from liveness. A membership tombstone is an operator or
+policy decision that fences a node's assigned ID and pinned certificate; the
+failure detector may declare a node dead but never writes one, and a voluntary
+leave does not create one. Clearing a tombstone is an explicit versioned
+update, not a deletion.
 
 An introducer's bootstrap snapshot does not make that node a permanent leader.
 The joining worker validates it and then converges through gossip and

@@ -1,0 +1,19 @@
+{
+  "hops": 3,
+  "deltaType": "Foreign",
+  "data": {
+    "deltaType": "WorkloadUpdate",
+    "key": "workload-42",
+    "version": {
+      "epoch": 0,
+      "counter": 3,
+      "actor": "node-actor"
+    },
+    "payload": [
+      222,
+      173,
+      190,
+      239
+    ]
+  }
+}

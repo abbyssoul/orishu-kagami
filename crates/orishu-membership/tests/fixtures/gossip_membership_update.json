@@ -1,0 +1,48 @@
+{
+  "hops": 2,
+  "deltaType": "MembershipUpdate",
+  "data": {
+    "id": "node-0001",
+    "name": "worker-node-0001",
+    "certFingerprint": "090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728",
+    "protocol": 1,
+    "liveness": "alive",
+    "incarnation": 0,
+    "version": {
+      "epoch": 0,
+      "counter": 4,
+      "actor": "node-0001"
+    },
+    "endpoints": {
+      "peers": [
+        "10.0.0.9:6655"
+      ],
+      "clients": []
+    },
+    "accepts": {
+      "clients": false,
+      "peers": true,
+      "work": true
+    },
+    "capacity": {
+      "peers": 32768,
+      "clients": 1024
+    },
+    "capabilities": {
+      "cpuCores": 8,
+      "memoryBytes": 17179869184,
+      "architecture": "x86_64",
+      "storageBackend": "local",
+      "storageReplicas": 3,
+      "accelerators": [
+        "cuda"
+      ],
+      "engines": [
+        {
+          "engine": "wasm-component",
+          "runtimeLifecycle": "orishu.workload/v1"
+        }
+      ]
+    }
+  }
+}

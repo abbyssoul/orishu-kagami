@@ -10,7 +10,9 @@ mod namespace;
 mod system;
 mod variable;
 
-pub use expression::{CompiledExpression, ExprEvalError, ExprParsingError, ExprParsingErrorKind, SourceSpan};
+pub use expression::{
+    CompiledExpression, ExprEvalError, ExprParsingError, ExprParsingErrorKind, SourceSpan,
+};
 pub use namespace::{FQName, IntoName, InvalidName, Name, Namespace};
 pub use system::{VariablesError, VariablesSystem};
 pub use variable::{VariableId, VariableOptions};

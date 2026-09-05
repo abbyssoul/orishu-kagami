@@ -59,7 +59,7 @@ mod tests {
 
         let status = ClientBuilder::new(Client::new())
             .build()
-            .get(format!("{}/collection", &server.uri()))
+            .get(format!("{}/collection", server.uri()))
             .send()
             .await
             .unwrap()
@@ -70,7 +70,7 @@ mod tests {
         let status = ClientBuilder::new(Client::new())
             .with(BearerMiddleware::with_token("hunter2"))
             .build()
-            .get(format!("{}/collection", &server.uri()))
+            .get(format!("{}/collection", server.uri()))
             .send()
             .await
             .unwrap()

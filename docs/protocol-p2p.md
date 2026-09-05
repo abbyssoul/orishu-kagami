@@ -4,6 +4,26 @@ This document defines the protocol for communication between `orishu-worker` ins
 
 For the client-facing protocol (operators and user tools), see [protocol-client.md](./protocol-client.md).
 
+## Reference implementation
+
+The membership decisions this document specifies — admission, join adoption,
+SWIM probing and suspicion, gossip merge, and anti-entropy — are implemented as
+a deterministic, sans-IO core in `crates/orishu-membership`. That crate owns no
+transport: framing, CBOR, QUIC, mTLS, timers, and entropy remain the IO shell's
+responsibility, and the crate carries no dependency that could provide them.
+
+Golden JSON fixtures for the wire-visible membership types live in
+`crates/orishu-membership/tests/fixtures/`. They pin field names, casing,
+nesting, and omission rules, and they are what a change to those shapes has to
+update alongside this document. JSON rather than CBOR because the field
+contract is identical in both; the encodings differ only in that hashes and
+fingerprints are hex strings in JSON and byte strings in CBOR.
+
+`crates/orishu-membership/src/lib.rs` also records the allocation bounds that
+remain **mandatory in the decoder**. The core re-validates every logical limit
+before adopting state, but by then a collection is already allocated: bounding
+allocation while decoding cannot be delegated to it.
+
 
 ## Transport
 
@@ -195,9 +215,39 @@ Each QUIC connection is maintained as long as both peers are alive. QUIC's built
 {
   "epoch":   <uint>,
   "counter": <uint>,
-  "actorId": <string>
+  "actorId": <string>                    -- Node ID of the member that produced this version
 }
 ```
+
+One formation-scoped version type, shared by every replicated entity.
+
+**Total ordering.** Versions compare lexicographically over
+`(epoch, counter, actorId)`, with `actorId` compared as raw bytes. The order is
+total: any two versions compare, and only identical triples compare equal.
+Including `actorId` breaks ties between two members that independently reached
+the same `(epoch, counter)`, which is what makes merge deterministic rather
+than dependent on delivery order.
+
+**Merge semantics.** For one entity key:
+
+- A strictly greater incoming version replaces the held value.
+- A strictly lesser incoming version is discarded as stale. It can never
+  regress state.
+- An equal version carrying a **byte-identical payload** is an idempotent
+  replay and changes nothing — not even a hop counter or a dissemination
+  deadline.
+- An equal version carrying a **different payload** is a structured conflict,
+  not a tie to break silently. The receiver keeps its local value and reports
+  the conflict; choosing a winner by arrival order would make converged state
+  depend on packet timing. Two nodes each holding one of the payloads both
+  report it, so the condition is observable rather than absorbed.
+
+A version from another formation is meaningless and must be rejected by the
+`formationId` guard before any comparison.
+
+Versions are scoped to a formation and are never carried across one. A node
+that adopts a new formation starts from that formation's versions and imports
+none of its own.
 
 ### NodeCapabilities
 ```
@@ -232,23 +282,88 @@ Each QUIC connection is maintained as long as both peers are alive. QUIC's built
 ### GossipDelta
 ```
 {
-  "deltaType":  <string>,               -- "MembershipUpdate" | "BlocklistUpdate" | "WorkloadUpdate" |
-                                         --   "CheckpointUpdate" | "ResultUpdate" | "AuditEvent"
+  "deltaType":  <string>,               -- "MembershipUpdate" | "TombstoneUpdate" | "BlocklistUpdate" |
+                                         --   "WorkloadUpdate" | "CheckpointUpdate" | "ResultUpdate" |
+                                         --   "AuditEvent"
   "key":        <string>,               -- Entity identifier (node ID, workload ID, etc.)
   "version":    <VersionTuple>,          -- Version of this delta
-  "data":       <map>,                   -- Delta-type-specific payload (entity fields that changed)
+  "data":       <map>,                   -- Delta-type-specific payload (the complete entity record)
   "hops":       <uint>                   -- Times this delta has been piggybacked. Starts at 0.
 }
 ```
+
+`data` carries the **complete** record for the entity at that version, not a
+field-level diff. A partial diff cannot be hashed canonically for anti-entropy
+and cannot be merged idempotently, because two receivers holding different
+prior states would reach different results from the same delta.
+
+**Membership-owned delta types.** `MembershipUpdate` (`data` is a `NodeRecord`,
+`key` is its node ID), `TombstoneUpdate` (`data` is a membership tombstone,
+`key` is the removed node ID), and `BlocklistUpdate` (`data` is a blocklist
+entry, `key` is its rendered blocklist key). These three converge through the
+membership merge rules above.
+
+**Every other delta type is not membership's.** A membership implementation
+relays `WorkloadUpdate`, `CheckpointUpdate`, `ResultUpdate`, and `AuditEvent`
+to their owning subsystem without decoding `data`, and must not store any part
+of them in membership state. An unrecognized `deltaType` is relayed the same
+way rather than rejected, so a subsystem can add one without a membership
+change.
 
 ### MerkleDigest
 ```
 {
   "rootHash":    <bytes>,                -- SHA-256 of the Merkle tree root
-  "depth":       <uint>,                 -- Tree depth
-  "nodeHashes":  [<bytes>, ...]          -- Hashes at the requested subtree level (for comparison)
+  "depth":       <uint>,                 -- Tree depth, 1..=8; bucket count is 2^depth
+  "nodeHashes":  [<bytes>, ...]          -- Exactly 2^depth bucket hashes, ascending by index
 }
 ```
+
+A digest is only comparable if both sides compute identical bytes from
+identical state, so every degree of freedom is fixed below. Changing any of it
+is a wire-breaking change and requires bumping the domain-separator versions.
+
+**Canonical value encoding.** Fields are written in a fixed order with every
+variable-length field length-prefixed by a big-endian `u32`, and every integer
+written big-endian. Length prefixes are what stop `("ab", "c")` and
+`("a", "bc")` encoding identically.
+
+**Leaf key.** A one-byte namespace tag followed by the entity identifier:
+
+| Tag | Entity | Identifier |
+|---|---|---|
+| `0x01` | member record | node ID |
+| `0x02` | membership tombstone | node ID |
+| `0x03` | blocklist entry | rendered blocklist key |
+
+The tag keeps the namespaces disjoint, so a member and a tombstone for the same
+node cannot collide onto one leaf.
+
+**Leaf hash.** `SHA-256("orishu.membership.leaf/1" || u32(len(key)) || key ||
+canonical-value-encoding)`.
+
+**Bucket assignment.** `SHA-256("orishu.membership.bucket/1" || key)`, of which
+the top `depth` bits of the first two bytes give the bucket index. Hashing
+rather than taking the key directly spreads sequentially named nodes evenly, so
+one divergent entry lands in one bucket rather than smearing across all of them.
+
+**Bucket hash.**
+`SHA-256("orishu.membership.bucket/1" || u32(count) || leaf hashes in ascending
+leaf-key order)`. Sorting is what makes the result independent of insertion
+history. An empty bucket hashes its zero count and is not skipped.
+
+**Tree.** A complete binary tree over exactly `2^depth` buckets, folded
+pairwise as `SHA-256("orishu.membership.node/1" || left || right)` up to the
+root. Because the bucket count is fixed by configuration there is no ambiguous
+padding rule.
+
+**Subtree addressing.** A bucket index in `0..2^depth`. An index outside that
+range is skipped, not indexed.
+
+**Comparison.** Two digests are comparable only when their `depth` values match
+and the responder's digest is internally consistent — `nodeHashes` has the
+length its `depth` implies, and `rootHash` folds from it. A digest failing
+either check is refused rather than compared, and produces no reply.
 
 ### PartitionRef
 ```
@@ -339,8 +454,26 @@ JoinReply payload:
 
 **Behavioral rules:**
 
-- The introducer must evaluate ALL [admission criteria](./orishu-runtime-design.md#member-acceptance) before replying: `accepts.peers == true` AND `membershipLocked == false` AND `limits.peers` not exceeded AND joining node not blocklisted AND join token valid.
-- On `ACK`, the introducer generates a unique node ID for the joining node (see [Node identity](orishu-runtime-design.md#node-identity)), creates a `NodeRecord` keyed by this ID, and begins gossiping it. The `assignedNodeId` field contains this newly generated ID. The `membership` field contains the full current membership so the joining node can bootstrap its cluster view.
+- The introducer must evaluate ALL [admission criteria](./orishu-runtime-design.md#member-acceptance) before replying. The complete gate set, in cheapest-first order, is:
+
+  1. **Authenticated transport** — the mTLS handshake completed.
+  2. **Formation/join intent** — the request's `formationId` is this formation.
+  3. **Protocol compatibility** — the offered `proto` is within this node's accepted range.
+  4. **Introducer flag** — `accepts.peers == true` on this node.
+  5. **Membership lock** — `membershipLocked == false`.
+  6. **Blocklist, by identity** — neither the applicant's `nodeName` nor its `certFingerprint` matches a blocking entry.
+  7. **Membership tombstone** — no uncleared tombstone pins the applicant's `certFingerprint`. An applicant has no assigned ID yet, so the fingerprint is what fences a removed node returning under a fresh label.
+  8. **Capacity** — `limits.peers` is not exceeded.
+  9. **Request bounds** — every advertised address, label, and capability list is within limits.
+  10. **Join token** — the presented token matches the formation's current one.
+  11. **Blocklist, by network** — the applicant's source address does not fall in a blocked CIDR range.
+
+  Gates 1–9 are decidable from replicated state alone and must be evaluated first, so an unauthenticated or blocklisted flood is refused without ever costing a token comparison. Gates 10–11 need cryptographic comparison and address parsing.
+
+- Gates 1–9 must be **re-evaluated** after gates 10–11 complete. Token verification is not instantaneous, and membership may have locked or filled while it ran; an applicant must not slip through on a decision made before the lock.
+- On `ACK`, the introducer generates a unique node ID for the joining node (see [Node identity](orishu-runtime-design.md#node-identity)), rejects the attempt if that ID collides with an existing member or any tombstone, creates a `NodeRecord` keyed by it, inserts that record into membership, and only **then** replies and begins gossiping. Acceptance is never reported before insertion succeeds, or a collision would produce an admitted node no one holds a record for. The `assignedNodeId` field contains the newly generated ID. The `membership` field contains the current membership, including the joiner's own new record, so the joining node can bootstrap its cluster view.
+- A joiner validates the `ACK` before adopting it: the `formationId` matches the formation it asked to join, `membership` is within the snapshot item and byte limits, node IDs within it are unique, every entry passes bounds validation and protocol compatibility, and the entry for `assignedNodeId` is *this node* — same certificate fingerprint and same label. Without the self-entry check, an introducer could admit one node and hand its identity to another.
+- Adopting a formation is atomic and imports nothing: the joiner drops its previous formation's members, tombstones, blocklist, locks, probe state, and versions rather than merging them.
 - On `Redirect`, the `redirectTo` field contains addresses of other introducers believed to have capacity. Only nodes with `accepts.peers == true` are included.
 - On `NACK`, the joining node should back off before retrying. Recommended: exponential backoff starting at 1 second, capped at 60 seconds.
 
@@ -353,6 +486,7 @@ Sent as QUIC datagrams (unreliable). The primary mechanism for SWIM failure dete
 ```
 Ping payload:
 {
+  "probeId":     <uint64>,               -- Sender-scoped probe correlation ID
   "incarnation": <uint>                  -- Sender's current incarnation number
 }
 ```
@@ -360,6 +494,7 @@ Ping payload:
 ```
 Ack payload:
 {
+  "probeId":     <uint64>,               -- Copied verbatim from the Ping being answered
   "incarnation": <uint>                  -- Responder's current incarnation number
 }
 ```
@@ -369,6 +504,10 @@ Ack payload:
 - The `gossip` field of the enclosing `MessageEnvelope` carries piggybacked deltas. This is the primary dissemination path for membership updates, CRDT state changes, and protocol announcements.
 - If a `Ping` arrives from an unknown sender (no matching `NodeRecord`), it is silently discarded.
 - The `incarnation` field allows the receiver to update its view of the sender's incarnation number.
+- **Probe correlation.** `probeId` is unique within the sending node and is echoed verbatim in the `Ack`. A probe is identified by the pair `(senderId, probeId)`; the target ID alone is not sufficient, because datagrams may be duplicated or reordered and several probes of the same target may overlap after a retry.
+- A requester accepts an `Ack` only when it matches an in-flight probe *and* the envelope `senderId` equals that probe's target. An `Ack` naming a live `probeId` from any other node is discarded: without that check, any member could keep a failing node alive by answering probes addressed to it.
+- A second `Ack` for a probe already completed is discarded. `probeId` values are never reused within a node's lifetime in one formation.
+- An intermediary serving a `PingReq` allocates its **own** `probeId` for the `Ping` it sends to the target, and maps the target's `Ack` back to the requester's `probeId`. The two ID spaces are per-node and never shared.
 
 ---
 
@@ -379,6 +518,7 @@ Sent as QUIC datagrams. Used for indirect probing when a direct `Ping` times out
 ```
 PingReq payload:
 {
+  "probeId":  <uint64>,                  -- Requester-scoped probe correlation ID
   "targetId": <string>                   -- Node ID of the target to probe
 }
 ```
@@ -386,6 +526,7 @@ PingReq payload:
 ```
 PingReply payload:
 {
+  "probeId":     <uint64>,               -- Copied verbatim from the PingReq
   "targetId":    <string>,               -- The target that was probed
   "result":      <string>,               -- "Ack" | "NoSuchPeer" | "Timeout"
   "incarnation": <uint | null>           -- Target's incarnation if Ack received
@@ -397,6 +538,10 @@ PingReply payload:
 - The intermediary that receives `PingReq` sends a `Ping` to the target and waits for an `Ack`. It then replies with `PingReply` to the requester.
 - If the intermediary has no connection to the target, it replies with `"NoSuchPeer"`.
 - The intermediary uses the same probe timeout as its own SWIM configuration when waiting for the target's `Ack`.
+- **Probe correlation.** `probeId` is the *requester's* ID for the probe that timed out directly, shared with every intermediary asked about the same target, and echoed verbatim in each `PingReply`.
+- A requester accepts a `PingReply` only when all three hold: the `probeId` names a probe currently in its indirect phase, the `targetId` matches that probe's target, and the envelope `senderId` is one of the intermediaries it actually asked. A reply failing any of these is discarded.
+- Repeated non-`Ack` replies from the same intermediary count once. Suspicion is raised only when *every* asked intermediary has reported a non-`Ack` result, or when the indirect timeout expires.
+- Timer expiries are correlated the same way: an implementation must record, per probe, the generation of the one timer whose expiry is still actionable, and discard an expiry from a superseded generation. Without this, a timer armed for a probe that has since been answered will suspect a healthy member.
 
 ---
 
@@ -418,13 +563,39 @@ Announce payload:
 - Typically piggybacked on `Ping`/`Ack` messages via the `gossip` field (as a `GossipDelta` with `deltaType: "MembershipUpdate"`) rather than sent as standalone `Announce` messages.
 - May also be sent as standalone datagrams for urgent dissemination (e.g., a node broadcasting `Alive` to refute suspicion).
 - **Override rules** (higher incarnation wins):
-  - `Alive(n)` overrides `Suspect(m)` if `n > m`.
-  - `Suspect(n)` overrides `Alive(m)` if `n > m`.
+  - `Alive(n)` overrides `Alive(m)` or `Suspect(m)` if `n > m`. A refutation must
+    carry a *strictly* newer incarnation, or a replayed old `Alive` would clear
+    a fresh suspicion.
+  - `Suspect(n)` overrides `Alive(m)` if `n >= m`, and overrides `Suspect(m)` if
+    `n > m`. The `>=` is load-bearing: a probe times out against the target's
+    *current* incarnation, so requiring `n > m` would make suspicion
+    unreachable.
   - `Dead(n)` overrides `Suspect(m)` for any `n >= m`.
   - `Dead(n)` overrides `Alive(m)` for any `n >= m`.
+  - Nothing overrides `Dead`. Within one formation, death is terminal:
+    readmission means admission to a new formation-assigned identity, not a
+    resurrected record.
   - `Leave` is authoritative only when `targetId == senderId` (self-announcement).
-- A node that detects it has been suspected may refute by broadcasting `Alive` with `incarnation + 1`.
-- `Leave` may only be announced by the node itself. Any `Leave` where `targetId != senderId` is discarded.
+- A node that detects it has been suspected may refute by broadcasting `Alive` with `incarnation + 1`. The increment is checked: a node whose incarnation is exhausted reports the condition rather than wrapping, because an incarnation of `0` would rank below every stale `Suspect` still in flight and leave the node permanently unable to defend itself.
+- `Leave` may only be announced by the node itself. Any `Leave` where `targetId != senderId` is discarded — otherwise any member would hold a one-datagram eviction primitive.
+- A self-announced `Leave` takes effect as `Dead(incarnation + 1)`, so it outranks the departing node's own latest `Alive` and cannot be undone by a replay of one.
+
+**Removal is not liveness.** `Alive`, `Suspect`, and `Dead` are failure-detector
+state. Removing a node from a formation is an operator or policy action,
+recorded as a membership tombstone (`TombstoneUpdate`), and the two must not be
+conflated:
+
+- A membership tombstone fences the removed node's assigned ID **and** its
+  pinned certificate fingerprint. No `Announce`, at any incarnation, clears one.
+- A voluntary self-`Leave` does **not** create a tombstone. Leaving is the
+  node's own decision to stop participating, not the formation barring it.
+- The failure detector never writes a tombstone. Declaring a node `Dead` on a
+  timeout must not make an unreachable-but-healthy node permanently unwelcome.
+- Clearing a tombstone is an explicit operator action expressed as a *versioned
+  update* — the record is retained with `cleared: true` at a newer version, not
+  deleted. A deletion is not itself a versioned fact, so a peer that had not yet
+  heard about the clear would re-gossip the tombstone and re-fence the node
+  forever.
 
 
 ## State management messages
@@ -436,31 +607,47 @@ Anti-entropy state synchronization. Sent over a dedicated bidirectional QUIC str
 ```
 PullReq payload:
 {
+  "round":      <uint64>,                -- Initiator-scoped round ID, echoed in the reply
   "digest":     <MerkleDigest>,          -- Requester's Merkle tree digest of CRDT state
   "stateTypes": [<string>, ...],         -- State types to sync: "membership", "blocklist",
                                          --   "workload", "checkpoints", "results"
-  "subtreeReq": [<uint>, ...]            -- Specific subtree indices to request (after initial
-                                         --   digest comparison). Empty = full sync.
+  "subtreeReq": [<uint>, ...],           -- Specific bucket indices to request (after initial
+                                         --   digest comparison). Empty = compare digests.
+  "cursor":     <Cursor | null>          -- Where to resume a truncated exchange
 }
 ```
 
 ```
 PullReply payload:
 {
+  "round":     <uint64>,                 -- Copied verbatim from the PullReq
   "digest":    <MerkleDigest>,           -- Responder's own Merkle tree digest
   "deltas":    [<GossipDelta>, ...],     -- State entries that differ between the two digests
-  "complete":  <bool>                    -- true if all divergent entries included; false if
-                                         --   truncated (use subtreeReq for remaining)
+  "complete":  <bool>,                   -- true if all divergent entries included; false if
+                                         --   truncated (continue from cursor)
+  "cursor":    <Cursor | null>           -- Where the initiator should resume when complete=false
+}
+```
+
+```
+Cursor:
+{
+  "bucket":   <uint>,                    -- Bucket to resume in
+  "afterKey": <bytes>                    -- Resume strictly after this canonical leaf key
 }
 ```
 
 **Behavioral rules:**
 
 - The anti-entropy exchange proceeds in rounds:
-  1. Initiator sends `PullReq` with its Merkle digest.
-  2. Responder compares digests, identifies divergent subtrees, and replies with the differing entries.
-  3. If `complete` is `false`, the initiator sends a follow-up `PullReq` with `subtreeReq` specifying the remaining subtrees.
-- Both sides merge received deltas into their local CRDT state.
+  1. Initiator sends `PullReq` with a fresh `round` and its Merkle digest, and arms a deadline.
+  2. Responder compares digests, identifies divergent buckets, and replies with the differing entries, echoing `round`.
+  3. If `complete` is `false`, the initiator sends a follow-up `PullReq` with the same `round` and the returned `cursor`.
+- **Round correlation.** `round` is unique within the initiating node. A reply whose `round` or `senderId` does not match the round in progress is discarded; without this, a late reply from an abandoned round would be merged into a newer one.
+- **Traversal order is canonical**: ascending bucket index, then ascending leaf key within each bucket. Both sides therefore agree on what "resume after this key" means without exchanging any additional state.
+- **Truncation is not convergence.** A reply with `complete: false` means the responder stopped at `swim.antiEntropyMaxEntries`; the initiator must continue from `cursor` and must not conclude that the two nodes agree.
+- **Rounds are bounded.** An exchange is abandoned, with a diagnostic, after `swim.antiEntropyRounds` continuations, so a peer that always answers `complete: false` cannot hold a round open indefinitely.
+- Both sides merge received deltas into their local CRDT state, through the same merge rules as piggybacked gossip — a delta arriving by anti-entropy has no special standing.
 - The stream is closed after the exchange completes.
 - Maximum entries per reply is bounded by `swim.antiEntropyMaxEntries` (default 1000).
 
@@ -665,23 +852,32 @@ The following probe cycle runs on every node at a configurable interval:
 ```
 every PROBE_INTERVAL:
     1. Select one random peer from the alive membership list.
-    2. Send Ping to selected peer (as datagram).
-    3. Wait PROBE_TIMEOUT for Ack.
-    4. If Ack received:
-         - Peer is alive. Update membership view.
+    2. Allocate a fresh probeId; send Ping(probeId) to the peer (as datagram).
+    3. Arm PROBE_TIMEOUT, recording its generation as the probe's only
+       actionable expiry.
+    4. If Ack(probeId) arrives from that exact target:
+         - Peer is alive. Update membership view. Cancel the timer.
          - Process any piggybacked gossip in the Ack.
-    5. If Ack NOT received within PROBE_TIMEOUT:
+    5. If PROBE_TIMEOUT expires (with the recorded generation):
+         - Re-arm as INDIRECT_PROBE_TIMEOUT, recording a new generation, so a
+           late direct expiry can no longer act on this probe.
          - Select k random peers (k = INDIRECT_PROBE_COUNT).
-         - Send PingReq(target) to each of the k peers (as datagrams).
-         - Wait INDIRECT_PROBE_TIMEOUT for PingReply from any intermediary.
-    6. If any PingReply confirms Ack:
+         - Send PingReq(probeId, target) to each of the k peers (as datagrams).
+    6. If any PingReply(probeId, target, Ack) arrives from an asked intermediary:
          - Peer is alive. Cancel suspicion.
-    7. If no confirmation after INDIRECT_PROBE_TIMEOUT:
+    7. If every asked intermediary reports a non-Ack result, or
+       INDIRECT_PROBE_TIMEOUT expires with the recorded generation:
          - Emit Announce(Suspect, target, target's current incarnation).
-         - Start SUSPICION_TIMEOUT timer.
-    8. If SUSPICION_TIMEOUT expires without an Alive refutation:
+         - Start SUSPICION_TIMEOUT timer, recording its generation.
+    8. If SUSPICION_TIMEOUT expires with the recorded generation and without an
+       Alive refutation:
          - Emit Announce(Dead, target, target's incarnation).
-         - Update membership: target.memberState = Dead.
+         - Update membership: target.memberState = Dead. No tombstone is written.
+
+Every expiry above is checked against the generation recorded for that probe or
+suspicion. An expiry from a superseded generation is discarded: without that
+check, a timer armed for a probe that has since been answered would suspect a
+healthy member.
 ```
 
 This produces O(1) messages per node per period — O(n) total across the cluster — regardless of cluster size. Membership updates are disseminated infection-style by piggybacking on probe messages and workload traffic, reaching all nodes in O(log n) rounds with high probability.
@@ -729,6 +925,8 @@ every ANTI_ENTROPY_INTERVAL:
 |---|---|---|---|
 | `ANTI_ENTROPY_INTERVAL` | `swim.antiEntropyInterval` | `30s` | Time between full anti-entropy cycles. |
 | `ANTI_ENTROPY_MAX_ENTRIES` | `swim.antiEntropyMaxEntries` | `1000` | Maximum entries per `PullReply` before truncation. |
+| `ANTI_ENTROPY_ROUNDS` | `swim.antiEntropyRounds` | `16` | Maximum continuations in one exchange before it is abandoned. |
+| `ANTI_ENTROPY_DEPTH` | `swim.antiEntropyDepth` | `4` | Hash-tree depth; bucket count is `2^depth`. Must be `1..=8`. |
 
 
 ## Error handling
@@ -771,6 +969,8 @@ All settings follow the [configuration precedence](./orishu-configuration.md): c
 | `swim.maxGossipHops` | `--swim.maxGossipHops` | `orishu_SWIM_MAXGOSSIPHOPS` | `0` (auto) | Max hops before delta retirement. |
 | `swim.antiEntropyInterval` | `--swim.antiEntropyInterval` | `orishu_SWIM_ANTIENTROPYINTERVAL` | `30s` | Time between anti-entropy cycles. |
 | `swim.antiEntropyMaxEntries` | `--swim.antiEntropyMaxEntries` | `orishu_SWIM_ANTIENTROPYMAXENTRIES` | `1000` | Max entries per `PullReply`. |
+| `swim.antiEntropyRounds` | `--swim.antiEntropyRounds` | `orishu_SWIM_ANTIENTROPYROUNDS` | `16` | Max continuations per exchange. |
+| `swim.antiEntropyDepth` | `--swim.antiEntropyDepth` | `orishu_SWIM_ANTIENTROPYDEPTH` | `4` | Hash-tree depth (`1..=8`). |
 | `peer.handshakeTimeout` | `--peer.handshakeTimeout` | `orishu_PEER_HANDSHAKETIMEOUT` | `5s` | Timeout for `Handshake`/`HandshakeAck` exchange. |
 | `peer.maxFrameSize` | `--peer.maxFrameSize` | `orishu_PEER_MAXFRAMESIZE` | `16777216` (16 MiB) | Maximum length-prefixed frame size. |
 | `peer.quicIdleTimeout` | `--peer.quicIdleTimeout` | `orishu_PEER_QUICIDLETIMEOUT` | `30s` | QUIC connection idle timeout. |
@@ -905,6 +1105,7 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
   "formationId": "123e4567-e89b-12d3-a456-426614174000",
   "seq": 42,
   "payload": {
+    "probeId": 17,
     "incarnation": 5
   },
   "gossip": [
@@ -928,6 +1129,7 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
   "formationId": "123e4567-e89b-12d3-a456-426614174000",
   "seq": 37,
   "payload": {
+    "probeId": 17,
     "incarnation": 3
   },
   "gossip": [
@@ -953,6 +1155,7 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
   "formationId": "123e4567-e89b-12d3-a456-426614174000",
   "seq": 43,
   "payload": {
+    "probeId": 18,
     "targetId": "node-c"
   },
   "gossip": []
@@ -968,6 +1171,7 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
   "formationId": "123e4567-e89b-12d3-a456-426614174000",
   "seq": 38,
   "payload": {
+    "probeId": 18,
     "targetId": "node-c",
     "result": "Ack",
     "incarnation": 2
@@ -987,13 +1191,15 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
   "formationId": "123e4567-e89b-12d3-a456-426614174000",
   "seq": 44,
   "payload": {
+    "round": 91,
     "digest": {
       "rootHash": h'1234ABCD...',
       "depth": 4,
       "nodeHashes": [h'AA...', h'BB...', h'CC...', h'DD...']
     },
     "stateTypes": ["membership", "blocklist", "workload"],
-    "subtreeReq": []
+    "subtreeReq": [],
+    "cursor": null
   },
   "gossip": []
 }
@@ -1008,6 +1214,7 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
   "formationId": "123e4567-e89b-12d3-a456-426614174000",
   "seq": 39,
   "payload": {
+    "round": 91,
     "digest": {
       "rootHash": h'5678EFGH...',
       "depth": 4,
@@ -1022,7 +1229,8 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
         "hops": 0
       }
     ],
-    "complete": true
+    "complete": true,
+    "cursor": null
   },
   "gossip": []
 }
