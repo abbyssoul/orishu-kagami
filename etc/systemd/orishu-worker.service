@@ -1,6 +1,6 @@
 [Unit]
 Description=orishu worker daemon
-Documentation=https://github.com/abbyssoul/orishu
+Documentation=https://github.com/abbyssoul/orishu-kagami
 Wants=network-online.target
 After=network-online.target
 

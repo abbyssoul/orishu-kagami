@@ -161,7 +161,7 @@ slices and acceptance criteria before implementation begins.
 | N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
 | N-ARTIFACT | [Availability, replication, re-replication, repair](../storage-spec.md) and committed-artifact discovery | N/O | **Task specification required** | O-STORAGE; N-CLUSTER; N-TRANSFER; N-PURGE |
 | P-SCALE | Reproducible [1/3/5/12/32-worker](../orishu-scaling-objectives.md#staged-evidence) compute, capacity, storage, retrieval and churn evidence | P/N/O | **Task specification required**; implement harness incrementally | O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
-| P-INSTALL | Native packages, Homebrew, `cargo install`, containers and config-free startup | P | **Task specification required** | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
+| P-INSTALL | [Installable archives, native packages, Cargo applications, containers, Kagami installers, and first-run journeys](../tasks/publish-installable-artifacts.md) | P | Early packaging/test slices ready; publication gated by M8 | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
 | P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Contract slice ready; adapters gated by their owning services | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
 | P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Planned; ships alongside each observability slice | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
 | P-MONITOR | Replace `orishu-monitor` placeholder with read-only operational views | P | **Task specification required** | N-FORMATION membership/status models; remaining O-CLIENT views |
@@ -605,6 +605,14 @@ cluster through operator interfaces, without distributing computation yet.
 This milestone is the next operational demonstration now that the membership
 core is accepted. Its number does not require M3 to finish first.
 
+Recorded N-FORMATION progress includes public introducer handoff, voluntary
+leave and ordinary crash/restart/readmission. Its
+[remaining increments](../tasks/implement-cluster-formation-poc.md#remaining-reviewable-increments)
+cover lifecycle fault evidence, interrupted-admission recovery and the rest of
+formation conformance. A lost-ACK refusal or unresolved status alone is not a
+recovery procedure. Track N-FORMATION, P-OBSERVABILITY and P-OBS-DOCS separately:
+formation acceptance does not close M4 without its monitoring/operator handoff.
+
 ### Focus areas
 
 - Complete [N-FORMATION](../tasks/implement-cluster-formation-poc.md): settle
@@ -857,9 +865,18 @@ supported platforms.
 
 ### Focus areas
 
-- Implement P-INSTALL with native packages as the preferred operator path,
-  plus supported Homebrew, `cargo install`, release archives and worker
-  container images.
+- Implement [P-INSTALL](../tasks/publish-installable-artifacts.md) against the
+  public [installation matrix](../install.md): native packages as the preferred
+  operator path, plus supported Homebrew, `cargo install`, release archives,
+  worker container images, and native Kagami installers.
+- Publish only artifacts installed and exercised in clean supported
+  environments. Include integrity metadata, provenance, the selected
+  signature/attestation and SBOM, and promote the same verified bytes across
+  channels rather than silently rebuilding them.
+- Resolve Debian worker enable/start behavior before publication. Reconcile the
+  current automatic-start metadata with the historical explicit-first-start
+  promise through tested install, upgrade, failure, and unattended-install
+  journeys rather than choosing incidentally.
 - Preserve ADR 0003 self-sufficiency: each binary starts usefully without
   companion files or mandatory setup and handles read-only/no-home environments
   where its selected operation permits it.
@@ -896,6 +913,12 @@ supported platforms.
 - A fresh operator can install and form a cluster using a documented preferred
   native path; `cargo install` and the worker container follow their documented
   config-free defaults.
+- Every method marked supported in `docs/install.md` has a published artifact,
+  integrity metadata, clean-environment install/launch evidence, and tested
+  upgrade/removal behavior. Scaffolded methods remain labelled unsupported.
+- Debian enable/start behavior and the worker container's secure first-run
+  contract are decided, documented, and tested; neither installation path opens
+  an unintended unauthenticated listener.
 - A fresh operator can enable least-privilege scraping/probes and OTLP export
   using tested instructions. Feature combinations, telemetry outages, probe
   semantics, bounded resource use and measured instrumentation overhead pass

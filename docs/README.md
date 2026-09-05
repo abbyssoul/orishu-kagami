@@ -23,6 +23,8 @@ Start here:
   lifecycle implemented by client-supplied simulation packages.
 - [What is an Orishu workload?](workloads.md) — the user-facing definition,
   contents, lifecycle, identity, and recommended delivery model.
+- [Installation](install.md) — source workflows available today, packaging
+  scaffolds, planned release channels, and their support status.
 - [Development](development.md) — toolchain, commands, and validation.
 - [Releasing](releasing.md) — continuous integration and delivery behaviour.
 - [Coding style](Coding%20style.md) — application-neutral Rust design guidance.

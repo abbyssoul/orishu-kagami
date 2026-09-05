@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG RUST_VERSION=1.94
+ARG RUST_VERSION=1.97
 
 FROM rust:${RUST_VERSION}-trixie AS builder
 WORKDIR /src

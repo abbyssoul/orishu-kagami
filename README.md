@@ -9,7 +9,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/orishu)](https://crates.io/crates/orishu)
 [![Unit Tests](https://github.com/abbyssoul/orishu-kagami/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/abbyssoul/orishu-kagami/actions/workflows/unit-tests.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE.md)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
 <br/>
 
@@ -66,7 +66,67 @@ behavior on hostile inputs, capacity, and operator clarity alongside measured
 performance. Its 10,000-worker and near-linear-scaling goals are research
 targets, not claims about the current implementation. See
 [Why Orishu exists](docs/why-orishu-exists.md) and the
-[scaling objectives](docs/orishu-scaling-objectives.md).
+[scaling objectives](docs/orishu-scaling-objectives.md). Every client, peer,
+artifact, and extension boundary remains untrusted even after authentication;
+see the [security policy](SECURITY.md).
+
+```mermaid
+graph TD
+    subgraph Clients
+        subgraph researchers
+            K["Kagami<br/>author experiments<br/>watch live or recorded results"]
+        end
+
+        subgraph admins
+            direction LR
+            
+            C["orishuctl<br/>scripted administration"]
+            M["orishu-monitor<br/>interactive operations"]
+        end
+    end
+
+
+    subgraph Network
+        API(["Orishu client interface<br/>virtual cluster authority"])
+    end
+
+    subgraph Cluster["Orishu cluster(single workload)"]
+        W1["orishu-worker"]
+        W2["orishu-worker"]
+        W3["orishu-worker"]
+        W1 e1@<--> W2
+        W2 e2@<--> W3
+        W3 e3@<--> W1
+    end
+
+    subgraph LogicalStorage
+        S[("Committed simulation state<br/>checkpoints and results")]
+    end
+
+    researchers -->|experiment becomes workload| Network
+    admins -->|admin commands| Network
+    
+    Network -->|observations and replay| researchers
+    Network -->|cluster status| admins
+
+    Network e4@ --- W1
+    W1 e5@<==> S
+    W2 e6@<==> S
+    W3 e7@<==> S
+
+    e1@{ animation: fast }
+    e2@{ animation: fast }
+    e3@{ animation: fast }
+    e4@{ animation: fast }
+    e5@{ animation: fast }
+    e6@{ animation: fast }
+    e7@{ animation: fast }
+```
+
+The client interface is logical: any suitable worker may be an entry point, but
+authoritative run state comes from the simulation boundaries committed by the
+cluster. Kagami never joins peer membership. See the full
+[architecture](docs/architecture.md).
 
 ## Status
 
@@ -75,7 +135,12 @@ present, and Kagami has a functional native application shell and GPU scene
 renderer. Kagami can select an Orishu endpoint, but remote workload control and
 observation streaming are not connected yet.
 
-## Get started
+## Build and run from source
+
+No binary packages, container images, Cargo application crates, or desktop
+installers are currently published as supported releases. The
+[installation guide](docs/install.md) distinguishes source-checkout workflows
+available today from planned release channels.
 
 Install the Rust toolchain through [rustup](https://rustup.rs/). The checked-in
 toolchain file selects the supported compiler and installs `rustfmt` and
@@ -150,10 +215,19 @@ scripts/    repository checks and automation helpers
 
 See [why Orishu exists](docs/why-orishu-exists.md), the
 [documentation index](docs/README.md), [architecture](docs/architecture.md),
+[installation guide](docs/install.md),
 [implementation roadmap](docs/roadmap/README.md),
 [simulation-plugin model](docs/simulation-plugins.md), and
 [contribution guide](CONTRIBUTING.md) before making structural or behavioural
 changes.
+
+## Feedback and contributions
+
+Bug reports, design questions, operator feedback, scientific use cases,
+documentation fixes, and focused code changes are welcome. Read the
+[contribution guide](CONTRIBUTING.md) before proposing substantial behavior or
+architecture changes. Report security issues privately as described in
+[SECURITY.md](SECURITY.md).
 
 ## License
 

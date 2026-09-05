@@ -118,7 +118,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | N-PURGE | M5 | Planned | Specify persisted tombstones and inventory suppression |
 | N-ARTIFACT | M5 | Planned | Specify availability, replication, repair, and discovery after storage/transfer/purge |
 | P-SCALE | M5–M8 | Planned | Specify and grow the staged 1/3/5/12/32-worker evidence harness |
-| P-INSTALL | M8 | Planned | Specify supported native, archive, Cargo, and container distribution |
+| P-INSTALL | M8 | Ready for early slices | Implement the linked artifact-publication task and installation matrix; publication waits for M8 product readiness |
 | P-OBSERVABILITY | M0–M8 | Ready by owning slice | Implement worker/formation instrumentation first, then extend with each service |
 | P-OBS-DOCS | M4–M8 | Planned | Ship tested operator guidance alongside each observability slice |
 | P-MONITOR | M5–M8 | Planned | Specify after real membership and operational projection models stabilize |

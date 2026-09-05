@@ -37,9 +37,10 @@ join flow uses the worker name and certificate identity.
 
 Admission succeeds only after transport authentication and every applicable
 gate passes: formation/join intent, current join token, membership lock,
-introducer peer-admission flag, capacity, blocklist, membership tombstone, and
-protocol compatibility. `protocol-p2p.md` fixes their evaluation order and the
-re-check that follows credential verification. A rejection is explicit and
+introducer peer-admission flag, capacity, blocklist, membership tombstone,
+absence of another locally known live/suspected identity for the certificate,
+and protocol compatibility. `protocol-p2p.md` fixes their evaluation order and
+the re-checks after credential verification and ID allocation. A rejection is explicit and
 bounded; redirect hints are untrusted candidates, not authority.
 
 Removal is distinct from liveness. A membership tombstone is an operator or

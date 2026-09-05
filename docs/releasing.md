@@ -20,6 +20,11 @@ and weekly so newly published advisories are detected without a code change.
 
 ## Release delivery
 
+The public [installation guide](install.md) distinguishes working source
+workflows from scaffolded and supported distribution channels. The
+[P-INSTALL task](tasks/publish-installable-artifacts.md) owns archive, native,
+Cargo, container, desktop, integrity, upgrade, and clean-install acceptance.
+
 Planned observability requirement: once
 [ADR 0017](adr/0017-worker-operational-observability.md) is implemented, official
 worker artifacts include the `observability` and `otlp-tracing` capabilities

@@ -196,7 +196,7 @@ public interface that production uses.
 ## Rust and dependency conventions
 
 - The workspace uses Rust edition 2024 and the compiler selected by
-  `rust-toolchain.toml` (currently Rust 1.94).
+  `rust-toolchain.toml` (currently Rust 1.97).
 - Prefer explicit domain/newtypes over primitive strings, integers, and
   unitless floats at public boundaries. Keep fields private when constructors
   enforce invariants.

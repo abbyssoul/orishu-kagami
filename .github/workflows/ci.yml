@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          toolchain: "1.94"
+          toolchain: "1.97"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux window-system dependencies
@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          toolchain: "1.94"
+          toolchain: "1.97"
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux window-system dependencies
         run: |
@@ -93,7 +93,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
-          toolchain: "1.94"
+          toolchain: "1.97"
       - uses: Swatinem/rust-cache@v2
       - name: Build and test Kagami
         run: cargo test --locked -p kagami -p kagami-renderer --all-targets

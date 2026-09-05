@@ -202,3 +202,22 @@ crates/orishu/src/model/manifest.rs already defines basic structs to support suc
 Related decision has been documented in original orishu repository in '/home/soultaker/workspace/orishu/backlog/decisions/decision-005 - Cluster-manifest-is-a-synthetic-resource-rather-than-a-user-authored-durable-object.md' which I believe is informative in our case.
 
 **Promoted** to [Extract shared resource crate](docs/tasks/extract-shared-resource-envelope.md), governed by [ADR 0013](./docs/adr/0013-cluster-formation-and-node-identity.md).
+
+
+[X] These are important finds and I'd like you to act on it.
+1. Do create docs/install.md with the proposed format documenting currently available install options as well as planned ones event though we currently don't publish required artifacts.
+2. Do document in the relevant milestone to support publishing required artifacts as documented and create a proper task in ./docs/task with details.
+3. Most importantly, do address rust toolchain version drift. We do targe 1.97 (current) to dockerfile, release workflow and dev guide all should be updated.
+4. do fix etc/systemd/orishu-worker.service:3 link
+5. Debian metadata fix and README conflict should be documented to be re-visited as part of the release milestone. No need for decision which version is correct now.
+6. please update  etc/orishu-worker.conf reference
+
+And I will fix README's license badge ref.
+
+
+Product motivation and data-parallel philosophy, Scaling targets etc do deserve its own full-body documents. But README is the first point of entry for potential users - they need to know that these concepts are covered and front and center for orishu. Worth having a brief mention with a link to the full docs.
+Same goes for hostile-input and architecture diagram. It is simple and not exact but gives readers a high level mental model of what the moving parts are:
+there are no viewer and studio, but there are clients (orishuctl, orishu-monitor and Kagami) that are used in various roles. Especially kagami - to craft the simulation/experiment (that's what old docs called 'studio') and to watch results - viewers. a simple mermaid diagram of thous roles goes a long way and worth including in the README
+
+
+Let me know if I haven't cover anything else and lets update docs/capture this info/fix issues.

@@ -1,0 +1,26 @@
+apiVersion: orishu.dev/v1
+kind: Workload
+metadata:
+  name: test-hydrodynamics
+spec:
+  domainType: hydrodynamics
+  model: 
+    image:
+      uri: "oci://registry.example.com/sim/hydro:v1"
+  domain:
+    dimensions: 3
+    bounds: 1m
+    discretization:
+      space: 1mm
+      time:
+        step: 15ms
+        integration:
+          scheme: semi-implicit-euler
+          parameters: {}
+  inputs:
+    geometry:
+      mesh:
+        uri: "https://github.com/abbyssoul/orishu/blob/main/examples/spaces/air-tunnel.3mf"
+    initialConditions:
+      image:
+        uri: "https://github.com/abbyssoul/orishu/blob/main/examples/spaces/snapshot.orishu"

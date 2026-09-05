@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Rust 1.94, installed with `rustup`.
+- Rust 1.97, installed with `rustup`.
 - GNU Make.
 - Linux window-system development packages listed in the root README when
   building Kagami on Linux.
