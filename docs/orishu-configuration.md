@@ -19,6 +19,32 @@ references, logs, or artifact identity.
 
 ## Worker configuration
 
+The implemented local diagnostics slice uses these typed settings, with normal
+file < environment < CLI precedence:
+
+| YAML setting | Environment | CLI | Default |
+| --- | --- | --- | --- |
+| `spec.observability.enabled` | `ORISHU_OBSERVABILITY_ENABLED` | `--observability.enabled true/false` | false |
+| `spec.observability.bind` | `ORISHU_OBSERVABILITY_BIND` | `--observability.bind IP:PORT` | `127.0.0.1:9168` when enabled |
+| `spec.observability.metrics` | `ORISHU_OBSERVABILITY_METRICS` | `--observability.metrics true/false` | true; selects `/metrics` only |
+| `spec.observability.probes` | `ORISHU_OBSERVABILITY_PROBES` | `--observability.probes true/false` | true; selects `/livez`, `/readyz`, `/startupz` together |
+
+Enablement requires the `observability` build feature. Missing capability and
+non-loopback exposure fail validation before credentials/listeners start.
+An enabled diagnostics address is bound fallibly before credential creation,
+membership-owner startup or client binding. Address-in-use and other bind
+errors report `cannot bind diagnostics listener` with exit code 2, not a panic.
+The bound acceptor is retained until serving starts; there is no probe/rebind
+race. TCP connection establishment during initialization is not probe success.
+A disabled listener binds nothing, even if a bind setting is retained. Unknown
+keys within `spec.observability` are rejected. Route selection does not enable
+the listener. When enabled, at least one of metrics or probes must be selected;
+an empty listener is a startup configuration error before credentials/listeners
+start. Disabled routes are absent (`404`), not successful placeholder responses.
+Metrics-only and probe-only configurations are still loopback-only. Secured
+remote binds and trace-export configuration remain planned; no join/operator token
+should be supplied to a scraper for this unauthenticated loopback surface.
+
 Worker startup configuration includes listener addresses, TLS identity,
 resource limits, peer/client/work admission flags, storage backend and
 replication settings, and optional explicit introducer/join information.

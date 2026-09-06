@@ -5,6 +5,9 @@ workload per cluster. Scaling is not merely an application benchmark: it is a
 platform property that must be demonstrated across membership, coordination,
 storage, retrieval, recovery, and hostile-input handling.
 
+This document turns the capacity and performance motivation in
+[Why Orishu exists](why-orishu-exists.md) into measurable evidence gates.
+
 These objectives are targets, not claims about the current implementation.
 They complement the scientific targets in `target-experiments.md` and the
 delivery gates in `roadmap/README.md`.

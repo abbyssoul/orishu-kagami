@@ -19,12 +19,16 @@ clear in the combined product.
 | Field CAD/Orishu Maxwell profile | Retain the narrow profile only as a proposal requiring revalidation because Kagami supersedes Field CAD and submission ownership changed. | ADR 0016 |
 | Kagami Iced application shell | Reuse as the basis of the native client. | `apps/kagami` |
 | Kagami Iced/wgpu scene renderer | Reuse as a deep rendering module. | `libs/kagami-renderer` |
-| Kagami demo scene tree | Keep app-local until an authoritative experiment model replaces it. | `apps/kagami/src/scene_model.rs` |
+| Kagami demo scene tree | Keep app-local until an authoritative experiment model replaces it. Retired by the [Kagami capability programme](tasks/kagami/README.md). | `apps/kagami/src/scene_model.rs` |
 | Kagami GPUI experiment | Do not adopt; it duplicates the shell and has a conflicting graphics graph. | Historical reference only |
 | Field CAD egui desktop | Do not adopt; Kagami replaces this presentation implementation. | Historical reference only |
 | Field CAD server and MCP transport | Do not adopt as a second compute/control plane; Orishu owns remote execution. | Rebuild against Orishu where needed |
 | Field CAD expression and variable prototypes | Evaluate together; do not adopt either historical API wholesale. `fieldcad-variables` informs the generic namespaced dependency engine, while `fieldcad-expressions` informs dimension-aware resource integration, retained source, diagnostics, and bounds. | The shared `orishu-variables` subsystem conforming to ADRs 0005 and 0007 |
 | Field CAD object catalog | Reuse its failure-isolation, availability, fingerprint, provenance, safe-write, and explicit-update lessons; replace Field CAD core types, resolved-only values, document-scoped sources, and tracking links with Kagami schemas, shared expressions, a client-owned catalog authority, and snapshot instantiation. | Kagami catalog domain conforming to ADR 0008 |
+| Field CAD object composition and dynamics | Retain intrinsic pose/velocity, dynamics-owned integration, and independent field source/coupling contributions; replace native solver registries and species branches with plugin schemas and the sandbox workload lifecycle. | ADR 0020 and X-COMPOSITION |
+| Field CAD probes and visualization | Retain non-perturbing instruments, attachments, projection switching, object follow, field vectors/flow lines, best-effort live trails, and exact retained trajectories; rebuild them over versioned observations and Kagami's renderer. Authoring views persist separately and dirty the file; playback views remain ephemeral. | K8, K-OBSERVATION, K-VIEW, and ADR 0022 |
+| Field CAD fields and solvers | Retain fields as state over a domain and stable object couplings; replace native solver selection with one explicit plugin computational model per field family, including mutually exclusive Coulomb/Maxwell-Yee and classical-gravity/GEM alternatives. | ADR 0023 and X-FIELDS |
+| Field CAD particle emitters | Retain ordinary composed emitters and weighted catalog spawn recipes; materialize deterministic bounded blueprints into the experiment at authoring acceptance, then copy them into the workload without catalog access. | ADR 0021 and X-EMITTER |
 
 ## Field CAD extraction candidates
 
@@ -34,7 +38,10 @@ tests before migration:
 1. **Experiment model and scene document.** Reconcile Field CAD's editable world
    with Orishu workload and artifact terminology, then define compilation from
    experiment intent to immutable workload input. Do not expose UI-framework or
-   solver-owned types.
+   solver-owned types. Decided by
+   [ADR 0019](adr/0019-kagami-experiment-document-model.md) and tracked as the
+   [Kagami capability programme](tasks/kagami/README.md); compilation to a
+   workload remains K-RUN's.
 2. **Observation model.** Generalize immutable field snapshots into typed,
    versioned observations with provenance, completeness, validity, and
    backpressure rules suitable for the Orishu client protocol.
@@ -45,7 +52,8 @@ tests before migration:
    simulation plugin or the authoring schema Kagami exposes.
 4. **Visualization algorithms.** Port interpolation, glyph, trajectory, picking,
    and gizmo behaviour into Kagami's renderer only when the required observation
-   interface exists.
+   interface exists. K-VIEW makes projection, object follow and vector/flow-line
+   layers essential; bounded trails follow V-REPLAY and remain non-essential.
 5. **Catalog and physical schemas.** Adapt `fieldcad-catalog` behind Kagami's
    client-owned catalog authority. Reconcile stable identifiers, component
    schemas, expressions, SI units, fingerprints, and provenance before
@@ -58,6 +66,12 @@ tests before migration:
    affected dependencies atomically, and use the same evaluator in Kagami and
    Orishu workload admission. Do not introduce live solver observations as an
    implicit document input.
+7. **Composed execution and emitters.** Transfer Field CAD's component
+   composition semantics, not its native implementation boundary. Share a pure,
+   bounded object-blueprint representation and validator between authoring,
+   workload compilation and Orishu admission; keep catalog IO/materialization
+   in Kagami and build runtime hot layouts in Orishu, then
+   prove deterministic emitter restart and distributed ownership separately.
 
 ## Admission test
 

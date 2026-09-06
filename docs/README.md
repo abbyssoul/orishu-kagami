@@ -13,8 +13,10 @@ Start here:
   semantics assumed by the client and peer protocols.
 - [Orishu configuration](orishu-configuration.md) — shared configuration,
   precedence, startup, and trust rules.
-- [Orishu operational observability](orishu-observability.md) — planned
-  Prometheus metrics, process probes, OTLP traces and operator delivery gates.
+- [Orishu operational observability](orishu-observability.md) — implemented local
+  metrics/probes, planned OTLP traces and remaining operator delivery gates.
+- [Interrupted admission recovery](cluster-admission-recovery.md) — bounded
+  operator inspection, existing-attempt recovery and mandatory stop conditions.
 - [Implementation roadmap](roadmap/README.md) — milestone gates, workstreams,
   dependencies, parallel lanes, and exit criteria.
 - [Simulation plugins](simulation-plugins.md) — how advanced users add physical
@@ -26,6 +28,8 @@ Start here:
 - [Installation](install.md) — source workflows available today, packaging
   scaffolds, planned release channels, and their support status.
 - [Development](development.md) — toolchain, commands, and validation.
+- [Worker Prometheus acceptance](testing-worker-prometheus.md) — pinned parser,
+  local scrape example and real source-build ingestion checks.
 - [Releasing](releasing.md) — continuous integration and delivery behaviour.
 - [Coding style](Coding%20style.md) — application-neutral Rust design guidance.
 - [High-performance Rust](high-performance-rust.md) — measurement and hot-path guidance.

@@ -59,17 +59,35 @@ An automation client never acts on its own authority: a scientist-researcher ena
   worse than dedicated coding tools; unclear plugin contracts (manifest,
   phenomenon definition, exported variables, kernel capabilities); plugins
   that behave differently on the cluster than they do locally.
-- **Key tasks/usage scenarios:** Build a plugin (manifest plus kernel as a
-  workload component) against the documented contract, add it to Kagami,
-  validate it, share it, author experiments that use it, and submit or export
-  experiments whose workload closure includes the plugin's kernel.
+- **Key tasks/usage scenarios:** Build a plugin (manifest, schemas and workload
+  components containing its numerical implementation) against the documented
+  contract, add it to Kagami, validate it, share it, author experiments that
+  use it, and submit or export experiments whose workload closure includes the
+  exact component artifacts.
 
 ## Glossary
 
 - **Scientist-researcher:** The person who uses Kagami to author experiments and visualize `orishu` simulation output.
 - **Experiment:** Kagami's editable representation of a simulation setup, prior to being submitted to `orishu` as a workload: the world, computational domain and discretization, simulation parameters, active physics and field choices, initial conditions, and requested observations. This is the entity Field CAD called the "scene".
-- **World:** The objects and physical properties authored as part of an experiment; what the viewport displays and what edits act on.
-- **Experiment document:** A versioned file persisting an experiment's editable intent. It carries intent only, never computed states or run history.
+- **World:** The modeled objects and observation instruments authored as part
+  of an experiment; what the viewport displays and what edits act on.
+- **Modeled object:** An entity with intrinsic pose and velocity whose physical
+  behaviour is composed from plugin-contributed components. A catalog template
+  is the usual way to instantiate a useful composition.
+- **Field family:** A physical quantity defined throughout the experiment
+  domain, such as the electromagnetic, gravitational, or hydrodynamic-medium
+  field. Exactly one selected computational model governs each family.
+- **Computational model:** A plugin-contributed schema and digest-pinned update method
+  for a field family, such as Coulomb or Maxwell/Yee for electromagnetism.
+- **Observation instrument:** An authored, non-perturbing request to measure or
+  sample a run, such as a point probe or sampling region. A physical detector
+  that affects a simulation is instead a modeled object with components.
+- **Particle emitter:** A modeled object with an emitter component whose
+  self-contained authored spawn blueprints create bounded run-time objects. It
+  may also carry dynamics and field-coupling components.
+- **Experiment document:** A versioned file persisting an experiment's editable
+  intent and an optional, separately owned default view. It never carries
+  computed states, credentials, an active run, or run history.
 - **Document authority:** The logical owner that orders proposed authoring commands and accepts or rejects experiment revisions. It initially runs in each Kagami process and may later be hosted headlessly.
 - **Object catalog:** Kagami's client-owned collection of versioned object-template files. Editing it does not edit the open experiment.
 - **Object template:** A reusable, generic composition of components, parameters, and authored properties. Instantiation creates a self-contained experiment object with source provenance, not a live catalog link.
@@ -77,16 +95,24 @@ An automation client never acts on its own authority: a scientist-researcher ena
   names the plugin and describes the physical phenomenon it models — including
   the variables it exports — together with the kernel code that simulates that
   phenomenon. Kagami ships with built-in plugins (for example electrodynamics
-  and gravity); custom plugins are authored outside Kagami and added to it as
-  content-addressed workload components.
-- **Kernel:** The executable code a plugin registers to simulate its
-  phenomenon: a workload component that advances simulation state through the
-  versioned lifecycle contract.
+  and gravity); custom plugins are authored outside Kagami and include
+  content-addressed workload component artifacts.
+- **Kernel:** A numerical algorithm or library used inside a workload
+  component. It is implementation, not the unit Kagami or Orishu loads.
 - **Workload component:** The content-addressed WebAssembly Component carrying
-  a plugin's kernel; see the [orishu glossary](../orishu/README.md#glossary).
+  plugin model code behind the versioned component lifecycle; one workload may
+  instantiate several through its admitted graph. See the
+  [Orishu glossary](../orishu/README.md#glossary).
 - **Run:** One execution of an experiment: an ordered stream of computed states at committed simulation boundaries. A run is local (in-process preview) or a cluster run (submitted to `orishu` as an immutable workload).
 - **Run reference:** The information needed to identify and observe one accepted cluster run, including cluster, workload, and workload-epoch identity. It does not carry camera or playback state.
 - **Local run:** An in-process run of an experiment inside Kagami for preview and verification, publishing the same observation semantics as a cluster run.
+- **Authoring mode:** The Kagami workspace mode for editing initial experiment
+  intent, including document undo and redo.
+- **Observation/replay mode:** The read-only Kagami workspace mode for watching
+  or replaying a run. Returning to initial-condition editing is explicit.
+- **Default view:** Client-owned presentation settings saved beside, but not as
+  part of, experiment intent. They initialize a window and never affect a
+  workload or another observer.
 - **Kagami app:** The Kagami desktop application through which experiments are authored, submitted, and visualized.
 - **MCP server:** Kagami's embedded server through which authenticated external clients command the running session. It is off by default, enabled by a startup flag or in the UI, requires a fresh credential, and binds only local transports.
 - **External client (MCP client):** A program — an AI agent, a script, or another front-end — that connects to Kagami's MCP server and acts with a scientist-researcher's delegated authority.

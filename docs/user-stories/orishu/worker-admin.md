@@ -213,7 +213,17 @@ As an administrator, I want to be able to start a worker process that does not a
 
 ### Monitor worker metrics and process health
 
-Status: **planned — ADR 0017; not current CLI/API behavior**
+Status: **partial — local probes/health gauges and route selection implemented; full monitoring acceptance pending**
+
+The optional loopback listener currently provides three health gauges, nine
+process-lifetime owner counters, eight bounded-lane occupancy/capacity gauges,
+six aggregate client-service count/duration instruments and
+startup/liveness/readiness routes. Metrics and probes are separately selectable
+through file/environment/CLI settings; disabled groups return `404`. See the
+[worker manual](../../../apps/orishu-worker/README.md#optional-local-diagnostics).
+Owner counters include admission insertion, refusal and assignment replay.
+Secured remote access, the full probe matrix, remaining formation metrics, traces and
+tested backend/deployment recipes remain work, so this story is not complete.
 
 As an administrator, I want to enable a Prometheus scrape endpoint and
 startup/liveness/readiness probes so that I can monitor a worker and configure
@@ -229,6 +239,9 @@ process responsiveness and readiness for its configured roles.
 
 - Build capabilities and file/env/CLI options are documented. An unsupported
   feature request fails clearly; default startup opens no monitoring port.
+- Metrics-only and probe-only selection is explicit and does not implicitly
+  enable a listener or grant remote access. Disabled routes expose no metrics
+  or successful probe response.
 - Monitoring works independently of client/peer/work admission flags and uses
   the least-privilege access policy from
   [ADR 0017](../../adr/0017-worker-operational-observability.md).

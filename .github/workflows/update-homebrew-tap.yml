@@ -1,0 +1,108 @@
+name: Open Homebrew tap update
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      tap-repository:
+        description: Homebrew tap in OWNER/REPOSITORY form.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published immutable tag, for example v0.1.0.
+        required: true
+        type: string
+      sha:
+        description: Exact commit targeted by the tag.
+        required: true
+        type: string
+      tap-repository:
+        description: Homebrew tap in OWNER/REPOSITORY form.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: release
+    concurrency:
+      group: homebrew-tap-update
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Validate the published identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          version="$(python3 scripts/release/check-version.py "$TAG")"
+          test "$TAG" = "v$version"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)" = "$SHA"
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = false
+      - name: Download and hash immutable macOS archives
+        id: hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          version="${TAG#v}"
+          gh release download "$TAG" \
+            --pattern "orishu-kagami-${version}-*-apple-darwin.tar.gz" \
+            --dir downloads
+          arm="$(sha256sum "downloads/orishu-kagami-${version}-aarch64-apple-darwin.tar.gz" | cut -d' ' -f1)"
+          intel="$(sha256sum "downloads/orishu-kagami-${version}-x86_64-apple-darwin.tar.gz" | cut -d' ' -f1)"
+          {
+            echo "arm=$arm"
+            echo "intel=$intel"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+      - name: Update formula and open pull request
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_REPOSITORY: ${{ inputs.tap-repository }}
+          VERSION: ${{ steps.hashes.outputs.version }}
+          ARM_SHA: ${{ steps.hashes.outputs.arm }}
+          INTEL_SHA: ${{ steps.hashes.outputs.intel }}
+        shell: bash
+        run: |
+          gh repo clone "$TAP_REPOSITORY" tap
+          gh auth setup-git
+          branch="orishu-kagami/v$VERSION"
+          if git -C tap show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+            git -C tap checkout -B "$branch" "origin/$branch"
+          else
+            git -C tap checkout -B "$branch" origin/main
+          fi
+          python3 scripts/release/write-homebrew-formula.py \
+            tap/Formula/orishu-kagami.rb "$VERSION" "$GITHUB_REPOSITORY" "$ARM_SHA" "$INTEL_SHA"
+          if git -C tap diff --quiet; then
+            echo "Tap already contains Orishu Kagami $VERSION"
+            exit 0
+          fi
+          git -C tap config user.name github-actions-release\[bot\]
+          git -C tap config user.email github-actions-release\[bot\]@users.noreply.github.com
+          git -C tap add Formula/orishu-kagami.rb
+          git -C tap commit -m "orishu-kagami $VERSION"
+          git -C tap push origin "HEAD:$branch"
+          gh pr create --repo "$TAP_REPOSITORY" --base main --head "$branch" \
+            --title "orishu-kagami $VERSION" \
+            --body "Update Orishu Kagami to immutable release v$VERSION." || \
+            gh pr view "$branch" --repo "$TAP_REPOSITORY" --json url --jq .url

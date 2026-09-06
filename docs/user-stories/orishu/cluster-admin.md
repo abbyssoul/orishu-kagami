@@ -106,6 +106,56 @@ As an administrator, I want to diagnose the connectivity and health of nodes in 
 
 ## Membership and topology
 
+### Inspect an uncertain admission outcome
+
+As an administrator, I want to correlate an unresolved join with its original
+introducer's retained evidence so that I do not accidentally duplicate an
+admission or bypass a restriction while troubleshooting.
+
+Acceptance criteria:
+
+- Source operation status identifies the original target and secret-free
+  attempt/issuer reference independently of reusable worker labels.
+- An authenticated read on the original issuer distinguishes a retained current
+  assignment, a retired/restricted assignment, missing history and wrong issuer.
+- The output identifies its source and remains a local-at-request report, not
+  a cluster-wide fence or permission to admit a worker.
+- Missing history, restart, unreachable issuer and failed authentication never
+  become evidence that insertion did not happen. The operator has a documented
+  stop condition and does not automatically remove restrictions or switch issuers.
+- Inspection never changes membership, retries, credentials or ledger retention.
+
+PoC status: source correlation and issuer inspection are implemented, and the
+[bounded recovery procedure](../../cluster-admission-recovery.md) is documented.
+Independent-process tests cover recovered ACK loss and mandatory stop after
+issuer loss with real retry exhaustion, followed by source crash/restart with
+retained credentials but missing operation history and fresh identities.
+The separate source-loss journey verifies the same missing-history stop
+condition while the original issuer survives and retains the accepted ID.
+No fresh join is submitted as recovery. A separate Dead-assignment journey
+preserves the original source and verifies bounded exhaustion without revival
+or duplicate membership after SWIM retirement. The removed-assignment journey
+also verifies bounded stop after a post-insertion force removal, without
+readmitting the old identity or allocating a replacement. A certificate-block
+journey keeps the restricted member record and verifies the same bounded stop
+without replacement identity. A negative restart test verifies that retaining
+the excluded certificate still blocks a fresh attempt despite fresh process
+identities, while another certificate can join. It does not authorize restart
+or new admission as recovery. A post-adoption wire-ejection journey verifies
+retained diagnostic identities, stopped participation, historical join status
+and explicit leave to standalone; it is not a public removal API or proof of
+cluster-wide removal convergence. The remaining formation fault acceptance
+stay in progress. See the
+[CLI manual](../../../apps/orishu-ctl/README.md).
+
+The lost-departure process journey also suppresses both voluntary leave
+announcements, verifies survivor SWIM detection and readmission with the same
+certificate/fresh assigned ID, and retains dead history. A separate public
+leave-response-loss journey discards the accepted response through a local
+proxy and verifies exact CLI retry recovers the original receipt without
+another identity change, including historical replay after readmission. See the
+[formation task](../../tasks/implement-cluster-formation-poc.md).
+
 ### Retrieve the current join token
 
 As an administrator, I want to retrieve the cluster's current join token so that I can admit a new worker without unnecessarily rotating cluster admission secrets.

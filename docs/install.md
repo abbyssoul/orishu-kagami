@@ -31,13 +31,13 @@ it must not become the only usable form of a binary.
 | Method | Status | Intended audience |
 | --- | --- | --- |
 | Build and run from a checkout | Available for development | Contributors and evaluators |
-| Local Cargo installation from a checkout | Available for `orishu-worker` and `orishuctl`; not a supported release | Developers evaluating command-line binaries |
+| Local Cargo installation from a checkout | Available for all four application packages; not a supported release | Developers evaluating candidate binaries |
 | Locally built container targets | Build scaffolding exists; worker runtime defaults require correction and validation | Packaging developers |
-| Linux release archive | Workflow scaffolding exists; no supported artifact is published | Future operators and researchers |
-| Debian packages | `cargo-deb`, config, and systemd scaffolding exist; lifecycle and release integration remain unresolved | Future Linux operators |
+| Native release archives | Candidate CI builds Linux x86-64/ARM64 and macOS Apple Silicon/Intel suites plus Windows x86-64 Kagami; no supported release is published | Future operators and researchers |
+| Debian packages | Candidate CI builds and inspects amd64/arm64 packages; install lifecycle and service-start policy remain unresolved | Future Linux operators |
 | crates.io / `cargo install <package>` | Planned; packages are not published from this monorepo as a supported release | Operators and developers |
 | Published OCI worker image | Planned; there is no supported registry image | Container operators |
-| Homebrew | Planned for the installable release milestone | macOS operators and researchers |
+| Homebrew | Tap-PR automation exists but no tap/package is currently published or supported | Future macOS operators and researchers |
 | Snap | Not currently planned or implemented | — |
 | Native Kagami installers | Planned; formats and supported platforms remain to be selected and tested | Researchers |
 
@@ -83,12 +83,14 @@ the application shell is not yet an end-to-end researcher installation.
 
 ## Local Cargo installation from a checkout
 
-The repository can install the two implemented command-line binaries into the
-active Cargo installation prefix:
+The repository can install each current application package into the active
+Cargo installation prefix:
 
 ```sh
 make install-worker
 make install-ctl
+make install-monitor
+make install-kagami
 ```
 
 These commands build the current checkout with its lockfile. They do not prove
@@ -99,12 +101,14 @@ support for that revision. Use them only for development evaluation.
 
 ### Release archive
 
-The release workflow can build a Linux x86-64 tar archive containing the four
-binaries, README, and license. Manual workflow artifacts and tag-triggered
-GitHub release upload are scaffolding, not an announced support promise. Before
-publication the workflow must add integrity metadata, settle whether the
-placeholder monitor belongs in the archive, test installation and first-run
-journeys, and align supported versions and platforms.
+The candidate workflow builds deterministic native archives for Linux and
+macOS, plus a Kagami-only Windows zip. It smoke-tests the binaries and the
+release workflow stages an exact artifact set with `SHA256SUMS` and build
+provenance before an approval-gated GitHub publication step. These outputs are
+scaffolding, not an announced support promise. Before a supported publication
+the project must still settle the preview monitor, platform commitments,
+signing, application bundles/installers, upgrades, and persona first-run
+journeys. See the [release engineering guide](releasing.md).
 
 ### Containers
 
@@ -129,10 +133,10 @@ Podman instructions are published.
 ### Debian packages and systemd
 
 `cargo-deb` metadata exists for the three Orishu operational binaries, and the
-repository carries a worker configuration and hardened systemd unit. Packaging
-developers with `cargo-deb` installed can exercise the current scaffold with
-`make deb`, but those packages are not release artifacts and their install
-lifecycle is not yet accepted.
+repository carries a worker configuration and hardened systemd unit. Candidate
+CI builds and inspects amd64 and arm64 packages; packaging developers with
+`cargo-deb` installed can also exercise the scaffold with `make deb`. These are
+not supported packages and their install lifecycle is not yet accepted.
 
 In particular, the worker package metadata currently requests automatic
 service enablement and startup. Historical documentation instead said package

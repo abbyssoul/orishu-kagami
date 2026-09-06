@@ -4,7 +4,8 @@ Status: **ready; foundational priority**
 Decisions: [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md),
 [ADR 0009](../adr/0009-execute-workloads-as-sandboxed-portable-programs.md),
-[ADR 0010](../adr/0010-content-addressed-workload-closure-and-portable-bundles.md)
+[ADR 0010](../adr/0010-content-addressed-workload-closure-and-portable-bundles.md),
+[ADR 0024](../adr/0024-orishu-orchestrates-a-workload-component-graph.md)
 
 ## Outcome
 
@@ -22,7 +23,8 @@ The shared model distinguishes:
 
 - the **workload**, which is the logical manifest and complete required
   closure;
-- the **workload component**, which is the sandboxed executable physics;
+- the **component graph**, whose sandboxed executable instances, typed channels
+  and deterministic step plan compose the physics;
 - runtime **workload status/epoch**, which is cluster state and not part of the
   immutable workload;
 - a **distribution envelope/provider**, which supplies locations or bytes but
@@ -54,7 +56,8 @@ manifest.
 - Define the next version of the workload schema in
   [`docs/workloads.md`](../workloads.md) and the protocol documents before
   changing wire behavior. Include the compute definition, variables and
-  expression language version, runtime requirements, root workload component,
+  expression language version, runtime requirements, component instances,
+  typed channels, deterministic step plan, placement constraints,
   initial conditions, geometry, and other profile-declared inputs.
 - Replace image-oriented terminology with a typed `ArtifactDescriptor`
   containing stable role, digest, byte size, media type, and format/schema
@@ -80,7 +83,9 @@ manifest.
   resource crate.
 - Introduce domain types such as `WorkloadManifest`, `WorkloadDigest`,
   `ArtifactDigest`, `ArtifactDescriptor`, `ArtifactRole`, and
-  `WorkloadClosure`; do not expose transport URLs through them.
+  `WorkloadClosure`, plus `ComponentInstanceId`, `ComponentInstance`,
+  `StateChannelId`, `StepInvocationId`, and `StepPlan`; do not expose transport
+  URLs through them.
 - Select and document one deterministic canonical encoding for workload
   identity and exchange. JSON/YAML may remain human authoring inputs, but they
   parse into the typed model and cannot define identity through insignificant
@@ -103,9 +108,13 @@ manifest.
 - Report missing, corrupt, oversized, duplicate-role, incompatible, and
   unsupported artifacts as structured errors without partially accepting the
   workload or populating a trusted cache with unverified bytes.
-- Define one root lifecycle component for the first profile. It may encapsulate
-  reusable kernels, but every code dependency required at execution is pinned
-  in the closure and no domain/template name selects executable code implicitly.
+- Validate bounded instance/node/edge/channel counts; stable component, model,
+  schema and phase identities; acyclic or explicitly versioned bounded
+  schedules; channel type/dimension compatibility; complete inputs; allowed
+  writers; deterministic reductions; model-family exclusivity; placement
+  constraints; and per-instance/aggregate limits.
+- Every code dependency required at execution is pinned in the closure and no
+  domain/template name selects executable code implicitly.
 
 ### 4. Make Kagami produce the shared format
 
@@ -113,12 +122,13 @@ manifest.
   the shared `WorkloadManifest` plus artifact candidates, not Kagami UI or
   document types leaking into Orishu.
 - Resolve selected simulation plugins through Kagami's validated inventory and
-  compile exact schema/model identities and component descriptors. Never emit
+  compile exact schema/model identities, component instances, typed channels,
+  phase dependencies and component descriptors. Never emit
   a plugin installation path, source URL, mutable tag, or “use installed
   version” instruction into the workload.
 - Before the full experiment authority exists, add a minimal fixture/builder
   path proving Kagami can construct and serialize a valid workload with a
-  pinned component and initial conditions through the shared API.
+  minimal multi-component graph and initial conditions through the shared API.
 - Integrate the variables/expression graph when its shared task lands. Kagami
   retains authored source in the manifest while materializing initial-condition
   and geometry blobs deterministically for the selected experiment revision.
@@ -137,7 +147,8 @@ manifest.
   and verified artifacts for a new epoch.
 - Keep workload identity distinct from the cluster-assigned resource ID and
   epoch. Every participating worker must agree on the root digest, component
-  digest, resolved-parameter fingerprint, and required artifact set before
+  graph/step-plan digest, component digests, resolved-parameter fingerprint,
+  and required artifact set before
   reporting `Ready`.
 - Persist and gossip identity-bearing manifest bytes/descriptors, never source
   URLs, local cache paths, credentials, or transient holder locations.
@@ -186,11 +197,12 @@ manifest.
 - An equivalent built-in or third-party simulation plugin compiles through the
   same workload model and admission path; bundled plugins have no hidden
   manifest or execution privilege.
-- A golden workload containing a pinned component and initial conditions has
+- A golden workload containing at least a field-model and Dynamics component
+  connected by typed channels and a deterministic step plan, plus initial conditions, has
   identical canonical bytes and root digest when produced by the Kagami-side
   fixture and read by Orishu.
 - Changing initial conditions changes their descriptor and root workload digest
-  but not the component digest. A worker that has the component requests only
+  but not component digests. A worker that has the components requests only
   the new/missing blobs.
 - Changing only a source URL, peer, cache path, archive encoding, or blob order
   does not change workload identity; none of those locations occur in the
@@ -203,6 +215,11 @@ manifest.
 - Missing, corrupt, oversized, duplicate, incompatible, and forbidden-component
   artifacts produce bounded structured failures before workload replacement or
   guest initialization.
+- Missing producers, multiple unauthorized writers, incompatible channel
+  dimensions, cycles, unbounded schedules, ambiguous reductions and illegal
+  placement constraints are rejected before any component initialization.
+- Co-located and distributed placements of the same accepted graph retain the
+  same workload identity and declared numerical semantics.
 - Identical content is stored once by digest and retries are idempotent. An
   accepted workload pins its required blobs against garbage collection until
   unload and retention policy permit release.
@@ -218,7 +235,7 @@ manifest.
 - Building the complete peer scheduling, repair, or cache-eviction policy
   before the shared manifest and verifier land.
 - Implementing the WebAssembly execution engine itself; this task defines and
-  validates the component artifact consumed by that engine.
+  validates the graph, plan and component artifacts consumed by that engine.
 - Completing Kagami's experiment editor, catalog UI, or MCP surface.
 - Treating a distribution archive, location, mutable tag, runtime status, or
   cluster epoch as workload identity.

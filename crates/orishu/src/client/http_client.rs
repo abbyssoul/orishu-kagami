@@ -23,7 +23,7 @@ use super::ClientError;
 use crate::client::cbor_middleware::CborContentMiddleware;
 use crate::model::blocklist::{self, BlocklistAddRequest, BlocklistAddResult};
 use crate::model::checkpoint::{self, CheckpointId, Filter, Record};
-use crate::model::cluster::{ClusterSpec, JoinIntent, LeaveResult, LockIntent, MembersSelector};
+use crate::model::cluster::{ClusterSpec, JoinIntent, LockIntent, MembersSelector};
 use crate::model::node::InspectSource;
 use crate::model::workload::Accepted;
 use crate::model::{
@@ -31,8 +31,8 @@ use crate::model::{
     API_ROUTE_CLUSTER_EVENTS, API_ROUTE_CLUSTER_LOCK, API_ROUTE_CLUSTER_LOGS,
     API_ROUTE_CLUSTER_NODES, API_ROUTE_CLUSTER_RESULTS, API_ROUTE_CLUSTER_TOKEN,
     API_ROUTE_CLUSTER_TOMBSTONES, API_ROUTE_CLUSTER_WORKLOAD, API_ROUTE_CLUSTER_WORKLOAD_CHECK,
-    API_ROUTE_CLUSTER_WORKLOAD_CHECKPOINT, API_ROUTE_SELF_MEMBERSHIP, ApiRoute, EntriesRemoved,
-    QuerySet, ResponseCollection, ResponseData, cluster, node, result, tombstones,
+    API_ROUTE_CLUSTER_WORKLOAD_CHECKPOINT, ApiRoute, EntriesRemoved, QuerySet, ResponseCollection,
+    ResponseData, cluster, node, result, tombstones,
 };
 use crate::{
     client::bearer_auth::BearerMiddleware,
@@ -146,9 +146,11 @@ impl HttClientOptions {
 }
 
 fn build_client(options: HttClientOptions) -> Result<ClientWithMiddleware> {
-    let mut cb = Client::builder();
+    // Operator mutations target a particular worker. A redirect must not silently
+    // change that authority (or carry a credential to an unintended endpoint).
+    let mut cb = Client::builder().redirect(reqwest::redirect::Policy::none());
     if let Some(timeout) = options.timeout {
-        cb = cb.connect_timeout(timeout);
+        cb = cb.connect_timeout(timeout).timeout(timeout);
     }
 
     if let Some(cert) = options.certificate()? {
@@ -182,7 +184,13 @@ impl HttpClusterClient {
         let (client, base_url) = match address {
             ClusterAddress::UnixSocket(path) => {
                 // Create a client configured to use the Unix socket
-                let client = ClientBuilder::new().unix_socket(path).build()?;
+                let mut builder = ClientBuilder::new()
+                    .unix_socket(path)
+                    .redirect(reqwest::redirect::Policy::none());
+                if let Some(timeout) = options.timeout {
+                    builder = builder.timeout(timeout);
+                }
+                let client = builder.build()?;
                 let mut builder =
                     MiddlewareClientBuilder::new(client).with(CborContentMiddleware::default());
 
@@ -267,12 +275,26 @@ impl ApiCaller {
                     });
                 }
 
-                ciborium::from_reader(Cursor::new(bytes)).map_err(|e| {
-                    ClientError::TransportError(format!(
-                        "failed to deserialize response body: {}",
-                        e
-                    ))
-                })
+                let envelope: ApiResponse =
+                    ciborium::from_reader(Cursor::new(bytes)).map_err(|e| {
+                        ClientError::TransportError(format!(
+                            "failed to deserialize response body: {}",
+                            e
+                        ))
+                    })?;
+                if !status.is_success() {
+                    return match envelope {
+                        ApiResponse::Error { message, .. } => Err(ClientError::ApiError {
+                            status: status.as_u16(),
+                            message,
+                        }),
+                        _ => Err(ClientError::TransportError(format!(
+                            "non-success HTTP status {} carried a success envelope",
+                            status.as_u16()
+                        ))),
+                    };
+                }
+                Ok(envelope)
             }
             Err(e) => {
                 if e.is_connect() {
@@ -534,10 +556,10 @@ impl GraveyardApi for ApiCaller {
 
 #[async_trait]
 impl ClusterApi for ApiCaller {
-    async fn summary(&self) -> Result<cluster::Manifest, ClientError> {
+    async fn summary(&self) -> Result<cluster::Summary, ClientError> {
         let api_response = self.get(&API_ROUTE_CLUSTER).await?;
 
-        let result: cluster::Manifest = expect_data(api_response)?;
+        let result: cluster::Summary = expect_data(api_response)?;
         Ok(result)
     }
 
@@ -654,51 +676,227 @@ impl WorkloadApi for ApiCaller {
 
 #[async_trait]
 impl MembershipApi for ApiCaller {
-    async fn lock(&self) -> Result<LockIntent, ClientError> {
-        let api_response = self
-            .post(&API_ROUTE_CLUSTER_LOCK, &LockIntent { locked: true })
-            .await?;
-
-        let result: LockIntent = expect_data(api_response)?;
-        Ok(result)
+    async fn set_lock(
+        &self,
+        request: &crate::model::cluster::LockRequest,
+    ) -> Result<crate::model::cluster::LockReceipt, ClientError> {
+        let receipt: crate::model::cluster::LockReceipt =
+            expect_data(self.post(&API_ROUTE_CLUSTER_LOCK, request).await?)?;
+        if receipt.operation_id != request.operation_id
+            || receipt.formation_id != request.formation_id
+            || receipt.locked != request.locked
+        {
+            return Err(ClientError::TransportError(
+                "mismatched lock acceptance receipt".into(),
+            ));
+        }
+        Ok(receipt)
     }
 
     async fn is_lock(&self) -> Result<LockIntent, ClientError> {
-        let api_response = self.get(&API_ROUTE_CLUSTER_LOCK).await?;
-        let result: LockIntent = expect_data(api_response)?;
-        Ok(result)
+        let summary: crate::model::cluster::Summary =
+            expect_data(self.get(&API_ROUTE_CLUSTER).await?)?;
+        Ok(LockIntent {
+            locked: summary.membership_locked,
+        })
     }
 
-    async fn unlock(&self) -> Result<(), ClientError> {
-        expect_no_data(self.delete(&API_ROUTE_CLUSTER_LOCK).await?)
-    }
-
-    async fn join(&self, req: &JoinIntent) -> Result<cluster::JoinRequestAccepted, ClientError> {
-        let api_response = self.post(&API_ROUTE_SELF_MEMBERSHIP, req).await?;
-        let result: cluster::JoinRequestAccepted = expect_data(api_response)?;
-        Ok(result)
-    }
-
-    async fn leave(&self) -> Result<LeaveResult, ClientError> {
-        let api_response = self.delete(&API_ROUTE_SELF_MEMBERSHIP).await?;
-        let result: LeaveResult = expect_data(api_response)?;
-        Ok(result)
-    }
-
-    async fn list(&self, filter: &MembersSelector) -> Result<Vec<node::Manifest>, ClientError> {
+    async fn join(
+        &self,
+        req: &cluster::JoinRequest,
+    ) -> Result<cluster::JoinOperation, ClientError> {
+        req.material
+            .validate()
+            .map_err(|_| ClientError::TransportError("invalid join material".into()))?;
         let api_response = self
-            .get(&API_ROUTE_CLUSTER_NODES.with_query_param(filter))
+            .post(&crate::model::API_ROUTE_MEMBERSHIP_JOINS, req)
             .await?;
-
-        let result: Vec<node::Manifest> = expect_collection(api_response)?;
+        let result: cluster::JoinOperation = expect_data(api_response)?;
+        if result.operation_id != req.operation_id
+            || result.source_formation_id != req.formation_id
+            || result.target_formation_id != req.material.formation_id
+            || result.recovery_reference.as_ref().is_some_and(|reference| {
+                reference.introducer_node_id != req.material.introducer_node_id
+                    || reference.introducer_fingerprint != req.material.introducer_fingerprint
+            })
+        {
+            return Err(ClientError::TransportError(
+                "mismatched join operation receipt".into(),
+            ));
+        }
         Ok(result)
+    }
+
+    async fn join_status(
+        &self,
+        id: &cluster::OperationId,
+    ) -> Result<cluster::JoinOperation, ClientError> {
+        let result: cluster::JoinOperation = expect_data(
+            self.get(&crate::model::API_ROUTE_MEMBERSHIP_JOINS.with_id(String::from(id.clone())))
+                .await?,
+        )?;
+        if &result.operation_id != id {
+            return Err(ClientError::TransportError(
+                "mismatched join operation status".into(),
+            ));
+        }
+        Ok(result)
+    }
+
+    async fn inspect_admission(
+        &self,
+        request: &cluster::AdmissionInspectionRequest,
+    ) -> Result<cluster::AdmissionInspection, ClientError> {
+        let result: cluster::AdmissionInspection = expect_data(
+            self.post(&crate::model::API_ROUTE_ADMISSION_INSPECTIONS, request)
+                .await?,
+        )?;
+        if result.request != *request
+            || (!matches!(
+                result.outcome,
+                cluster::AdmissionInspectionOutcome::WrongIssuer
+            ) && (result.source_formation_id != request.formation_id
+                || result.source_node_id != request.reference.introducer_node_id))
+        {
+            return Err(ClientError::TransportError(
+                "mismatched admission inspection".into(),
+            ));
+        }
+        Ok(result)
+    }
+
+    async fn leave(
+        &self,
+        request: &cluster::LeaveRequest,
+    ) -> Result<cluster::LeaveReceipt, ClientError> {
+        let result: cluster::LeaveReceipt = expect_data(
+            self.post(&crate::model::API_ROUTE_MEMBERSHIP_LEAVES, request)
+                .await?,
+        )?;
+        if result.operation_id != request.operation_id
+            || result.previous_formation_id != request.formation_id
+            || result.current.participation != cluster::Participation::Standalone
+            || result.current.member_count != 1
+            || (result.changed
+                && (result.current.formation_id == result.previous_formation_id
+                    || result.current.source_node_id == result.previous_node_id))
+            || (!result.changed
+                && (result.current.formation_id != result.previous_formation_id
+                    || result.current.source_node_id != result.previous_node_id))
+        {
+            return Err(ClientError::TransportError(
+                "mismatched leave acceptance receipt".into(),
+            ));
+        }
+        Ok(result)
+    }
+
+    async fn list(&self, filter: &MembersSelector) -> Result<Vec<node::Inspection>, ClientError> {
+        let invalid =
+            || ClientError::TransportError("invalid or over-budget membership listing".into());
+        let state = filter.member_state.as_ref().map(|s| s.to_ascii_lowercase());
+        if state
+            .as_deref()
+            .is_some_and(|s| !matches!(s, "alive" | "suspected" | "dead" | "removed"))
+            || filter
+                .role
+                .as_deref()
+                .is_some_and(|s| !matches!(s, "introducer" | "worker"))
+        {
+            return Err(invalid());
+        }
+        tokio::time::timeout(Duration::from_secs(30), async {
+            let mut result: Vec<node::Inspection> = Vec::new();
+            let mut identity = None;
+            let mut after: Option<NodeId> = None;
+            let mut endpoint_bytes = 0usize;
+            loop {
+                let mut query = Url::parse("http://local.invalid/").expect("static URL");
+                if let Some((formation, _)) = &identity {
+                    query
+                        .query_pairs_mut()
+                        .append_pair("formationId", &format!("{formation}"));
+                }
+                if let Some(after) = &after {
+                    query.query_pairs_mut().append_pair("after", after.as_ref());
+                }
+                let page: node::MembershipPage = expect_data(
+                    self.get(
+                        &API_ROUTE_CLUSTER_NODES.with_query(query.query().unwrap_or_default()),
+                    )
+                    .await?,
+                )?;
+                if page.members.len() > 4
+                    || result.len() + page.members.len() > 4096
+                    || identity
+                        .as_ref()
+                        .is_some_and(|(f, s)| f != &page.formation_id || s != &page.source_node_id)
+                    || page.next_after.as_ref().is_some_and(|next| {
+                        page.members.last().is_none_or(|last| &last.node_id != next)
+                    })
+                {
+                    return Err(invalid());
+                }
+                for member in &page.members {
+                    if member.formation_id != page.formation_id
+                        || member.source_node_id != page.source_node_id
+                        || after
+                            .as_ref()
+                            .is_some_and(|previous| previous >= &member.node_id)
+                    {
+                        return Err(invalid());
+                    }
+                    endpoint_bytes = endpoint_bytes.saturating_add(
+                        member
+                            .peer_endpoints
+                            .iter()
+                            .chain(&member.client_endpoints)
+                            .map(String::len)
+                            .sum::<usize>(),
+                    );
+                    if endpoint_bytes > 16 * 1024 * 1024 {
+                        return Err(invalid());
+                    }
+                    after = Some(member.node_id.clone());
+                }
+                identity = Some((page.formation_id, page.source_node_id));
+                result.extend(page.members);
+                if page.next_after.is_none() {
+                    break;
+                }
+                if result.len() == 4096 {
+                    return Err(invalid());
+                }
+            }
+            result.retain(|member| {
+                let liveness = match member.liveness {
+                    MemberState::Alive => "alive",
+                    MemberState::Suspected => "suspected",
+                    MemberState::Dead => "dead",
+                    MemberState::Removed => "removed",
+                };
+                state.as_deref().is_none_or(|s| s == liveness)
+                    && filter
+                        .name
+                        .as_ref()
+                        .is_none_or(|name| name == member.worker_name.as_str())
+                    && match filter.role.as_deref() {
+                        Some("introducer") => member.accepts.peers,
+                        Some("worker") => member.accepts.work,
+                        _ => true,
+                    }
+            });
+            Ok(result)
+        })
+        .await
+        .map_err(|_| ClientError::TransportError("membership listing deadline exceeded".into()))?
     }
 
     async fn get(
         &self,
         id: &NodeId,
         source: Option<InspectSource>,
-    ) -> Result<node::Manifest, ClientError> {
+    ) -> Result<node::Inspection, ClientError> {
         let route = match source {
             Some(s) => API_ROUTE_CLUSTER_NODES
                 .with_id(id)
@@ -706,7 +904,12 @@ impl MembershipApi for ApiCaller {
             None => API_ROUTE_CLUSTER_NODES.with_id(id),
         };
         let api_response = self.get(&route).await?;
-        let result: node::Manifest = expect_data(api_response)?;
+        let result: node::Inspection = expect_data(api_response)?;
+        if &result.node_id != id {
+            return Err(ClientError::TransportError(
+                "mismatched node inspection identity".into(),
+            ));
+        }
         Ok(result)
     }
 
@@ -873,13 +1076,13 @@ impl super::ClientApi for HttpClusterClient {
         Ok(result)
     }
 
-    async fn get_join_token(&self) -> Result<JoinToken, ClientError> {
+    async fn get_join_token(&self) -> Result<cluster::JoinMaterial, ClientError> {
         let caller = ApiCaller {
             base_url: self.base_url.clone(),
             client: self.client.clone(),
         };
         let api_response = caller.get(&API_ROUTE_CLUSTER_TOKEN).await?;
-        let result: JoinToken = expect_data(api_response)?;
+        let result: cluster::JoinMaterial = expect_data(api_response)?;
         Ok(result)
     }
 
@@ -1053,11 +1256,11 @@ mod tests {
         let result = caller
             .get(&ApiRoute::from_static("things/42"))
             .await
-            .unwrap();
+            .unwrap_err();
 
         match result {
-            ApiResponse::Error { code, message } => {
-                assert_eq!(code, "NOT_FOUND");
+            ClientError::ApiError { status, message } => {
+                assert_eq!(status, 404);
                 assert_eq!(message, "no such thing");
             }
             other => panic!("expected ApiResponse::Error, got {:?}", other),
@@ -1133,6 +1336,123 @@ mod tests {
                 assert!(data.is_none());
             }
             other => panic!("expected ApiResponse::Ok, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn admission_inspection_correlates_request_and_issuer_but_preserves_unknown_outcomes() {
+        use crate::model::cluster::{
+            AdmissionInspection, AdmissionInspectionOutcome as Outcome, AdmissionInspectionRequest,
+            JoinRecoveryReference,
+        };
+        let request = AdmissionInspectionRequest {
+            schema_version: 1,
+            formation_id: "target".parse().unwrap(),
+            reference: JoinRecoveryReference {
+                attempt_id: "peer-attempt".parse().unwrap(),
+                applicant_fingerprint: "11".repeat(32).parse().unwrap(),
+                introducer_node_id: "issuer".parse().unwrap(),
+                introducer_fingerprint: "22".repeat(32).parse().unwrap(),
+            },
+        };
+        for case in 0..8 {
+            let server = MockServer::start().await;
+            let mut report = AdmissionInspection {
+                schema_version: 1,
+                request: request.clone(),
+                source_formation_id: request.formation_id.clone(),
+                source_node_id: request.reference.introducer_node_id.clone(),
+                outcome: Outcome::CurrentMember {
+                    node_id: "assigned".parse().unwrap(),
+                },
+            };
+            match case {
+                0 => {}
+                1 => report.request.reference.attempt_id = "other-attempt".parse().unwrap(),
+                2 => report.source_formation_id = "other-formation".parse().unwrap(),
+                3 => report.source_node_id = "other-issuer".parse().unwrap(),
+                4 => {
+                    report.source_formation_id = "restarted-formation".parse().unwrap();
+                    report.source_node_id = "restarted-node".parse().unwrap();
+                    report.outcome = Outcome::WrongIssuer;
+                }
+                5 => report.outcome = Outcome::RecordUnavailable,
+                6 => {
+                    report.outcome = Outcome::RetiredOrRestricted {
+                        node_id: "assigned".parse().unwrap(),
+                    }
+                }
+                7 => report.schema_version = 2,
+                _ => unreachable!(),
+            }
+            let body = ApiResponse::Ok {
+                data: Some(crate::model::ResponseData::AdmissionInspection(
+                    report.clone(),
+                )),
+            };
+            Mock::given(method(http::Method::POST))
+                .and(path("/api/v1/membership/admission-inspections"))
+                .and(header("Content-Type", "application/cbor"))
+                .respond_with(
+                    ResponseTemplate::new(StatusCode::OK).set_body_bytes(cbor_encode(&body)),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+            let result = make_caller(&server).inspect_admission(&request).await;
+            if matches!(case, 1..=3 | 7) {
+                assert!(
+                    result.is_err(),
+                    "case {case} must reject mismatched/unsupported evidence"
+                );
+            } else {
+                assert_eq!(
+                    result.unwrap(),
+                    report,
+                    "case {case} must preserve the evidence category"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn lock_receipt_must_match_the_requested_intent() {
+        use crate::model::cluster::{LockReceipt, LockRequest};
+        let request = LockRequest {
+            schema_version: 1,
+            operation_id: "request-1".parse().unwrap(),
+            formation_id: "formation-a".parse().unwrap(),
+            locked: true,
+        };
+        for mismatch in 0..3 {
+            let server = MockServer::start().await;
+            let mut receipt = LockReceipt {
+                schema_version: 1,
+                operation_id: request.operation_id.clone(),
+                formation_id: request.formation_id.clone(),
+                source_node_id: "node-a".parse().unwrap(),
+                locked: request.locked,
+                policy_version: None,
+            };
+            match mismatch {
+                0 => receipt.operation_id = "other-request".parse().unwrap(),
+                1 => receipt.formation_id = "other-formation".parse().unwrap(),
+                _ => receipt.locked = false,
+            }
+            let body = ApiResponse::Ok {
+                data: Some(crate::model::ResponseData::LockReceipt(receipt)),
+            };
+            Mock::given(method(http::Method::POST))
+                .and(path("/api/v1/cluster/lock"))
+                .respond_with(
+                    ResponseTemplate::new(StatusCode::OK).set_body_bytes(cbor_encode(&body)),
+                )
+                .mount(&server)
+                .await;
+            assert!(matches!(
+                make_caller(&server).set_lock(&request).await,
+                Err(ClientError::TransportError(_))
+            ));
         }
     }
 
@@ -1234,11 +1554,11 @@ mod tests {
         let result = caller
             .delete(&ApiRoute::from_static("item/1"))
             .await
-            .unwrap();
+            .unwrap_err();
 
         match result {
-            ApiResponse::Error { code, message } => {
-                assert_eq!(code, "FORBIDDEN");
+            ClientError::ApiError { status, message } => {
+                assert_eq!(status, 403);
                 assert_eq!(message, "not allowed");
             }
             other => panic!("expected ApiResponse::Error, got {:?}", other),
@@ -1246,6 +1566,24 @@ mod tests {
     }
 
     // ── map_response edge cases ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn non_success_status_cannot_carry_successful_domain_outcome() {
+        let server = MockServer::start().await;
+        Mock::given(method(http::Method::GET))
+            .and(path("/api/v1/mismatch"))
+            .respond_with(
+                ResponseTemplate::new(StatusCode::SERVICE_UNAVAILABLE)
+                    .set_body_bytes(cbor_encode(&ApiResponse::Ok { data: None })),
+            )
+            .mount(&server)
+            .await;
+        let error = make_caller(&server)
+            .get(&ApiRoute::from_static("mismatch"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ClientError::TransportError(message) if message.contains("503")));
+    }
 
     #[tokio::test]
     async fn test_200_with_invalid_cbor_returns_transport_error() {

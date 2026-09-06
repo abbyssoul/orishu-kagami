@@ -22,10 +22,10 @@ Stories in this directory are written from the perspective of a cluster user or 
 - **Pain points and frustrations:** Existing distributed systems can be overly complex to bootstrap, opaque when something goes wrong, risky to change during live operation, and burdensome to secure in adversarial network conditions.
 - **Key tasks/usage scenarios:** Start and configure `orishu-worker`, inspect nodes and cluster status, control cluster admission, configure node participation at startup, add or remove nodes, lock or unlock membership, diagnose health and connectivity, and maintain safe day-2 operations.
 
-Workload components — the executable kernels a workload runs — are authored
-outside the cluster by plugin authors using external tooling (a plugin is a
-manifest describing a modeled physical phenomenon plus the kernel code that
-simulates it; see the [Kagami personas](../kagami/README.md#personas)).
+Workload components containing plugin model implementations are authored
+outside the cluster using external tooling. Numerical kernels are internal
+algorithms/libraries used to build those components; see the
+[Kagami personas](../kagami/README.md#personas).
 Cluster users and administrators consume them as opaque, content-addressed
 artifacts that workers validate and execute as hostile code (see
 [ADR 0009](../../adr/0009-execute-workloads-as-sandboxed-portable-programs.md)).
@@ -38,8 +38,16 @@ artifacts that workers validate and execute as hostile code (see
 - **Worker:** A running `orishu-worker` process that participates in a cluster by storing state, communicating with peers, and executing its share of the simulation.
 - **Standalone node:** A worker that is not currently a member of a multi-node cluster. It behaves as a cluster of one until it joins another cluster.
 - **Introducer:** A node that listens for peer join requests from other workers.
-- **Workload:** The single shared simulation definition currently active in a cluster, including its manifest, initial conditions, code, requirements, and runtime state.
-- **Workload component:** A content-addressed WebAssembly Component containing the executable physics (the kernel) of a workload. It is authored outside the cluster by plugin authors and executed by workers as an untrusted guest under the versioned lifecycle contract (see [ADR 0009](../../adr/0009-execute-workloads-as-sandboxed-portable-programs.md)).
+- **Workload:** The immutable simulation definition currently active in a
+  cluster: manifest, component graph, initial conditions, inputs and
+  requirements. Epoch, placement and run state are separate runtime state.
+- **Workload component:** A content-addressed WebAssembly Component containing
+  executable plugin model code. A workload may configure several component
+  instances in a host-orchestrated graph. Workers execute assigned instances as
+  untrusted guests under the versioned lifecycle contract (see
+  [ADR 0024](../../adr/0024-orishu-orchestrates-a-workload-component-graph.md)).
+- **Numerical kernel:** An algorithm or library used inside a workload
+  component; not a directly loaded plugin or runtime authority.
 - **Run:** One execution of an immutable workload in a particular workload
   epoch, producing ordered observations and result/checkpoint artifacts.
 - **Run reference:** Shareable identification of a run by cluster formation,

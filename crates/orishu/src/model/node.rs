@@ -14,6 +14,64 @@ pub const NODE_MANIFEST_KIND: &str = "Node";
 /// derived from a worker name.
 pub use orishu_identity::NodeId;
 
+/// Versioned local membership inspection, not a worker configuration manifest.
+/// Remote member facts are this entry worker's potentially stale gossip view.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Inspection {
+    /// Current resource version.
+    #[serde(deserialize_with = "inspection_version")]
+    pub schema_version: u32,
+    /// Formation containing the record at the owner read boundary.
+    pub formation_id: orishu_identity::FormationId,
+    /// Entry worker that supplied this view, not necessarily the target.
+    pub source_node_id: NodeId,
+    /// Local-at-request projection; not proof the target is reachable.
+    pub view: super::cluster::SummaryView,
+    /// Formation-assigned target identity, never its display label.
+    pub node_id: NodeId,
+    /// Non-unique worker label.
+    pub worker_name: orishu_identity::WorkerName,
+    /// Public certificate binding held by membership.
+    pub cert_fingerprint: orishu_identity::CertFingerprint,
+    /// Locally observed liveness, independent of administrative removal.
+    pub liveness: MemberState,
+    /// Liveness incarnation held by the entry worker.
+    pub incarnation: orishu_identity::Incarnation,
+    /// Current local record version.
+    pub version: orishu_identity::VersionTuple,
+    /// Advertised role flags, not proof of current introducer readiness.
+    pub accepts: NodeAccepts,
+    /// Advertised peer endpoints, not authoritative trust roots.
+    pub peer_endpoints: Vec<String>,
+    /// Advertised client endpoints; no connection is attempted by inspection.
+    pub client_endpoints: Vec<String>,
+}
+
+fn inspection_version<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    match u32::deserialize(d)? {
+        1 => Ok(1),
+        _ => Err(serde::de::Error::custom("unsupported inspection schema")),
+    }
+}
+
+/// A bounded local read, not a retained snapshot across pages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MembershipPage {
+    /// Resource schema, currently 1.
+    #[serde(deserialize_with = "inspection_version")]
+    pub schema_version: u32,
+    /// Formation at this page's owner boundary; required on continuation.
+    pub formation_id: orishu_identity::FormationId,
+    /// Entry worker; paging never silently changes its source.
+    pub source_node_id: NodeId,
+    /// At most four records, ordered by assigned ID.
+    pub members: Vec<Inspection>,
+    /// Exclusive last-ID cursor when more records exist locally.
+    pub next_after: Option<NodeId>,
+}
+
 /// Operational role flags read from the node's startup configuration.
 /// Observed by peers via gossip protocol.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

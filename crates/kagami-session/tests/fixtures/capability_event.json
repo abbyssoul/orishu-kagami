@@ -1,0 +1,18 @@
+{
+  "seq": 2,
+  "revision": 1,
+  "actor": "plugins",
+  "change": {
+    "kind": "capabilityChanged",
+    "before": {
+      "objects": 0,
+      "absent": 0,
+      "incompatible": 0
+    },
+    "after": {
+      "objects": 1,
+      "absent": 1,
+      "incompatible": 0
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "command": "createObject",
+  "spec": {
+    "name": "Half a sun",
+    "transform": {
+      "translation": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "velocity": {
+      "linear": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "angular": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "shape": {
+      "shape": "sphere",
+      "radius": 696340000.0
+    },
+    "components": [
+      {
+        "component": {
+          "plugin": "kagami.mass_sources",
+          "name": "inertial_mass"
+        },
+        "properties": {
+          "mass": {
+            "kind": "quantity",
+            "expression": "1.989e30 / 2"
+          }
+        }
+      }
+    ]
+  }
+}

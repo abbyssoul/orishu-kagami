@@ -64,7 +64,9 @@ For operator intuition, it is often useful to think of simulation output as a se
 
 ## Space as a distribution axis
 
-At any committed simulation boundary, the global state is not treated as one monolithic chunk. It is partitioned across the simulated domain.
+At any committed simulation boundary, the global state is not treated as one
+monolithic chunk. Each component-owned field/entity state is partitioned under
+the workload graph's compatible decomposition constraints.
 
 This enables:
 
@@ -73,7 +75,11 @@ This enables:
 - scaling the computation horizontally without inventing a central scheduler;
 - storing resulting data in partition-aligned chunks rather than as one giant object.
 
-The runtime therefore treats **partition ownership** as a first-class concern. A worker does not own "a task" in the scheduler sense; it owns a region of the simulation state for a workload epoch and partition version.
+The runtime therefore treats **component-partition ownership** as a first-class
+concern. A worker does not own “a task” in the scheduler sense; it owns one
+component instance's region/entity shard for a workload epoch and partition
+version. Different components may be placed differently while typed channel
+dependencies preserve one coherent boundary.
 
 Because ownership is authoritative rather than advisory, fencing must prevent stale owners, delayed messages, and partitioned nodes from continuing to mutate authoritative state or publish authoritative artifacts after authority has moved.
 
@@ -128,7 +134,9 @@ Work distribution emerges from partition ownership, safe transfer boundaries, an
 
 ### 3. Epoch-scoped ownership
 
-Because time progression and partition ownership must remain coherent, ownership is versioned by workload epoch and partition version, with exactly one authoritative owner per `(workloadEpoch, partitionVersion)`.
+Because time progression and ownership must remain coherent, ownership is
+versioned with exactly one authoritative owner per `(workloadEpoch,
+componentInstanceId, partitionId, partitionVersion)`.
 
 ### 4. Checkpoints as first-class recovery objects
 

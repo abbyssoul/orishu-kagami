@@ -94,6 +94,13 @@ pub const API_ROUTE_CLUSTER_EVENTS: ApiRoute = ApiRoute::from_static("cluster/ev
 pub const API_ROUTE_CLUSTER_LOGS: ApiRoute = ApiRoute::from_static("cluster/logs");
 pub const API_ROUTE_CLUSTER_AUDIT: ApiRoute = ApiRoute::from_static("cluster/audit-log");
 pub const API_ROUTE_CLUSTER_TOKEN: ApiRoute = ApiRoute::from_static("cluster/token");
+/// Direct-worker identified join operations, not a cluster-wide job queue.
+pub const API_ROUTE_MEMBERSHIP_JOINS: ApiRoute = ApiRoute::from_static("membership/joins");
+/// Read-only, operator-authenticated issuer admission inspection.
+pub const API_ROUTE_ADMISSION_INSPECTIONS: ApiRoute =
+    ApiRoute::from_static("membership/admission-inspections");
+/// Identified voluntary departure resource, authenticated even on Unix.
+pub const API_ROUTE_MEMBERSHIP_LEAVES: ApiRoute = ApiRoute::from_static("membership/leaves");
 
 // ── Node resource ─────────────────────────────────────────────────────────────
 pub const API_ROUTE_CLUSTER_NODES: ApiRoute = ApiRoute::from_static("cluster/nodes");
@@ -257,6 +264,11 @@ macro_rules! response_enum {
 response_enum! {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub enum ResponseData {
+        ClusterSummary(cluster::Summary),
+        NodeInspection(node::Inspection),
+        MembershipPage(node::MembershipPage),
+        LockReceipt(cluster::LockReceipt),
+        LeaveReceipt(cluster::LeaveReceipt),
         ClusterManifest(cluster::Manifest),
         NodeManifest(node::Manifest),
         WorkloadManifest(Option<workload::Manifest>),
@@ -265,6 +277,9 @@ response_enum! {
         WorkloadCompatibilityReport(cluster::WorkloadCompatibilityReport),
 
         JoinToken(cluster::JoinToken),
+        JoinMaterial(cluster::JoinMaterial),
+        JoinOperation(cluster::JoinOperation),
+        AdmissionInspection(cluster::AdmissionInspection),
         LockIntent(cluster::LockIntent),
         BlocklistAddResult(BlocklistAddResult),
         WorkloadAccepted(workload::Accepted),

@@ -1,6 +1,6 @@
 # Document and verify operator observability workflows
 
-Status: **planned; deliver alongside P-OBSERVABILITY slices**
+Status: **partial — local source-build scrape recipe verified; remaining operator handoff pending**
 
 Decision: [ADR 0017](../adr/0017-worker-operational-observability.md)
 Roadmap package: **P-OBS-DOCS**
@@ -13,6 +13,19 @@ monitoring, scrape metrics, configure safe process probes and use correlated
 traces to diagnose an incident. The initial stories and design links are
 planned documentation; exact flags, deployment examples, dashboards and
 troubleshooting commands require the implemented contracts.
+
+The [local Prometheus guide](../testing-worker-prometheus.md) and
+`etc/prometheus-local.yml` now have a real source-build worker scrape and
+`promtool` validation through `make test-worker-prometheus`. Remote access,
+service/container deployment, release artifacts, collector configuration,
+dashboards/alerts and the broader incident runbooks remain work. The local
+example alone does not close this task.
+
+Three local alert examples now have pinned `promtool` failure/recovery tests
+and real-server loading evidence. The guide distinguishes unavailable scrapes,
+unready workers and missing telemetry and supplies safe initial responses.
+This is not notification delivery, a complete incident manual or the full
+dashboard/alert set required as additional instruments land.
 
 ## Delivery slices
 

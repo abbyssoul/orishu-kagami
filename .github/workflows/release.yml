@@ -1,69 +1,179 @@
-name: Release bundle
+name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Merged stable workspace version without a leading v.
+        required: true
+        type: string
+      publish:
+        description: Publish after candidate validation and environment approval.
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-publication
   cancel-in-progress: false
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  linux-bundle:
-    name: Test and package Linux binaries
+  preflight:
+    name: Resolve release identity
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
-        with:
-          toolchain: "1.97"
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Linux window-system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwayland-dev libxkbcommon-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
-      - name: Run release gate
-        run: make ci
-      - name: Build release binaries
-        run: cargo build --locked --workspace --release
-      - name: Create bundle
-        id: bundle
+      - name: Validate the immutable candidate identity
+        id: identity
+        env:
+          VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
-          directory="orishu-kagami-${version}-linux-x86_64"
-          mkdir -p "dist/${directory}"
-          cp target/release/orishu-worker "dist/${directory}/"
-          cp target/release/orishuctl "dist/${directory}/"
-          cp target/release/orishu-monitor "dist/${directory}/"
-          cp target/release/kagami "dist/${directory}/"
-          cp README.md LICENSE "dist/${directory}/"
-          tar -C dist -czf "dist/${directory}.tar.gz" "${directory}"
-          echo "archive=dist/${directory}.tar.gz" >> "$GITHUB_OUTPUT"
+          version="$(python3 scripts/release/check-version.py "$VERSION")"
+          sha="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$sha" origin/main
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: Required repository checks
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.preflight.outputs.sha }}
+
+  artifacts:
+    name: Candidate artifacts
+    needs: [preflight, ci]
+    uses: ./.github/workflows/release-artifacts.yml
+    with:
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ needs.preflight.outputs.sha }}
+
+  stage:
+    name: Assemble and verify the release candidate
+    needs: [preflight, artifacts]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*-${{ needs.preflight.outputs.version }}
+          path: dist
+          merge-multiple: true
+      - name: Verify exact names and create checksums
+        run: python3 scripts/release/check-artifacts.py dist "${{ needs.preflight.outputs.version }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: linux-x86_64-bundle
-          path: ${{ steps.bundle.outputs.archive }}
+          name: release-candidate-${{ needs.preflight.outputs.version }}
+          path: dist/
           if-no-files-found: error
-      - name: Publish GitHub release asset
-        if: github.ref_type == 'tag'
+          retention-days: 14
+
+  ready:
+    name: Release candidate is ready
+    if: ${{ !inputs.publish }}
+    needs: [preflight, stage]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo "v${{ needs.preflight.outputs.version }} passed the artifact and repository gates; nothing was published."
+
+  publish:
+    name: Publish approved GitHub release
+    if: ${{ inputs.publish }}
+    needs: [preflight, stage]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-candidate-${{ needs.preflight.outputs.version }}
+          path: dist
+      - name: Re-verify promoted bytes
+        run: python3 scripts/release/check-artifacts.py dist "${{ needs.preflight.outputs.version }}"
+      - name: Create or verify tag and release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          ARCHIVE: ${{ steps.bundle.outputs.archive }}
+          SHA: ${{ needs.preflight.outputs.sha }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+        shell: bash
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
-          gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" --clobber
+          tag_sha="$(git ls-remote origin "refs/tags/$TAG" | cut -f1)"
+          if test -n "$tag_sha"; then
+            test "$tag_sha" = "$SHA" || {
+              echo "::error::$TAG already points at $tag_sha, not $SHA"
+              exit 1
+            }
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$TAG" -f "sha=$SHA" >/dev/null
+          fi
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --verify-tag --draft --generate-notes --title "$TAG"
+          is_draft="$(gh release view "$TAG" --json isDraft --jq .isDraft)"
+          echo "is-draft=$is_draft" >> "$GITHUB_OUTPUT"
+          mkdir existing-assets
+          for file in dist/*; do
+            name="${file##*/}"
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+              gh release download "$TAG" --pattern "$name" --dir existing-assets
+              cmp "$file" "existing-assets/$name" || {
+                echo "::error::published asset $name differs from the verified candidate"
+                exit 1
+              }
+            else
+              gh release upload "$TAG" "$file"
+            fi
+          done
+      - name: Attest release artifacts
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Publish the verified draft
+        if: steps.release.outputs.is-draft == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+        run: gh release edit "$TAG" --draft=false --latest
+
+  homebrew:
+    name: Open Homebrew tap pull request
+    if: ${{ inputs.publish && vars.HOMEBREW_TAP_REPOSITORY != '' }}
+    needs: [preflight, publish]
+    uses: ./.github/workflows/update-homebrew-tap.yml
+    secrets: inherit
+    with:
+      tag: ${{ needs.preflight.outputs.tag }}
+      sha: ${{ needs.preflight.outputs.sha }}
+      tap-repository: ${{ vars.HOMEBREW_TAP_REPOSITORY }}

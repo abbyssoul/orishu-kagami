@@ -1,6 +1,6 @@
 # Implement worker operational observability
 
-Status: **ready for contract slice; adapters gated by their owning services**
+Status: **in progress — local probes and health/owner/lane/client metrics verified; full contract and acceptance pending**
 
 Decision: [ADR 0017](../adr/0017-worker-operational-observability.md)
 Design: [Operational observability](../orishu-observability.md)
@@ -10,10 +10,32 @@ Roadmap package: **P-OBSERVABILITY**
 
 Operators scrape real per-worker Prometheus metrics, distinguish startup,
 liveness and readiness, and correlate bounded distributed traces through an
-optional OTLP exporter. Existing documentation describes diagnostics and
-performance evidence but specifies no implemented monitoring surface. Confirm
-existing worker configuration, listener and logging facilities before edits;
-reuse their ownership without treating placeholder state as real health.
+optional OTLP exporter. The [observability guide](../orishu-observability.md#implemented-local-surface)
+reports a feature-gated loopback listener with three health gauges, nine owner
+counters, lane-slot gauges, six aggregate client-service instruments and
+selectable process probes. The current source-build catalogue
+has [real promtool/Prometheus evidence](../testing-worker-prometheus.md).
+This is partial delivery, not acceptance of slices 1–3.
+The owner catalogue now distinguishes local admission insertion, core refusal
+and validated retained-assignment replay. Broader formation activity/latency
+and pre-core failure instruments remain in slice 3.
+Confirm existing worker configuration, listener and logging facilities before
+edits; reuse their ownership without treating placeholder state as real health.
+
+The worker now has an owner-only supervision foundation: an actual one-second
+owner tick, five-second stale threshold, bounded `OwnerHealth` projection and
+phase/stalled-reader tests. See the [implemented input](../orishu-observability.md#implemented-owner-supervision-input).
+Reuse it. Process health now adds initialization latching, required-client-task
+lifetime guards and immediate shutdown readiness withdrawal. Remaining work
+includes the full HTTP probe transition/pressure matrix, feature/configuration
+conformance, secured remote exposure, broader process/formation metrics,
+release-artifact Prometheus integration and trace export. Extend required-role gates when new
+production roles land. The slices below retain the complete desired scope;
+map existing evidence before treating each bullet as missing implementation.
+The production HTTP router now has real admission/pre-baseline/complete-catch-up
+coverage in `http_readiness_waits_for_real_admission_catchup`; it defers starting
+maintenance, not the health authority. Partial or invalid transfer HTTP coverage
+and the remaining role/pressure combinations are still separate acceptance work.
 
 ## Bounded implementation slices
 

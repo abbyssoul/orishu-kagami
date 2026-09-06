@@ -4,7 +4,8 @@ Status: **ready** (slices 1–7); slices 8–9 are gated on authorities that do
 not exist yet  
 Decisions: [ADR 0004](../adr/0004-separate-authoring-commands-from-run-observations.md),
 [ADR 0006](../adr/0006-mcp-ui-equivalence.md),
-[ADR 0012](../adr/0012-start-with-file-sharing-and-preserve-collaborative-authoring.md)  
+[ADR 0012](../adr/0012-start-with-file-sharing-and-preserve-collaborative-authoring.md),
+[ADR 0022](../adr/0022-persist-default-view-outside-experiment-intent.md)
 Stories: [External control of Kagami through MCP](../user-stories/kagami/mcp.md)
 
 ## Outcome
@@ -189,10 +190,19 @@ persistence ownership, or a remote document protocol.
 ### 8. Authoring, inspection, and document-lifecycle parity (gated)
 
 Gated on the document authority: the experiment model with typed commands,
-validation, revisions, identity, and undo (see the open TODO "Transfer
-field-cad's ADR about document model of the kagami" and
-[docs/tasks/migrate-and-integrate-variables-subsystem.md](./migrate-and-integrate-variables-subsystem.md),
-which exposes its commands to eventual MCP adapters).
+validation, revisions, identity, and undo. That authority is decided by
+[ADR 0019](../adr/0019-kagami-experiment-document-model.md) and built by the
+[Kagami capability programme](./kagami/README.md) — specifically
+[K3](./kagami/implement-document-authority.md) for the command envelope,
+guards, bounded replay, shared undo, and preflight validation;
+[the landed-boundary follow-up](./kagami/harden-document-boundaries.md), which
+has landed the serializable adapter values (`kagami_session::wire`) and
+actor/payload-bound replay this slice converts through; and
+[K4](./kagami/persist-experiment-documents.md) for the new/open/save lifecycle
+this slice must expose. Variable and expression commands arrive with
+[K2](./kagami/integrate-document-variables.md), which lands
+[the shared variables subsystem](./migrate-and-integrate-variables-subsystem.md)'s
+experiment integration.
 
 - Expose the authoring surface through tools: create, modify, and delete
   world objects and their physical properties; computational domain and
@@ -203,9 +213,15 @@ which exposes its commands to eventual MCP adapters).
   identity, actor provenance, and optional base-revision guarding; report
   the document decision (accepted revision, or rejection with a domain
   reason), never mere transport delivery.
+- Apply K11's workspace-mode gate before routing authoring: in
+  Observation/replay, a caller must explicitly request Edit initial conditions
+  and receive the local-stop or remote-detach outcome. An edit cannot switch
+  mode implicitly, and the document authority itself remains run-agnostic.
 - Add document lifecycle: new, open, save. Where the UI would ask the user
   (for example: unsaved changes before replacing the open experiment), the
   MCP caller supplies that decision explicitly in the request.
+- Save captures the current authoring default view and its revision alongside
+  the experiment, but MCP cannot move the camera or mutate presentation state.
 - Add reads for the full experiment state at its current revision and the
   capability-discovery tools (schemas, models, parameter names, units, valid
   ranges), self-described through MCP's own discovery mechanism.
@@ -226,6 +242,10 @@ authenticated Orishu client session for cluster runs.
 - Expose local run controls (play, pause, step) with exactly the UI's
   semantics; a run started through MCP is the run the UI shows, not a
   parallel one.
+- Expose bounded probe/sensor and exact-trajectory reads only through
+  K-OBSERVATION's retained authority. Complete field snapshots and explicit
+  region/channel/LOD projections carry the same provenance as UI observations;
+  MCP never samples rendered pixels or private solver memory.
 - Expose cluster submission and control under the UI's rules: the same
   completeness checks, explicit caller-supplied confirmation to replace an
   active workload, the same privilege requirements, and the same cluster
@@ -234,7 +254,10 @@ authenticated Orishu client session for cluster runs.
   design: one owner mints command identities; each submission registers its
   completion waiter under the same lock.
 - Expose run-state and observation reads with full provenance; observing is
-  read-only and never dirties the document.
+  read-only and never dirties the document. Probe/sensor queries use
+  [K10](./kagami/compile-and-query-observation-instruments.md)'s bounded exact-
+  boundary and time-range surface so an agent can sense the simulated scene
+  without camera access or a private resampling path.
 
 ## Acceptance criteria
 

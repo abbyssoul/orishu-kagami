@@ -1,0 +1,27 @@
+# Example thresholds, not measured Orishu SLOs. Never automate restart/removal
+# from these alerts. See docs/testing-worker-prometheus.md.
+groups:
+  - name: orishu-worker-local-v1
+    interval: 1m
+    rules:
+      - alert: OrishuWorkerScrapeUnavailable
+        expr: up{job="orishu-worker"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker diagnostics cannot be scraped
+      - alert: OrishuWorkerSustainedUnready
+        expr: (orishu_worker_ready{job="orishu-worker"} == 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reachable worker reports sustained local unreadiness
+      - alert: OrishuWorkerReadinessSeriesMissing
+        expr: (up{job="orishu-worker"} == 1) unless on (job, instance) orishu_worker_ready{job="orishu-worker"}
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Successful worker scrape lacks the readiness series

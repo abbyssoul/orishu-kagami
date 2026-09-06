@@ -3,6 +3,8 @@
 Status: **accepted**  
 Date: **2026-09-04**
 
+Refined by: [ADR 0022](0022-persist-default-view-outside-experiment-intent.md)
+
 ## Problem
 
 Scientists need to share experiments while they are being authored and to
@@ -148,7 +150,8 @@ document authority into a stand-alone headless service later:
   workload epoch/run identity as defined by the Orishu protocol.
 - Presentation state remains local by default. Camera, selection, visibility,
   subscription, playback cursor, and playback rate are not authoritative
-  experiment state.
+  experiment state. A file may carry an optional client-owned default view as
+  specified by ADR 0022; it does not synchronize live presentation.
 - Observers connect directly to Orishu and use its snapshot/delta baseline and
   replay semantics. A future headless authoring server announces run identity;
   it does not prescribe what every collaborator sees.

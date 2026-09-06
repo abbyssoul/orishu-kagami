@@ -1,0 +1,37 @@
+[package]
+name = "kagami-document"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kagami's authoritative experiment model: objects, commands, the validated transition, and edit history"
+
+# Dependency budget is part of this crate's contract.
+#
+# This is the functional core of Kagami's authoring side (ADR 0019). It is
+# sans-IO: no filesystem, clock, randomness, network, UI toolkit, MCP
+# transport, or solver may appear in its graph, and `tests/dependencies.rs`
+# asserts that against the resolved graph rather than against imports. The
+# document *server* that owns revisions, envelopes, events and persistence is
+# `kagami-session`; it depends on this crate, never the reverse.
+#
+# - kagami-catalog:   component/property schemas, identifier new-types, and
+#                     the SI dimension and unit tables. These conceptually
+#                     belong to the future simulation-plugin schema boundary;
+#                     both crates move together when it exists. The catalog
+#                     does not depend on this crate: it *produces* object
+#                     candidates the document consumes.
+# - orishu-variables: the one expression parser and evaluator in the product
+#                     (ADR 0007). A second one would be a defect.
+# - serde:            the persisted model shape `kagami-session` encodes.
+# - thiserror:        structured rejection and construction errors.
+[dependencies]
+kagami-catalog = { workspace = true }
+orishu-variables = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = "0.23"
+serde_json = { workspace = true }

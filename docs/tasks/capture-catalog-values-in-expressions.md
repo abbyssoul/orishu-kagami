@@ -1,6 +1,7 @@
 # Integrate catalog variables and capture them into workloads
 
-Status: **gated on the catalog, shared variables, document, and workload contracts**
+Status: **decision-gated by proposed ADR 0018**, then gated on the catalog,
+shared variables, document, and workload contracts
 
 Decisions: [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md),

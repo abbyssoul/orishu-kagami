@@ -158,6 +158,10 @@ that the agent can build and refine the same experiment I could build by hand.
   guarantees — validation, atomic commit, revisioning, command identity and
   actor provenance, dirty state, and undo — as specified in
   [Modify an experiment through MCP](./authoring.md#modify-an-experiment-through-mcp).
+- If the Kagami session is in Observation/replay, authoring is unavailable
+  until the caller explicitly requests the same Edit initial conditions
+  transition as the UI, including stopping a local preview or detaching from a
+  remote run. An edit never switches modes implicitly.
 - Document lifecycle is equally expressible: creating a new experiment,
   opening a saved document, and saving, under the same rules as
   [Experiment documents](./authoring.md#experiment-documents). Where the UI
@@ -195,6 +199,36 @@ shows me.
   edits made through MCP.
 - Reads are read-only: they never modify the experiment, a run, or cluster
   state, and never mark the document modified.
+
+### Query probe readings through MCP
+
+As a scientist-researcher delegating analysis to an agent, I want it to query
+probe and sensor readings through MCP so that it can sense the simulated scene
+from the same scientific observations Kagami displays.
+
+**Given** an experiment requested probe channels and a local, live, or recorded
+run produced them
+**When** an authenticated client queries a probe at a boundary or over a
+bounded simulation-time range
+**Then** Kagami returns the recorded values with enough context to interpret
+them safely.
+
+**Acceptance criteria:**
+- A query selects stable probe and channel identities, run identity, and either
+  an exact committed boundary or a bounded time range with explicit sampling.
+- Each value carries dimensions/units, simulation time, model/schema, precision,
+  completeness, validity and workload/run provenance. Undefined, stale,
+  interpolated and absent values are never represented as zero.
+- The result states coverage and truncation and enforces bounds on ranges,
+  samples, bytes and work. Pagination or continuation cannot mix run identities
+  or observation baselines.
+- MCP reads the same retained observation authority as the UI; it does not
+  resample a field through a private solver or infer values from rendered pixels.
+- A simple query may request the complete admitted field snapshot. Region,
+  channel and level-of-detail selection are explicit bounded delivery
+  projections, not different scientific states.
+- Querying is read-only and non-perturbing. It requires observation access but
+  not camera control, experiment mutation or run-control authority.
 
 ### Discover authoring capabilities through MCP
 

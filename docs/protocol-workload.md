@@ -2,8 +2,9 @@
 
 The workload contract defines the boundary between the worker runtime and
 client-supplied executable simulation code. A workload component is an untrusted,
-machine-independent guest program, not a trusted native plugin. A product-facing
-**simulation plugin** may package this component together with declarative
+machine-independent guest program, not a trusted native plugin. One workload
+may contain a graph of component instances. A product-facing
+**simulation plugin** may package component code together with declarative
 Kagami authoring schemas, but installing that package does not widen the
 component's authority. This document defines the lifecycle the executable
 implements and the only services its host provides. For
@@ -12,30 +13,49 @@ manifest submission and lifecycle behavior, see the
 and deterministic progression, see the
 [spatiotemporal foundation](./spatiotemporal-foundation.md). The governing
 sandbox decision is [ADR 0009](./adr/0009-execute-workloads-as-sandboxed-portable-programs.md).
+Executable composition and host orchestration are decided by
+[ADR 0024](./adr/0024-orishu-orchestrates-a-workload-component-graph.md).
 The authoring-facing package is described in
 [Simulation plugins](./simulation-plugins.md).
 
-This contract calls that executable the **workload component**. Older code and
-documents use **workload package** for the same executable artifact. Neither
-term means the portable workload bundle used as one distribution format.
+This contract calls each executable artifact a **workload component** and each
+configured use of one a **component instance**. Older code and documents use
+**workload package** for a single executable artifact. None of these terms
+means the portable workload bundle used as a distribution format. The workload
+has one root manifest, not necessarily one root executable. ADR 0024 makes
+Orishu the host and coordinator of the admitted component-instance graph.
 
 ## When this contract applies
 
-This contract becomes relevant only after the worker has completed all prerequisite steps of the workload loading sequence. Before any workload code is instantiated, the worker runtime has already:
+This contract becomes relevant only after the worker has completed all
+prerequisite steps of workload loading. Before any component code is
+instantiated, the worker runtime has already:
 
 1. **Received the workload manifest** — either directly from an operator command or via gossip from a peer that is already running the workload.
-2. **Validated requirements** — confirmed that the local node satisfies the manifest's declared requirements: hardware capabilities, runtime lifecycle compatibility, and execution profile. If any requirement cannot be met, the node rejects the workload and transitions to `Error` without ever touching the simulation code.
-3. **Fetched the simulation code artifact** — resolved the manifest's pinned
-   component descriptor through the selected distribution mechanism and
-   downloaded or reused the matching WebAssembly Component bytes.
-4. **Verified integrity** — checked the content hash of the downloaded artifact against `metadata.contentHash` declared in the manifest.
+2. **Validated requirements and placement** — confirmed that the cluster can
+   assign every required component partition to nodes satisfying its engine,
+   lifecycle, hardware, limits and placement constraints. A node may be
+   eligible for some instances and not others; infeasible complete placement
+   rejects the workload before guest initialization.
+3. **Fetched the simulation code artifacts** — resolved every component
+   descriptor through the selected distribution mechanism and downloaded or
+   reused the matching WebAssembly Component bytes.
+4. **Verified graph and integrity** — checked every artifact digest/size and
+   validated component instances, typed channels, ownership, deterministic
+   phase dependencies, placement constraints and aggregate limits.
 5. **Fetched initial conditions** — downloaded the initial state artifact from `spec.inputs` (for fresh starts) or obtained a checkpoint payload from peers (for late joins or resumes).
 
-Only after all five steps succeed does the runtime instantiate the workload code and begin calling the interface described in this document. Everything before this point — manifest distribution, requirement matching, artifact fetching, integrity verification — is the runtime's responsibility and is invisible to the workload code.
+Only after all five steps succeed does the runtime instantiate the assigned
+component instances and begin calling the interface described here. Manifest
+distribution, graph validation, artifact fetching and integrity verification
+remain runtime responsibilities invisible to guests.
 
 ## Responsibility split
 
-The worker runtime and the workload code have clearly separated responsibilities. The workload code is the physics — it knows how to advance simulation state from one committed simulation boundary to the next under the workload's declared temporal-stepping contract. The runtime is the infrastructure — it knows where data lives, how to move it between nodes, and when to invoke the physics.
+The worker runtime and component guests have clearly separated
+responsibilities. Components implement typed scientific transformations. The
+runtime validates and schedules their declared plan, moves state, and commits
+the assembled boundary without implementing model-specific equations.
 
 **Worker runtime is responsible for:**
 
@@ -44,93 +64,153 @@ The worker runtime and the workload code have clearly separated responsibilities
 - Validating and surfacing the workload's temporal-stepping contract, including
   any selected integration scheme and scheme-specific parameters declared in
   the manifest.
-- Partitioning the simulation domain and maintaining the partition ownership map as the cluster rebalances.
-- Invoking the workload code in a loop, advancing the simulation step by step.
+- Maintaining fenced ownership maps for component partitions as the cluster
+  places and rebalances the admitted graph.
+- Placing eligible component partitions and invoking ready step-plan nodes.
+- Providing capability-scoped access to declared state/contribution channels
+  and enforcing single-writer/reduction rules.
 - Exchanging halo (boundary) data with neighboring partitions on other nodes via the cluster protocol.
 - Coordinating step barriers (`StepVote` / `StepCommit`) so all partitions advance in lockstep.
-- Producing and restoring checkpoints at safe boundaries.
+- Aggregating and restoring all required component and runtime state at safe
+  boundaries.
 - Enforcing resource limits (CPU time, memory) and the sandbox execution environment.
-- Stamping provenance metadata (worker identity, software version, simulation
-  code hash) onto every committed step result, checkpoint, and result artifact
+- Stamping provenance metadata (worker identity, software version, component
+  graph/instance/phase and code digests) onto every committed step result,
+  checkpoint, and result artifact
   (see [`StepProvenance`](./protocol-p2p.md#stepprovenance)).
 - Streaming state to observers and writing result artifacts to storage.
 
-**Workload code is responsible for:**
+**Component guests are responsible for:**
 
-- Implementing the governing equations that evolve the simulation state from committed boundary `n` to committed boundary `n+1`.
+- Implementing their declared field update, projection/coupling, integration,
+  emission, or other versioned scientific phases.
 - Applying the selected integration scheme or other temporal-stepping rules
   declared by the workload manifest. If the workload exposes multiple schemes,
   the choice is fixed by the manifest for that workload epoch rather than
   inferred from a runtime default.
-- Initializing internal data structures from the manifest parameters and initial conditions provided by the runtime.
+- Initializing owned state from the instance configuration and initial
+  conditions supplied by the runtime.
 - Using halo data supplied by the runtime to correctly handle partition boundaries — but never requesting or sending it directly.
-- Producing serializable state for checkpointing when asked by the runtime.
+- Producing serializable versioned state for checkpointing when asked.
 - Restoring internal state from a checkpoint payload when asked by the runtime.
 - Reporting convergence or diagnostic metrics back to the runtime.
 
-**Workload code must NOT:**
+**Component guests must NOT:**
 
 - Access the network. All inter-node communication is handled by the runtime.
 - Access the filesystem. Workload code operates only on data provided through the runtime interface.
 - Depend on wall-clock time, host random number generators, or any non-deterministic external state.
-- Attempt to manage internal threading or concurrency. The runtime owns the execution strategy and may invoke multiple `wl_step` calls in parallel across different partitions using its own thread pool.
+- Attempt to manage cluster concurrency or placement. Internal guest
+  parallelism requires an explicitly admitted lifecycle capability; the runtime
+  owns cross-instance/partition scheduling.
+- Discover, invoke, or inspect another guest directly. Cross-component exchange
+  uses only declared host-mediated channels.
 - Assume anything about which partition it is computing or how many partitions exist — the runtime provides this context per invocation.
 
 
 ## Execution model
 
-The simulation advances through discrete committed boundaries. At each boundary, the runtime invokes the workload code for every partition owned by the local worker. The workload code receives the current partition state and halo data from neighboring partitions, computes the next state, and returns it to the runtime. The runtime then handles all coordination — exchanging updated halo regions with peers, confirming step completion via the barrier protocol, and proceeding to the next committed boundary.
+The simulation advances through discrete committed boundaries. For boundary
+`N → N+1`, the runtime executes the manifest's admitted step plan over
+component-instance partitions. Each invocation consumes read-only committed
+state or earlier candidate channels and produces isolated candidate state or
+typed contributions. Orishu performs any required reliable inter-node transfer,
+validates the complete candidate and advances time only after the distributed
+commit succeeds.
 
-This contract does not require every workload to be a naive "one explicit Euler update per visible step" implementation. A workload may perform internal substeps, momentum half-steps, or other bounded scheme-local bookkeeping as part of one `wl_step` call, so long as the externally visible progression between committed boundaries remains deterministic and checkpointable.
+A typical plan may update a field, project that field onto coupled entities as
+forces, invoke Dynamics to reduce those contributions and integrate particle
+kinematics, and invoke an emitter to propose spawns. This example is not a
+universal hard-coded order. Leapfrog, predictor-corrector and other methods may
+declare bounded substeps or different dependencies through another admitted
+plan/profile.
 
-From the workload code's perspective, execution is a sequence of calls:
+Conceptually:
 
 ```
-for each step n = 0, 1, 2, ...:
-    for each partition owned by this worker:
-        next_state = workload.step(step_context, current_state, halo_data)
+for each committed boundary N:
+    candidate = isolate(committed[N])
+    for each ready layer in admitted_step_plan:
+        execute independent component invocations concurrently where allowed
+        transfer and validate their typed outputs
+    validate(candidate)
+    atomically commit candidate as boundary N+1
 ```
 
-The runtime controls the outer loop. The workload code never drives its own iteration — it is called, computes, and returns. This inversion of control allows the runtime to interleave step computation with halo exchange, checkpoint writes, rebalancing, and observer streaming without the workload code being aware of any of it.
+The runtime controls this outer loop. Guests never choose their peers,
+placement, invocation order or commit point. Independent nodes in the graph may
+execute concurrently or on different eligible workers; their declared
+dependencies and stable reduction rules make the scientific result independent
+of incidental completion order.
 
 ### Partition context
 
-Each invocation of the workload code operates on a single partition. The runtime provides a _partition context_ that describes the slice of the simulation domain assigned to this invocation:
+Each component invocation operates on an assigned partition. The runtime
+provides a _partition context_ describing the relevant domain/entity slice and
+the component-instance/phase identity:
 
-- **Partition geometry** — the spatial bounds of this partition within the global domain: origin, extent, and cell count along each axis. The workload code uses this to know which region of space it is computing.
+- **Partition description** — the model-declared spatial bounds, cell range,
+  entity-key range, or other bounded decomposition for this instance. A guest
+  cannot infer the cluster's other assignments from it.
 - **Global domain parameters** — the full domain size, resolution, and discretization scheme as declared in the manifest. Provided read-only so the code can compute global coordinates or normalized positions if needed.
 - **Step number and simulation time** — the current committed-boundary index and the corresponding simulation time value (`step * dt`). These identify the externally committed boundary; the workload may still perform internal substeps or retain bounded integrator history within one boundary-to-boundary advance.
-- **Deterministic seed** — a seed value derived from `(workloadId, workloadEpoch, partitionId, stepNumber)` for any stochastic behavior the workload code requires. The workload must use this seed exclusively — no other source of randomness is permitted.
+- **Deterministic seed** — a seed derived from `(workloadId, workloadEpoch,
+  componentInstanceId, phaseId, partitionId, stepNumber, invocationOrdinal)`.
+  A guest must use this exclusively for admitted stochastic behavior.
 
 ### Halo data
 
-Many numerical methods require values from neighboring cells to compute derivatives or fluxes at partition boundaries. The runtime is responsible for collecting boundary data from adjacent partitions (which may reside on other nodes) and delivering it to the workload code as _halo data_.
+Many numerical methods require values from neighboring cells to compute
+derivatives or fluxes. The runtime collects halo data for each component-owned
+field partition and delivers it through that invocation's declared input
+channel. Cross-component field-to-particle projections are distinct typed
+channels even when their producer and consumer are placed on different nodes.
 
-Halo data is a read-only buffer of cell values from the boundary region of each neighboring partition, organized by face (e.g. `+x`, `-x`, `+y`, `-y`, `+z`, `-z` for a 3D structured grid). The depth of the halo — how many layers of neighboring cells are provided — is declared in the manifest's discretization parameters and is fixed for the lifetime of a workload.
+For a structured-grid model, halo data may be cell layers organized by face
+with a fixed admitted depth. Other models declare another bounded halo/channel
+schema. The runtime transfers bytes according to that schema; it does not
+reinterpret their scientific values.
 
-The workload code reads halo data during `step` but never writes to it and never requests it. The runtime ensures that by the time `step` is called, all halo data for step `n` is available and consistent.
+Guests read halo/input data only during the admitted invocation and never
+request it directly. The runtime invokes a plan node only after its required
+boundary/dependency inputs are complete and compatible.
 
 ### Speculative execution and work stealing
 
-Partition assignment is neither exclusive nor permanent. The cluster is designed to tolerate heterogeneous hardware, and nodes with different compute capabilities will complete steps at different rates. To prevent slow nodes from becoming bottlenecks, the runtime allows _speculative execution_: multiple workers may compute the same step for the same partition concurrently.
+Authoritative component-partition ownership is exclusive and fenced but may
+move. Execution may be speculative: multiple eligible workers can compute an
+isolated candidate for the same invocation while only one validated result is
+accepted.
 
-When a node falls behind — its step completion lags the cluster frontier — other workers are encouraged to _steal_ the lagging partition and race to produce the result. The first worker to submit a valid result for a given `(workloadEpoch, partitionId, step)` wins. Its output is accepted and committed via the normal `StepVote` / `StepCommit` barrier. All other workers computing that same step for that partition are notified that their result is no longer needed and should discard their in-progress computation as soon as possible.
+When a node falls behind, another eligible worker may speculatively execute the
+same component-plan invocation. The first valid result for `(workloadEpoch,
+step, invocationId, componentInstanceId, partitionId)` wins through normal
+vote/commit coordination. Redundant candidates are discarded.
 
-From the workload code's perspective, this is invisible. The runtime handles all coordination:
+From component code's perspective, this is invisible. The runtime handles all coordination:
 
-- **Starting speculative work:** The runtime may call `wl_restore_checkpoint` or `wl_load_partition` to set up a stolen partition, then begin calling `wl_step` on it — exactly the same interface as for any other partition.
-- **Cancelling redundant work:** When the runtime learns that another node has already committed the step it is currently computing, it interrupts the in-progress `wl_step` call (or allows it to complete and discards the result) and then calls `wl_drop_partition` to release the partition. The workload code does not need to distinguish between a drop caused by rebalancing, a graceful stop, or a lost race — the cleanup path is the same.
+- **Starting speculative work:** The runtime may restore or load the required
+  component-instance partition state, then execute the same admitted phase
+  invocation as its current owner.
+- **Cancelling redundant work:** When another result wins, the runtime
+  interrupts or discards the redundant invocation and drops any isolated
+  candidate/component state. The guest does not distinguish rebalancing,
+  graceful stop, or a lost race.
 - **No partial results:** A speculative step either completes and wins the race, or is discarded entirely. There is no mechanism for merging partial computation from two workers.
 
-Workload code must therefore be written with the assumption that any `wl_step` invocation might be the last one for that partition — the runtime may drop it at any step boundary. It must also tolerate `wl_drop_partition` being called at any time between steps. The code should not accumulate side effects that depend on running to the end of the simulation; all meaningful output goes through the return value of `wl_step`, `wl_checkpoint`, and `wl_query_state`.
+Component code must assume that any phase invocation might be its last for a
+partition. It must tolerate `component_drop_partition` between boundaries and
+must not accumulate external side effects; meaningful output goes only through
+phase results, checkpoints, observations and bounded diagnostics.
 
-This design means that a heterogeneous cluster self-corrects: fast nodes naturally absorb work from slow nodes, and the simulation progresses at the rate of the fastest available hardware rather than the slowest.
+This permits eligible workers to absorb work from slower placements while
+preserving one authoritative owner/result and the plan's scientific semantics.
 
 ### Sandbox environment
 
 Workload code executes as an untrusted WebAssembly Component with no
 capabilities beyond computation and the imports explicitly provided by the
-`orishu:workload/lifecycle@1` world. A valid signature does not relax this
+`orishu:simulation/component@1` world. A valid signature does not relax this
 rule. General WASI interfaces are absent unless a later lifecycle and security
 decision explicitly admits them.
 
@@ -153,116 +233,176 @@ The sandbox guarantees are:
 
 
 ## Workload interface
-
-The workload component must export a set of well-known functions that the runtime calls at defined points in the simulation lifecycle. The runtime also provides a set of _host functions_ that the workload code may call during execution.
+Every component instance implements the same lifecycle shell plus the phase
+exports declared by its plugin/model schema and referenced by the admitted step
+plan. The runtime also provides a closed set of host functions. Exact WIT
+records, discriminants and buffer bindings must be frozen with O-WASM; the
+domain interface below is normative about ownership and failure behavior.
 
 ### Exported functions (workload -> runtime)
 
-These are the functions the workload component must implement. The runtime calls them — the workload code never calls them on itself.
+The runtime calls these exports; guests never call them on themselves or on
+another guest.
 
-#### `wl_init`
-
-```
-wl_init(manifest_params) -> status
-```
-
-Called once when the workload is first loaded onto a worker. Receives the simulation parameters from the manifest (domain type, discretization parameters, time step size, duration, any selected integration scheme and scheme-specific stepping parameters, physics constants, and the full execution profile). The workload code should use this to validate that it can handle the requested simulation and to set up any internal data structures that are independent of a specific partition.
-
-Returns a status indicating success or an error with a human-readable reason. A failure here causes the worker to transition the workload to `Error` state.
-
-#### `wl_load_partition`
+#### `component_init`
 
 ```
-wl_load_partition(partition_geometry, initial_state) -> status
+component_init(instance_context, frozen_params, owned_state_schema) -> status
 ```
 
-Called once per partition assigned to this worker, after `wl_init` has succeeded. Provides the partition geometry (spatial bounds, cell count) and the initial condition data for this partition's region of the domain. The workload code should populate its internal state arrays from the provided data.
+Called for an admitted component instance on a worker. The context names the
+workload/epoch, component instance, artifact/model/schema/lifecycle identities,
+declared roles and limits. Frozen parameters contain only the instance's
+validated configuration. Initialization cannot alter committed state.
 
-For a fresh start, `initial_state` comes from the initial conditions artifact referenced in the manifest. For a late-joining node or a resumed simulation, the runtime calls `wl_restore_checkpoint` instead.
+Returns success or a structured bounded error. A failure prevents `Ready`.
 
-Returns a status indicating success or an error.
-
-#### `wl_restore_checkpoint`
-
-```
-wl_restore_checkpoint(partition_geometry, checkpoint_data) -> status
-```
-
-Called instead of `wl_load_partition` when a partition is being restored from a checkpoint (resume after stop, late join, or partition reassignment). The `checkpoint_data` is an opaque payload previously produced by `wl_checkpoint` for the same partition.
-
-The workload code must restore its internal state to exactly the state it was in when the checkpoint was taken. After this call, the runtime will resume stepping from the checkpoint's step number.
-
-Returns a status indicating success or an error.
-
-#### `wl_step`
+#### `component_load_partition`
 
 ```
-wl_step(step_context, partition_state, halo_data) -> step_result
+component_load_partition(partition_context, owned_initial_state) -> status
 ```
 
-The core computation function. Called once per partition per committed simulation boundary. This is where the governing equations are applied.
+Loads only state channels the manifest assigns to this instance. A field-model
+instance receives its field initial state; Dynamics receives entity kinematic
+and integrator state. The runtime rejects extra, missing or cross-instance
+state rather than offering ambient access.
+
+For a late join, resume, or reassignment, the runtime restores a checkpoint
+instead.
+
+#### `component_restore_checkpoint`
+
+```
+component_restore_checkpoint(partition_context, checkpoint_part) -> status
+```
+
+Restores the part named by workload, epoch lineage, boundary, component
+instance, partition, state schema and component artifact compatibility. The
+runtime validates those identities before invocation.
+
+The guest must restore its complete owned state. A run becomes resumable only
+when all required component and runtime checkpoint parts form one complete
+checkpoint record.
+
+#### `component_execute_phase`
+
+```
+component_execute_phase(invocation_context, phase_id, inputs, outputs) -> phase_result
+```
+
+Executes one node in the admitted step plan. The instance/schema declares the
+phase export and typed channel contract; `phase_id` cannot select an arbitrary
+guest function.
 
 **Inputs:**
-- `step_context` — step number, simulation time, time step size (`dt`), deterministic seed, and partition geometry. Fixed scheme selection and other workload-wide temporal-stepping parameters come from the manifest data established at `wl_init`.
-- `partition_state` — the current state of all cells in this partition. This is the output of the previous `wl_step` call (or the initial/checkpoint state for step 0).
-- `halo_data` — read-only boundary data from neighboring partitions, organized by face and halo depth.
+- `invocation_context` — workload/epoch, boundary, invocation/component/phase,
+  partition, simulation time, `dt`, substep/ordinal, deterministic seed and
+  accepted execution profile;
+- `inputs` — capability-scoped read-only handles for exactly the committed or
+  dependency-produced channels named by the plan; and
+- `outputs` — isolated write handles for exactly the state/contribution
+  channels this node may produce.
 
 **Output:**
-- `step_result` — contains the updated partition state after advancing to the next committed simulation boundary, plus optional diagnostic values (e.g. local error norms, maximum velocity, energy totals) that the runtime collects as convergence metrics.
+- `phase_result` — completion status plus bounded diagnostics and declared
+  output coverage. Scientific values reside in the isolated output channels,
+  which the runtime validates before making them available to dependent nodes.
 
-The workload code must not retain references to the input buffers after returning — the runtime may reuse or deallocate them. The returned state becomes the `partition_state` input for the next step.
+Guests must not retain input/output handles after returning. A successful call
+does not itself commit anything. Failure discards its candidate outputs and
+causes the attempted boundary to fail according to run policy.
 
-**Bounded buffer passing.** Partition state and halo data can be large, so the
+**Bounded buffer passing.** Field, particle and contribution state can be large, so the
 ABI should avoid redundant copies. This optimization cannot expose arbitrary
 host memory or bypass the component boundary. Inputs reside in bounded guest
 linear memory or cross as explicit typed resource/buffer handles whose access
 the host validates. The guest must not retain borrowed handles after the call;
 the runtime validates lengths and returned ranges and copies at an isolation
 boundary when required for correctness. A zero-copy implementation is allowed
-only when it preserves those ownership and sandbox guarantees.
+only when it preserves those ownership and sandbox guarantees. Calls are
+bulk/partition oriented; per-particle or per-sample host-call designs do not
+satisfy this contract.
 
-The workload code does not include any provenance or identity information in
-its output. After validating the step result, the runtime attaches a
-`StepProvenance` record (worker identity, software version, simulation code
-hash) before committing or storing the state. This provenance is also bundled
-with `HaloDelta` messages sent to peers, allowing distributed verification of
-boundary data integrity. See
+Component code does not author provenance or execution identity. After
+validating phase outputs and the assembled candidate, the runtime attaches
+`StepProvenance` records identifying worker, component instance, phase and code
+digest before committing or storing state. This provenance is also bundled
+with correctness-bearing halo/component-channel messages as required, allowing
+distributed verification of produced state. See
 [`StepProvenance`](./protocol-p2p.md#stepprovenance).
 
-#### `wl_checkpoint`
+#### `component_checkpoint`
 
 ```
-wl_checkpoint(partition_id) -> checkpoint_data
+component_checkpoint(partition_context, boundary) -> checkpoint_part
 ```
 
-Called by the runtime at checkpoint barriers. The workload code must serialize its complete internal state for the specified partition into an opaque byte buffer. This buffer will be stored by the runtime and may later be passed to `wl_restore_checkpoint` to resume computation.
+Called at a committed checkpoint boundary. The guest serializes its complete
+owned state for this instance/partition into a bounded versioned payload. The
+runtime aggregates it with every required component part and runtime-owned
+coordination state; no individual part is advertised as a complete checkpoint.
 
-The checkpoint payload must be self-contained: given the same manifest parameters and partition geometry, `wl_restore_checkpoint` followed by `wl_step` must produce identical results to continuing from the step where the checkpoint was taken.
+The aggregate must reproduce continued execution under the same workload graph,
+step plan, placement-independent execution profile and compatible artifacts.
 
 If the selected stepping scheme carries bounded solver or integrator history across committed boundaries, that history belongs inside the checkpoint payload. Resume is not assumed to be valid across integration-scheme changes unless the workload component explicitly defines such compatibility.
 
-#### `wl_query_state`
+#### `component_query_observation`
 
 ```
-wl_query_state(partition_id, query) -> state_data
+component_query_observation(partition_context, boundary, query) -> observation_part
 ```
 
-Called by the runtime to extract a view of the current simulation state for result artifacts or live streaming to observers. The `query` parameter specifies what data to extract — this may be the full state, a subset of fields, a downsampled view, or a derived quantity depending on what the workload supports.
+Extracts a bounded view of this instance's committed state for result artifacts
+or observation assembly. It never exposes candidate state and never participates
+in the scientific step plan.
 
-Unlike `wl_checkpoint`, the output is not required to be restorable — it is optimized for external consumption (visualization, analysis, export).
+The committed logical observation includes complete requested object and field
+state. A full-state query supports a simple client; regional, channel and
+level-of-detail queries are explicitly identified delivery projections. Query
+resource limits and observer backpressure are isolated from step commit: an
+overloaded observer may lose a projection or reconnect from a snapshot, but
+cannot delay or alter the scientific transition.
 
-#### `wl_drop_partition`
+Unlike `component_checkpoint`, the output is not required to be restorable; it
+is optimized for external consumption.
+
+#### `component_drop_partition`
 
 ```
-wl_drop_partition(partition_id) -> status
+component_drop_partition(partition_context) -> status
 ```
 
-Called when the runtime relinquishes a partition. This happens in several situations: the partition is being rebalanced to another node, the simulation is stopping, or the worker lost a speculative execution race and the partition's step was already committed by another node. The workload code should release any resources associated with this partition and must not assume the reason for the drop. After this call, the runtime will not invoke `wl_step` for this partition unless it is re-loaded via `wl_load_partition` or `wl_restore_checkpoint`.
+Called when the runtime relinquishes this instance's partition after
+rebalancing, stop, or a lost speculative race. The guest releases resources and
+must not infer scientific meaning from the reason. Later work requires another
+load or restore.
 
 
 ### Host functions (runtime -> workload)
 
 These are functions provided by the runtime that the workload code may call during execution. They are the only way for workload code to interact with the outside world.
+
+#### Invocation-scoped channel resources
+
+`inputs` and `outputs` in `component_execute_phase` are opaque resources whose
+methods are equivalent to:
+
+```
+input.describe() -> channel_descriptor
+input.read_chunk(offset, max_bytes) -> bytes
+output.describe() -> channel_descriptor
+output.write_chunk(offset, bytes) -> status
+output.finish(coverage, value_count) -> status
+```
+
+The host binds each resource to the exact invocation, direction, channel,
+schema, dimensions, partition coverage and byte/value limits admitted in the
+step plan. Reads and writes outside that grant fail before accessing memory.
+Chunks permit streaming and bounded copies; an implementation may provide a
+more efficient borrowed-buffer binding under the same semantics. Finishing an
+output makes it eligible for validation and dependent phases, not for commit.
 
 #### `host_log`
 
@@ -278,11 +418,11 @@ Emit a structured log message. The runtime may rate-limit, buffer, or discard lo
 host_read_param(key) -> value
 ```
 
-Read a parameter from the workload epoch's frozen, canonical resolved-parameter
-set by key. Returns the dimensioned canonical value in the versioned workload
+Read a parameter from this component instance's frozen, canonical parameter
+view by key. Returns the dimensioned canonical value in the versioned workload
 ABI representation, or an error if the key does not exist. Although the
 source-bearing manifest may define the parameter with variables and an
-expression, workload code never receives or evaluates that source. Orishu
+expression, component code never receives or evaluates that source. Orishu
 resolves and validates the complete expression graph before the workload can
 enter `Ready`, and the returned value cannot change during the epoch.
 
@@ -300,37 +440,36 @@ Report a named diagnostic or convergence metric for the current step and partiti
 host_abort(reason)
 ```
 
-Signal an unrecoverable error from within the workload code. The runtime will stop execution for this partition, record the reason, and transition the workload toward `Error` state. This is a last resort — workload code should prefer returning error status from the exported functions when possible.
+Signal an unrecoverable error from a component invocation. The runtime records
+the component/phase/partition identity, discards the attempted boundary and
+transitions according to run policy. Guests should prefer structured return
+errors where possible.
 
 
 ## Data flow
 
-The following diagram illustrates the data flow for a single simulation step ($N \to N+1$), highlighting the interaction between peers, the runtime, and the sandboxed workload code.
+The following diagram illustrates one possible field-to-particle plan for a
+single boundary ($N \to N+1$). The admitted workload plan, rather than these
+particular phase names, is authoritative.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant P as Cluster Peers
     participant R as Worker Runtime
-    participant W as Workload Code (Sandbox)
+    participant F as Field Component
+    participant C as Coupling/Projection Component
+    participant D as Dynamics Component
 
-    Note over R: Prerequisite: All Halo data for Step N is available
-
-    rect rgb(240, 240, 240)
-        Note right of R: Execution Phase
-        R->>W: wl_step(Context, State_N, Halos_N)
-        activate W
-
-        opt Diagnostic reporting
-            W-->>R: host_report_metric("energy_total", value)
-        end
-
-        W->>R: returns StepResult (State_N+1)
-        deactivate W
-    end
-
-    Note right of R: Post-computation Phase
-    R->>R: Extract boundary data (Halos) from State_N+1
+    Note over R: Validate dependencies and prepare isolated candidate N+1
+    R->>F: component_execute_phase(field-update, committed field/source inputs)
+    F-->>R: candidate field channel
+    R->>P: Reliable field/channel transfer when consumer is remote
+    R->>C: component_execute_phase(project-to-entities, field + coupling properties)
+    C-->>R: typed force contributions
+    R->>D: component_execute_phase(integrate, kinematics + contributions)
+    D-->>R: candidate velocity and position
+    R->>R: Validate complete candidate, coverage and reductions
 
     par Peer Data Exchange
         R->>P: HaloDelta (Boundary data for neighbors' Step N+1)
@@ -342,13 +481,14 @@ sequenceDiagram
 
     Note over R: Advance Simulation Time to N+1
 
-    opt Observability (Async)
-        R->>R: wl_query_state(partition, "view_config")
+    opt Observability (Async and outside commit)
+        R->>F: component_query_observation(boundary N+1, query)
         R->>P: Stream state delta to observers
     end
 ```
 
-The light grey box indicates the sandbox boundary. Inside it, the workload code sees only the data the runtime provides and produces only the data the runtime collects.
+Each component is a distinct sandbox. Orishu mediates every arrow between them;
+co-location may optimize a transfer but does not change channel semantics.
 
 
 ## Lifecycle summary
@@ -357,26 +497,31 @@ The following table maps the simulation lifecycle to the workload interface call
 
 | Phase | Runtime action | Workload call |
 |---|---|---|
-| `Loading` (fresh) | Fetch and validate artifacts, parse manifest | `wl_init(manifest_params)` |
-| `Loading` (fresh) | Extract initial state for each assigned partition | `wl_load_partition(geometry, initial_state)` per partition |
-| `Loading` (resume/late join) | Fetch checkpoint data for assigned partitions | `wl_restore_checkpoint(geometry, checkpoint_data)` per partition |
+| `Loading` (fresh) | Fetch/validate graph and instantiate assigned components | `component_init(...)` per instance |
+| `Loading` (fresh) | Load each instance's owned initial state | `component_load_partition(...)` per assigned instance/partition |
+| `Loading` (resume/late join) | Restore every required checkpoint part | `component_restore_checkpoint(...)` per assigned instance/partition |
 | `Ready` | Wait for cluster coordination or operator command | — |
-| `Running` | For each step: deliver halo data, invoke computation | `wl_step(context, state, halos)` per partition per step |
-| `Running` (stepped) | Same as above, but runtime counts committed steps and auto-stops after the limit | `wl_step(context, state, halos)` per partition per step |
-| `Running` (checkpoint barrier) | Request state serialization | `wl_checkpoint(partition_id)` per partition |
-| `Running` (observer/result) | Request state for streaming or result artifact | `wl_query_state(partition_id, query)` per partition |
-| `Running` (rebalance) | Release partition to another node | `wl_drop_partition(partition_id)` |
-| `Running` (rebalance) | Acquire new partition from checkpoint | `wl_restore_checkpoint(geometry, data)` |
-| `Stopped` (after step limit) | Auto-checkpoint at step limit boundary (unless `checkpoint: false`) | `wl_checkpoint(partition_id)` per partition |
-| `Stopped` | Final checkpoint and result write | `wl_checkpoint` + `wl_query_state` per partition |
-| Unload | Release all partitions | `wl_drop_partition(partition_id)` per partition |
+| `Running` | Execute ready nodes in the admitted plan and validate candidate outputs | `component_execute_phase(...)` per invocation |
+| `Running` (stepped) | Same plan; runtime auto-stops after the committed-step limit | `component_execute_phase(...)` per invocation |
+| `Running` (checkpoint barrier) | Aggregate all owned state and runtime coordination | `component_checkpoint(...)` per required instance/partition |
+| `Running` (observer/result) | Assemble committed observation parts outside commit | `component_query_observation(...)` as required by query |
+| `Running` (rebalance) | Release an instance partition | `component_drop_partition(...)` |
+| `Running` (rebalance) | Acquire an instance partition | `component_restore_checkpoint(...)` |
+| `Stopped` (after step limit) | Auto-checkpoint the complete graph unless disabled | `component_checkpoint(...)` for every required part |
+| `Stopped` | Final aggregate checkpoint and result write | checkpoint + observation calls |
+| Unload | Release all instance partitions | `component_drop_partition(...)` per instance/partition |
 
 
 ## Lifecycle compatibility
 
-The exported and host functions described above constitute the **workload lifecycle contract**. A workload declares an opaque compatibility identifier in `requirements.runtimeLifecycle`; a node advertises the identifiers it supports for each runtime engine. The first Orishu Kagami profile uses `orishu.workload/v1` with the `wasm-component` engine and `orishu:workload/lifecycle@1` component world. There is no separate numeric ABI-version field.
+The graph semantics and component ABI are separately versioned. The first
+planned graph profile is `orishu.workload-graph/v1`. Each instance declares
+engine `wasm-component`, lifecycle `orishu.component/v1`, and implements the
+`orishu:simulation/component@1` world. There is no redundant numeric ABI field.
 
-A node must reject a workload during `Loading` if its lifecycle identifier is unsupported. Compatibility identifiers are not forward-compatible: a runtime that supports `orishu.workload/v1` cannot run an unknown later identifier, because it may depend on different host functions or calling conventions.
+A node rejects a workload during `Loading` if the graph profile or any
+component lifecycle is unsupported. Compatibility identifiers are not assumed
+forward-compatible.
 
 Backward compatibility is optional: a runtime may support multiple lifecycle identifiers simultaneously, but this is not required.
 
@@ -393,16 +538,17 @@ Within a given lifecycle identifier:
 ## Runtime engine
 
 The lifecycle has domain-level semantics, but its first admitted binary binding
-is deliberately specific: a **WebAssembly Component** whose exports and imports
-match `orishu:workload/lifecycle@1`. Component validation, isolated memory, and
+is deliberately specific: **WebAssembly Components** whose exports and imports
+match `orishu:simulation/component@1`. Component validation, isolated memory, and
 the closed import set are part of the security contract, not replaceable
 implementation details.
 
-- The manifest declares engine `wasm-component` and lifecycle
-  `orishu.workload/v1`. Each node advertises only engines and lifecycles it
+- The manifest declares graph profile `orishu.workload-graph/v1`; every
+  instance declares engine `wasm-component` and lifecycle
+  `orishu.component/v1`. Each node advertises only profiles, engines and lifecycles it
   actually enforces (see
   [`NodeCapabilities`](./protocol-p2p.md#nodecapabilities)).
-- Every node verifies the same component content digest and any signature
+- Every node verifies each assigned component content digest and any signature
   required by cluster policy before instantiation. Native JIT/AOT output is a
   local cache and is excluded from workload identity and portable provenance.
 - The host satisfies only the imports allowed by the component world. Unknown

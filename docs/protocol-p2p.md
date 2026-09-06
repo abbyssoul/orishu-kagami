@@ -46,6 +46,22 @@ projection path and never weakens these peer correctness requirements. See
 
 ### Transport mapping
 
+The worker exchange adapter shares a bounded pool across reliable inbound and
+outbound operations (configured capacity 1–64). Capacity is acquired without
+an unbounded waiter queue; overload is an explicit error. A slot covers the
+decoded request and waiting for its owner-produced reply. One five-second
+absolute deadline covers stream credit, request write, response read/FIN, and,
+on the server, the owner callback and response write. Handshake reads use the
+4,096-byte cap before allocation; membership reads use the 1 MiB cap.
+Cancellation or failure resets/stops the stream directions and releases the
+slot. Transport completion never substitutes for command/admission acceptance.
+
+Datagram submission checks the encoded delivery class, the 1,200-byte profile
+ceiling and the connection's negotiated datagram size. Unsupported or oversized
+datagrams fail explicitly, with no reliable-stream fallback. Queuing a datagram
+is not delivery acknowledgement. The connection dispatcher and owner-completion
+mailboxes still need to be integrated before this adapter enables a peer service.
+
 | Message | Transport | Direction | Notes |
 |---|---|---|---|
 | `Handshake` | Stream (bidi) | Initiator → Responder | Identity exchange. One stream, once per QUIC connection. |
@@ -62,6 +78,7 @@ projection path and never weakens these peer correctness requirements. See
 | `PartitionIntent` | Stream (bidi) | Proposer → Target | Ownership transfer proposal. |
 | `PartitionAck` | Stream (bidi) | Target → Proposer | Reply on same stream as `PartitionIntent`. |
 | `HaloDelta` | Stream (long-lived) | Bidirectional | Boundary data exchange. One stream per neighbor pair per simulation run. |
+| `ComponentChannelData` | Stream (long-lived) | Producer → Consumer | Reliable typed cross-component state/contribution transfer. |
 | `StepVote` | Stream (bidi) | Voter → Peers | Step completion signal. |
 | `StepCommit` | Stream (bidi) | Peer → Peers | Step advancement confirmation. |
 | `CheckpointReq` | Stream (bidi) | Requester → Owner | Checkpoint/catch-up fetch. |
@@ -73,6 +90,96 @@ projection path and never weakens these peer correctness requirements. See
 ## Framing and serialization
 
 ### Stream framing
+
+The formation PoC now negotiates ALPN `orishu-membership/4`, adding required
+admission attempt identity and assignment replay. Profiles 1/2/3 are not accepted or
+silently downgraded; rebuild/restart participating PoC workers together. The
+policy-aware Merkle hash profile remains version 2: this transport extension
+does not change canonical membership hashes or non-admission membership messages.
+It caps a stream frame at 1 MiB (before
+allocation), CBOR nesting at 24, total values/keys at 32,768, arrays at 4,096
+items, maps at 64 fields and UTF-8 strings at 4,096 bytes. Duplicate map keys,
+tags, floating-point and indefinite strings/arrays are rejected. Bounded
+indefinite maps are supported for serde flattened records. Exactly one CBOR
+value occupies a frame; trailing data is rejected. These narrower PoC limits
+override the generic maximum below and are enforced by the worker decoder.
+
+Collection preflight additionally caps `gossip` at 10, `deltas` at 1,000,
+`nodeHashes` and `buckets` at 256, `accelerators` at 32, `engines` at 16, and
+address arrays `peers`, `clients`, and `redirectTo` at 8. These limits apply
+before typed allocation, including nested member records. The decoder borrows
+encoded envelope fields, checks authenticated session binding, formation and
+protocol before constructing a typed payload, and measures the received
+`membership` array's byte extent directly (not by re-encoding its values).
+
+### Formation profile 2 membership payloads
+
+The implemented `peer::wire` adapter uses the envelope below with all seven
+fields required and unknown envelope/payload fields rejected. `proto` remains
+1 for the semantic membership protocol; ALPN selects the incompatible framing
+and policy-aware hash profile. The following narrower payloads override the
+historical broad examples later in this document for the formation PoC:
+
+| Type | Required payload fields |
+| --- | --- |
+| `JoinReq` | `attemptId`, `joinToken`, `nodeName`, `certFingerprint`, `endpoints`, `accepts`, `capacity`, `capabilities` |
+| `JoinReply` ACK | `result: "ACK"`, `formationId`, `clusterName`, `assignedNodeId`, `membership` |
+| `JoinReply` NACK | `result: "NACK"`, `reason` (structured `RejectReason`, not free text) |
+| `JoinReply` redirect | `result: "Redirect"`, `redirectTo` |
+| `Ping`, `Ack` | `probeId`, `incarnation` |
+| `PingReq` | `probeId`, `targetId` |
+| `PingReply` | `probeId`, `targetId`, `result` (`{"ack": incarnation}`, `"noSuchPeer"`, or `"timeout"`) |
+| `Announce` | `announcement` (`"suspect"`, `"alive"`, `"dead"`, or `"leave"`), `targetId`, `incarnation` |
+| `PullReq` | `round`, `digest`, `buckets`, `cursor` |
+| `PullReply` | `round`, `digest`, `deltas`, `complete`, `cursor` |
+
+`endpoints` has `peers` and `clients` address arrays; `capacity` has numeric
+`peers` and `clients` limits. Capabilities, members, fingerprints, digests and
+cursors use the canonical membership types and their golden fixtures. Null
+`cursor` denotes no continuation. There is no workload or `stateTypes` field:
+this adapter reconciles membership, policy, tombstones and blocklist only.
+Variant-inapplicable join reply fields are absent, not null. Admission tokens
+are exactly 64 lower-case hexadecimal characters (256 random bits) and leave
+the decoded transport DTO separately from the secret-free core input.
+
+The 1,200-byte PoC datagram ceiling includes the entire CBOR envelope. Encoding
+removes trailing piggyback deltas until it fits and reports how many were
+deferred; membership state remains available for later reconciliation. An
+unencodable base message is an error, never a stream fallback. The receiver
+rejects stream-only bodies on datagrams and SWIM bodies on streams. Applicant
+sessions carry only `JoinReq`; a label matching a member ID cannot upgrade a
+provisional session. The worker integration described below now supplies session
+orchestration, admission-state catch-up and live-assignment retry recovery;
+full lifecycle/process conformance remains in the formation task.
+
+### Sequence and credential lifecycle
+
+Per-sender sequence replay tracking retains a 128-number sliding bitmap per
+admitted identity, across its connections within the formation. A previously
+unseen stream request inside that window remains valid even if a later
+sequence arrived first on another independent QUIC stream. Duplicate or
+out-of-window stream requests are rejected; bounded operation retry uses a
+fresh envelope sequence and the same operation identity. Datagram probe
+correlation and incarnation checks remain authoritative for reordered replies.
+Formation adoption clears the old window; a reconnect does not reset it.
+
+The initial PoC trust mechanism is explicit certificate pinning. Join material
+obtained through an authenticated operator path carries the target formation,
+introducer endpoint, complete public certificate and its SHA-256 fingerprint,
+plus the secret join token. The dialer verifies the pin and TLS proof before
+sending application credentials. The server requires a valid client certificate
+and proof of its key, but unknown certificates establish only provisional
+sessions: membership admission still evaluates every gate. Unknown applicants
+cannot exchange admitted-member traffic. Redirects cannot establish new pins;
+the PoC reports them for an operator to supply trusted material rather than
+automatically forwarding the token. No QUIC early data is accepted.
+
+Workers generate a self-signed peer certificate for `orishu-worker` when no
+identity is provisioned, store its key/certificate securely, and retain it
+across process restarts. New processes create fresh standalone formation and
+node IDs. Certificate or credential load failures are explicit startup errors;
+they never trigger silent replacement. Admitted-session binding additionally
+checks the formation-assigned node ID and currently held fingerprint.
 
 Messages sent over QUIC streams use length-prefixed CBOR dataframes:
 
@@ -109,11 +216,14 @@ All peer protocol messages are wrapped in a `MessageEnvelope` — a discriminate
 }
 ```
 
-**`type` values:** `"Handshake"`, `"HandshakeAck"`, `"JoinReq"`, `"JoinReply"`, `"Ping"`, `"Ack"`, `"PingReq"`, `"PingReply"`, `"Announce"`, `"PullReq"`, `"PullReply"`, `"PartitionIntent"`, `"PartitionAck"`, `"HaloDelta"`, `"StepVote"`, `"StepCommit"`, `"CheckpointReq"`, `"CheckpointReply"`, `"FetchChunkReq"`, `"FetchChunkReply"`.
+**`type` values:** `"Handshake"`, `"HandshakeAck"`, `"JoinReq"`, `"JoinReply"`, `"Ping"`, `"Ack"`, `"PingReq"`, `"PingReply"`, `"Announce"`, `"PullReq"`, `"PullReply"`, `"PartitionIntent"`, `"PartitionAck"`, `"HaloDelta"`, `"ComponentChannelData"`, `"StepVote"`, `"StepCommit"`, `"CheckpointReq"`, `"CheckpointReply"`, `"FetchChunkReq"`, `"FetchChunkReply"`.
 
 **`formationId` guard:** A node receiving a message with a `formationId` that does not match its own immutable `metadata.id` must silently discard the message. This acts as a strict security boundary preventing cross-cluster interference. The legacy human-readable `clusterName` is no longer used as a wire guard.
 
-**`seq` deduplication:** The `seq` field provides duplicate detection and ordering within a single sender. Receivers may discard messages with a `seq` less than or equal to the last processed `seq` for that sender.
+**`seq` deduplication:** The `seq` field is scoped to one sender identity in one
+formation. Use the 128-sequence replay window above, not a high-water mark:
+independent streams may arrive out of order. Datagram correlation remains
+governed by probe identity and incarnation.
 
 
 ## Authentication
@@ -121,6 +231,34 @@ All peer protocol messages are wrapped in a `MessageEnvelope` — a discriminate
 All peer connections use mutual TLS (mTLS). Both sides present certificates during the QUIC handshake. QUIC provides TLS 1.3 encryption natively.
 
 ### Certificate verification on connection
+
+The formation session adapter distinguishes three roles. TLS extraction checks
+the negotiated membership ALPN and obtains the fingerprint from Quinn's peer
+certificate, never from an envelope. Each connection is stamped with the local
+owner's formation generation; adoption or leave invalidates the old binding.
+
+| Binding | Authority and allowed input |
+| --- | --- |
+| Provisional applicant | TLS key possession plus a claimed label; only `JoinReq`, with every admission gate still required |
+| Pinned outbound introducer | Operator-authenticated target formation/certificate pin plus handshake node claim; only `JoinReply` while joining, not arbitrary admitted traffic |
+| Admitted member | Assigned node ID and matching certificate in the current model; rechecked before each decoded message |
+
+A provisional applicant can upgrade only to a member record with the same
+certificate and label. An outbound introducer binding is not upgraded in place:
+formation adoption invalidates that generation and requires an admitted binding
+against the adopted model. Self-connections, dead/missing members, uncleared
+certificate tombstones and active node/name/fingerprint blocks are refused.
+Live network-block enforcement and complete handshake/session orchestration remain
+integration work; this binding module alone is not a running peer service.
+
+For known-member dialing, the client can pin the certificate fingerprint held
+by membership without retrieving a complete certificate through gossip. The
+TLS verifier checks the presented certificate's SHA-256 against that trusted
+pin before treating it as an anchor, then validates name, usage, validity and
+TLS key possession. It still rejects chains or certificates outside the bounded
+single-certificate profile. Operator join material continues to support an
+exact full-certificate pin. Loading a private peer identity validates both
+client/server usage and the `orishu-worker` name at startup, not only key matching.
 
 1. The QUIC handshake completes with mTLS — both peers present certificates.
 2. The receiving node extracts the SHA-256 fingerprint from the peer's TLS certificate.
@@ -132,14 +270,109 @@ All peer connections use mutual TLS (mTLS). Both sides present certificates duri
 
 The join token is presented inside the `JoinReq` message payload, not at the TLS layer. The introducer verifies the token after the mTLS handshake succeeds. This separation allows the transport to be established before the admission decision.
 
+The PoC source-network evidence adapter accepts literal IPv4/IPv6 addresses or
+CIDRs, at most 1,024 rules and 253 bytes per rule. Host bits in a CIDR are
+masked; DNS names, ports, bracketed addresses, zone identifiers, whitespace,
+signed prefixes and prefixes beyond the address width are rejected. IPv4 rules
+also match IPv4-mapped IPv6 sources. IPv6 rules match IPv4 sources using their
+mapped representation, so a broad IPv6 rule covering that space blocks them too.
+Matching is bounded O(rules), with no DNS or advertised-address lookup.
+
+The shell must supply the current QUIC-observed source address, including after
+connection migration, not an endpoint claim or proxy header. A malformed or
+oversized rule set returns a blocked-source verdict plus a bounded policy
+diagnostic; it never becomes an empty allow-list and never causes the adapter
+to abandon a pending credential completion. Token comparison, authenticated
+transport and source blocking remain independent evidence fields. The core
+still rechecks its locally held admission gates before insertion. This evidence
+adapter is connected through the owner and tested over the real QUIC request
+path. Gate checks run before verification, after its completion, and again
+after asynchronous node-ID allocation immediately before insertion.
+
+The introducer refuses `alreadyAdmitted` when its current membership contains
+an `Alive` or `Suspected` record for the applicant certificate. This includes
+a second concurrent allocation completing after the first admission inserted
+that certificate; it must not create another live ID. The final gate check
+also catches intervening capacity, lock and identity-exclusion changes. Dead
+history alone does not forbid a fresh assigned identity, but active certificate
+tombstones/blocklist entries still do. This is a locally enforced admission
+gate, not a globally serialized certificate reservation across partitioned
+introducers; the source worker still serializes its supported join attempts.
+
+`alreadyAdmitted` is a new bounded `JoinReply` NACK reason in the in-progress
+profile implementation; this reason itself does not change the envelope or
+Merkle hashes. Its CBOR value and complete worker-envelope round trip have a
+golden regression, and the real QUIC owner test verifies refusal without a
+second insertion. Older PoC decoders may reject this unfamiliar NACK; rebuild
+participating binaries together, as rolling profile upgrades are unsupported.
+The refusal does not itself recover a lost ACK or identify an accepted attempt.
+An unresolved join remains unresolved until the separate bounded recovery
+workflow establishes its outcome; it must not be described as never admitted.
+
 ### Certificate rotation
 
-A node may rotate its certificate by sending a signed rotation request over an established connection. The request contains the new certificate fingerprint and is signed by the old key. Upon verification, the cluster updates `NodeRecord.certFingerprint` and propagates the change via gossip.
+Certificate rotation is deferred from the formation PoC. The worker must not
+advertise an implemented rotation command. A future signed rotation exchange
+needs a versioned protocol and security decision before it can change a pinned
+member identity.
+
+### Local credential storage (formation PoC)
+
+The Unix worker credential adapter uses an exclusively owned state directory
+with no group/other access. `identity.json` is a version-1 private record with
+`version`, DER `certificate` bytes, and PKCS#8 DER `private_key` bytes;
+`operator.token` contains exactly the 64-character canonical operator token
+with no newline. Both files are owner-only regular files with one hard link.
+Reads are descriptor-relative with no final-component symlink following;
+identity input is capped at 65,536 bytes and token input at 65 bytes (the extra
+byte detects an oversized token). The root directory also rejects symlinks.
+The adapter holds an exclusive non-blocking `instance.lock` for its lifetime
+so two workers cannot share one identity directory accidentally.
+
+New files are created exclusively with mode `0600`, synced with their
+directory, and never overwrite existing contents. Interrupted or corrupt
+initialization fails explicitly for operator repair; it does not regenerate
+an existing identity silently. Credential diagnostics never include key or
+token contents. Platforms without this private-file implementation return an
+explicit unsupported-platform error rather than creating insecure files.
+
+The operator credential is worker-local and distinct from the formation join
+token. The CLI/harness provisioning path will explicitly read the private
+operator token; merely reaching a Unix socket does not authorize mutation or
+token retrieval. Formation IDs, node IDs and join tokens are not restored from
+these files on restart. Startup now loads these credentials and the summary
+API uses the operator token for remote reads. CLI credential-file provisioning,
+mutations and join-material retrieval remain integration work.
 
 
 ## Connection lifecycle
 
 ### Establishment
+
+The profile-2 handshake now has a bounded DTO/adapter. Its frame payload is
+capped at 4,096 bytes before receive-buffer allocation and uses the existing
+five-second frame/FIN deadline. The final connection loop must additionally
+enforce the connection-wide first-handshake deadline and one initial bidi stream;
+those session-orchestration pieces are not enabled yet.
+
+The handshake uses the normal seven envelope fields, with `proto: 1`, `seq: 0`
+and an empty `gossip` array. It does not enter the core's per-sender message
+sequence window. The only payload fields for `Handshake` are required `nodeId`
+(explicit null for an applicant), `nodeName`, and `certFingerprint`. `senderId`
+must equal the assigned ID when present, otherwise the applicant label.
+`formationId` is the target formation, not the applicant's old standalone one.
+No endpoints, capabilities, software version or secrets appear in this exchange;
+admission carries the bounded advertisement later.
+
+`HandshakeAck` uses the same identity fields with a non-null responder node ID,
+plus `accepted`. Success has no `reason`; refusal requires one of
+`incompatibleProtocol`, `formationMismatch`, `identityMismatch`, or `overloaded`.
+Inapplicable optional fields are omitted. Unknown fields, incompatible versions,
+nonzero sequences, gossip, inconsistent identities and repeated binding attempts
+are rejected. Both request and reply must agree with the TLS certificate, and
+outbound replies must also satisfy the trusted target pin. These narrower shapes
+override the historical broad payload examples below for profile 2. A successful
+handshake does not imply admission: `JoinReq`/`JoinReply` use a subsequent stream.
 
 1. Initiator opens a QUIC connection to the target's `listen.peers` address with mTLS.
 2. QUIC handshake completes — both sides present and verify certificates.
@@ -195,6 +428,158 @@ After a successful `Handshake`/`HandshakeAck` exchange:
 
 ### Reconnection (known node)
 
+The worker now also provides a secret-free outbound bootstrap dial adapter.
+`IntroducerTarget` copies only the validated formation, assigned introducer ID,
+certificate pin and one to eight literal socket candidates from join material.
+One shared `Dialer` permits four concurrent attempts without a waiting queue;
+candidates are tried sequentially under a 15-second total budget, with the
+existing five-second TLS/frame phase limits and shared reliable-exchange pool.
+It uses the caller's endpoint, verifies the pin during TLS, and sends only the
+initial handshake—not a JoinReq or token. DNS and redirects are not supported
+by this profile. A dropped pending result closes its connection even if clones
+exist. Dial success returns raw ACK bytes for current-owner validation, not
+membership or command acceptance.
+
+The pinned-introducer ACK validator checks the supplied assigned node ID in
+addition to formation and TLS fingerprint before granting the limited
+JoinReply role. A real dispatcher test covers correct/wrong pins, mismatched
+introducer IDs, dial saturation and dropped-result cleanup. This adapter is
+now registered through the owner's bounded peer lane using a distinct pinned-
+introducer reply mode. The owner rejects stale generations and mismatched
+formation/node/fingerprint bindings, rechecks source policy, and assigns its
+own session ID. The introducer binding has the same ten-second provisional
+lifetime and shared 16-provisional-session budget as applicants; it permits
+only JoinReply decoding while the worker retains its source formation. A real
+dial test verifies accepted owner registration, wrong-node rejection and stale
+generation closure without a membership change. Registration alone does not
+begin a join; the production operation, adoption, replay and catch-up paths
+described below supply those separate boundaries.
+
+The owner now exposes an internal begin-join seam that checks source formation,
+generation, standalone participation, absence of another core join attempt and
+the current registered introducer binding before applying `BeginJoin`. Its
+shell-only outbound join state retains the target and token while the core owns
+attempt timers. JoinReq effects use the target formation and applicant identity;
+bounded reliable replies re-enter the same owner packet path. Missing routes
+or send capacity count as IO failure and leave recovery to bounded core timers.
+Generation changes clear the secret and abort old sends. Validated adoption
+reports `catchingUp`, closes old-generation sessions and leaves target credential
+installation/introduction unavailable. A real two-owner test exercises the
+complete handshake/JoinReq/admission/ACK/adoption path without initializing the
+joiner from a pre-adopted model. That test alone does not establish identified
+operator API, lost-ACK recovery, target-state catch-up or three-process acceptance;
+those paths have their separate evidence below.
+
+The owner now remembers whether any JoinReq was submitted to reliable IO. If
+core retries end without adoption after such a submission, local participation
+becomes `joinUnresolved`, not ordinary standalone join eligibility. Old sends
+are aborted and transient token state is dropped; another begin-join is refused.
+This is deliberately conservative even when a transport error does not prove
+delivery. A real-QUIC fault test completes introducer insertion and discards its
+ACK at the response-write boundary, verifying retained remote membership,
+unchanged local formation and explicit unresolved status. The hook exists only
+in the test harness; production transport/authentication/core paths are used.
+It does not yet recover the lost outcome or close the interrupted-join task.
+
+The sans-IO core now provides `RebindJoin` for an IO shell that has established
+a fresh authenticated session to the same pinned introducer. It checks the
+expected old session and target formation, refuses identical-session or stale
+replacement commands, and consumes the next retry from the original budget.
+The old timer is cancelled, old-session replies cannot adopt, and exhaustion
+abandons the attempt rather than resetting its count. `BeginJoin` cannot
+overwrite a pending attempt. All retry paths now cancel their previous timer,
+including early NACK/redirect retries and exhaustion. These are local transition
+semantics; they add no wire field or new authentication authority.
+
+Worker startup now supervises pending-join redial alongside admitted-peer
+maintenance. Only an explicit public join supplies its retained secret-free
+introducer route: target formation, assigned introducer ID, certificate pin
+and bounded literal endpoints. The scheduler never substitutes a redirect,
+discovers another cluster or starts a new operator attempt. It polls once per
+second with missed ticks skipped, prepares only when the old route is absent,
+and permits one active reconnect job. At most eight preparations are allowed
+per pending join; failed/cancelled preparations consume that budget. They do
+not reset the independent core retry count or timers. Preparation stops once
+there is no remaining core retry. Core exhaustion retains the existing
+conservative unresolved outcome if a request may have been delivered.
+
+Preparation reserves a completion slot before IO and carries no join token.
+Redial uses the existing process dialer, literal endpoint selection, 15-second
+handshake budget and shared exchange pool, under a 16-second supervisory
+deadline. Owner-query waiting is bounded to one second. The owner accepts the
+result only for the matching pending generation, old session and reconnect
+ordinal, revalidates the original retained pin/formation/introducer against
+the real handshake, and invokes `RebindJoin`. Only then can normal owner
+effects attach the retained token to another JoinReq. A dropped job releases
+its reserved outcome, while a stale successful handshake is discarded and
+closed. Lifecycle/participation changes cancel jobs; shutdown aborts supervision
+before stopping the owner. The internal token-only begin-join testing seam
+does not supply routing material and is not automatically redialled.
+
+Real runtime tests drop a decoded JoinReq connection before insertion and
+verify redial, adoption and catch-up under the original operation. Separate
+tests cancel eight prepared jobs without resetting the budget and release a
+successful replacement handshake after owner shutdown. This proves bounded
+pre-insertion reconnect. Profile 4 adds accepted-assignment replay below.
+
+#### Accepted admission replay (profile 4)
+
+JoinReq requires `attemptId`, a bounded node-ID-shaped value generated from
+fresh 256-bit randomness by the joining shell at BeginJoin. This is correlation,
+not an assigned membership ID or authorization. The same pending operation
+retains it across timers/redials; a new lifecycle generates another value even
+with the same certificate. It stays outside the replayable core. JoinReply
+remains correlated by the current pinned session and pending target.
+
+Each introducer retains at most 1,024 accepted assignments for its local
+formation lifetime, keyed by authenticated fingerprint and attempt ID. A
+domain-separated SHA-256 digest covers canonical typed CBOR of protocol,
+formation, attempt ID, name, certificate, endpoints, role flags, capacity and
+capabilities. Sequence, gossip and token bytes are excluded; current credential
+validation remains mandatory. No tokens or snapshots are retained in the ledger.
+Capacity is checked before admission. Insertion and recording the assigned ID
+and original reply sequence occur in the same serialized owner turn, before
+returning the ACK. Credential verification and ID allocation are currently
+inline; future asynchronous work must reserve ledger capacity before insertion.
+
+Records never expire or evict into new execution: exact replay works at
+capacity, but new attempts refuse. Local formation change, ejection and process
+exit discard the ledger; restart does not restore it. An exact accepted retry
+rechecks source-network/session binding, introducer readiness/current token,
+the assigned member's certificate and alive/suspected state, blocks and
+tombstones. It returns the original assigned ID with a bounded current snapshot,
+without a core transition, new identity or liveness resurrection. Recovery of
+an existing assignment is not a new admission; a later lock does not revoke an
+existing member. An already-promoted connection may only replay its own recorded
+assignment, never use applicant syntax for another admission.
+
+Changed request bodies, wrong credentials, retired assignments, unavailable
+snapshots and unknown attempts on admitted sessions refuse the exchange. A new
+applicant connection with an unknown attempt follows normal admission gates,
+including duplicate-live-certificate refusal. Refusal does not mean the original
+request was never inserted; retry exhaustion remains unresolved. There is no
+cross-introducer lookup, global exactly-once guarantee or durable replay.
+
+Real runtime evidence discards an ACK after insertion/ledger commit, closes the
+connection, and verifies redial recovers exactly that assigned ID through
+catch-up. Wire tests cover same-connection replay after promotion and rejection
+of wrong tokens, changed bodies and unknown attempts without another core
+transition. Replay while membership is locked also returns the existing
+assignment without changing the lock; the lock gates new admissions, not
+continued membership.
+
+The same wire/owner test now removes an accepted member, blocks its fingerprint,
+or applies its serialized self-departure before opening a fresh mTLS applicant
+connection. Exact replay refuses without another core transition or insertion.
+A fresh attempt ID still receives `tombstoned` or fingerprint `blocklisted`
+refusal when excluded; dead history alone permits a new assigned identity while
+the old record remains dead. Removal/block setup uses owner commands and
+departure uses the owner's datagram decoder; the reconnect handshake and
+replay/fresh-attempt requests use real QUIC streams. This is not a public
+restart/ejection workflow. Ledger tests cover capacity/non-eviction. Operator
+recovery after retirement, introducer loss/restart and the wider process fault
+matrix remain required.
+
 After a successful `Handshake`/`HandshakeAck` exchange where both sides recognize each other's node ID and certificate fingerprint, the connection is established without a `JoinReq`. Both sides immediately begin gossip exchange and workload coordination.
 
 ### Graceful shutdown
@@ -204,6 +589,394 @@ After a successful `Handshake`/`HandshakeAck` exchange where both sides recogniz
 3. The node closes all QUIC connections.
 
 ### Connection maintenance
+
+#### Admission-state catch-up contract
+
+Before introduction is enabled after adoption, fetch one identified, immutable
+admission-state baseline from a ready admitted peer in the same formation.
+The source freezes policy (including explicit absence/default unlocked), all
+blocklist entries including lifted entries, and all membership tombstones in
+one serialized owner turn. This is separate from membership listing and from
+scientific checkpoint transfer. The snapshot contains no join token. It proves
+the source's complete state at that boundary, not globally latest state during
+a partition. Concurrent newer deltas continue through normal versioned merge;
+installing a baseline must not discard newer locally learned restrictions.
+
+The baseline uses ordered, typed records: one policy record first, then
+blocklist keys in domain order, then tombstone node IDs in domain order. Each
+page has at most 32 records and 64 KiB of canonical CBOR. There are at most
+161 pages (one policy, 1,024 blocklist entries and 4,096 tombstones), with an
+8 MiB aggregate encoded-page cap. Page metadata binds formation, source node,
+source-assigned snapshot ID, page index and total page count. An SHA-256 root
+over domain-separated, length-prefixed canonical page encodings identifies the
+complete baseline. An explicit policy-only page proves empty collections;
+absence of pages does not. Reject mixed identities, changed totals, missing,
+duplicate, reordered, oversized or noncanonical pages before installation.
+
+The source will retain at most four baselines for 30 seconds each, bound to
+the requesting admitted identity and owner generation, with no eviction of a
+live transfer to admit a new one. Expired continuations fail explicitly; the
+joiner retries a new identified baseline within a bounded overall catch-up
+attempt. Every request and credential release rechecks current admitted session,
+source restrictions and generation. A full valid baseline is merged atomically
+through the pure core; rejection, capacity failure, self-removal or invalid
+policy keeps the worker non-introducing. Public baseline bytes remain separate
+from target credential installation in the worker shell.
+
+Credential release follows proof of complete baseline receipt, on an admitted
+authenticated stream bound to that snapshot, requester and formation. It is
+never gossip, snapshot content, trace context or replayable core state. Only
+after full baseline validation/merge and target credential installation can the
+owner publish completed catch-up and enable its configured introducer role.
+Source lock changes and normal admission gates remain authoritative locally;
+the barrier is not a global membership fence. Network routes, explicit transfer
+errors and wire negotiation must be integrated and fixture-tested before these
+new exchanges are advertised as a supported peer profile.
+
+The source retention adapter now implements four 30-second leases (at most
+32 MiB retained encoded page bytes, plus bounded metadata). A begin request is
+identified by requester node and operation ID. An exact live retry returns the
+same descriptor without refreshing expiry or recapturing changed source state.
+After expiry, a new begin may capture another baseline under a new monotonic
+snapshot ID; old continuations remain unavailable. Snapshot IDs never wrap or
+reset during an owner-generation sweep. A full store rejects a new request
+without evicting existing leases. New or existing access rechecks admitted
+identity, certificate, liveness and identity exclusions; current transport and
+source-network checks remain mandatory at the owning session boundary.
+
+Profile 4 retains `AdmissionStateReq` / `AdmissionStateReply` over registered
+member bidirectional streams. They are separate shell resource envelopes with
+`schemaVersion: 1`, `type`, `formationId`, `senderId`, `requestId` and an
+`action` / `outcome` object. Actions are `begin`, `page` (snapshot/index) and
+`confirm` (snapshot/root); outcomes are baseline descriptor, nested canonical
+page, confirmed credential, or a finite rejection reason. Request bodies are
+capped at 4 KiB, reply decoding at 128 KiB; the existing five-second shared
+exchange deadline and 64-exchange capacity still apply. These idempotent read
+resources use request/snapshot correlation rather than consuming core message
+sequences. They never enter gossip or the membership replay window.
+
+The serialized owner rechecks registered-session generation, current member
+identity and observed source-network policy before typed request handling.
+Applicants, cross-formation introducer bindings and datagrams cannot access
+this surface. Every action additionally requires current source introducer
+readiness and its installed formation token; otherwise it returns `notReady`.
+Malformed identity/schema input yields no credential response. Finite resource
+rejections distinguish `unavailable`, `overloaded`, `invalid` and `unauthorized`.
+The owner sweeps retained baselines on its normal transitions/ticks. Confirm
+rechecks the retained page barrier before copying the current token into the
+encrypted response; neither token nor request enters core state or ordinary
+debug formatting. Receiver owner scheduling/installation is described below.
+
+The receiving IO client now checks the selected source's profile/certificate
+against the actual connection, then runs begin, sequential page requests and
+confirm under one 25-second deadline. Every exchange shares the worker's
+five-second exchange deadline and permit pool; reply length is capped at
+128 KiB before allocating its receive buffer. It accepts at most 161 pages
+and 8 MiB of canonical page content. Descriptor formation/source, reply
+request/source identities and page snapshot/order are validated; the credential
+response must match the completed descriptor's snapshot and digest. Confirm is
+never sent until the public content proof succeeds. Source rejection, malformed
+content, timeout or cancellation returns no completed credential installation.
+There is no internal retry loop or newly opened peer connection.
+
+The private completion carries the verified atomic-baseline command value and
+the separately held target token. It has no Debug/Clone/serialization interface.
+The owner must still correlate its attempt/session/generation, revalidate current
+authority, atomically apply the public baseline and explicitly install the token
+before updating readiness or join-operation completion. Receiving bytes alone
+does none of these. The real admitted-session test now exercises two baseline
+pages and the receiver. Malformed/expired transfer faults and public process
+catch-up completion have separate evidence described below; the
+[conformance ledger](tasks/cluster-formation-conformance.md) records their
+current acceptance boundaries and remaining gaps.
+
+The receiving owner now prepares at most one catch-up job at a time and reserves
+a control-lane completion slot before returning it. A dropped job or preparation
+reply queues failure, not an orphaned operation. Preparation requires catching-up
+participation and a currently registered, source-authorized member route with
+an advertised introducer role. Up to three prepared attempts are allowed within
+90 seconds of adoption, including time waiting for a route; no route does not
+consume an attempt. Successive attempts rotate across available candidate
+routes. Production runtime scheduling checks eligibility once per second with
+missed ticks skipped, permits one active transfer, and bounds owner preparation
+waiting to one second. Generation/participation changes cancel obsolete jobs;
+shutdown stops scheduling and aborts outstanding work before stopping the owner.
+The receiver's existing overall transfer deadline still applies.
+
+Completion matches the owner's process-unique attempt ID and generation,
+revalidates its source session/formation and checks the adoption deadline. Only
+then does it apply the atomic core baseline command. An accepted baseline with
+the local identity intact, no local identity exclusion and valid bounded network
+rules permits installing the separately held token and publishing `joined`.
+Role configuration remains independent: a joined non-introducer does not gain
+that role. Merge rejection or unavailable/stale source keeps introduction
+disabled and records `catchUpFailed`; retry preparation explicitly returns the
+operation to `catchingUp`. Baseline self-removal publishes local ejection and
+closes held sessions without installing a token. The same owner fence now
+handles self-removal learned through ordinary gossip/reconciliation: it changes
+participation to `ejected`, advances the local generation, drops credentials,
+pending catch-up and bootstrap state, cancels timers/sends and closes sessions.
+It suppresses the entire removal transition's outgoing effect batch, including
+a probe response that would otherwise use the removed identity. No automatic
+return to standalone or readmission occurs. Local inspection and shutdown
+remain available; peer admission, dialing and periodic membership work stop.
+
+The real-QUIC registry regression delivers a valid tombstone in a peer datagram
+and verifies ejection, connection closure and suppression of further owner
+transitions. The runtime regression separately applies a baseline self-removal
+while a catch-up preparation is held, then drops its old-generation completion
+and verifies retained `catchUpFailed`/ejected state. This latter test is an owner
+boundary test, not a serialized baseline-transfer fault test. Three additional
+runtime regressions fetch and verify a complete baseline and credential over
+real QUIC, then hold the reserved successful completion behind a test-only
+scheduling barrier. Releasing it after leave preserves the replacement
+standalone identities/token; after ejection it preserves non-introducing state
+without another core transition; after shutdown it cannot revive the closed
+owner. These tests exercise the normal receiver and completion handler, not
+fabricated credentials. Ejection itself is supplied at the owner boundary;
+public ejection/restart exclusion and the wider lifecycle fault matrix remain
+required. The owner path is exercised
+with real receiver IO by the runtime test, including cancellation followed by
+automatic retry. The public CLI harness now proves completed catch-up and
+A-admits-B, B-admits-C handoff; full lifecycle/fault conformance remains required.
+
+A further runtime regression retires the source session after successful fetch
+without changing the receiver's generation. The old completion is refused;
+automatic reconnection and a fresh catch-up attempt can then reach `joined`.
+Another cancels three prepared jobs and verifies that subsequent preparation
+and runtime scheduling remain non-introducing with `catchUpFailed`. This proves
+the attempt cap. The separate deadline regression holds a verified real
+transfer, ages only the receiving owner's adoption timestamp to 90 seconds
+through a test-only control, and delivers success with the generation and
+session unchanged. The owner retains `catchUpFailed` and target identity,
+installs no credential and refuses another preparation. This isolates the
+deadline decision rather than measuring wall-clock timer latency.
+
+Receiver fault tests use the real source retention/resource handler and two-page
+transfers over mTLS QUIC. They expire a continuation using controlled source
+time, truncate the final page's framed bytes, substitute a cross-snapshot page,
+or corrupt the declared content digest. Each fails without requesting credential
+confirmation, then completes a fresh transfer on the same connection and
+single-slot exchange pool. These tests use admitted-member source fixtures;
+they are wire/receiver evidence, not public CLI or full owner lifecycle tests.
+
+The changing-source wire regression updates source policy and adds a blocklist
+entry after the first page has crossed the authenticated connection. The
+in-progress transfer completes with its original policy/content; a fresh begin
+returns a newer snapshot with a different root and the changed state. Together
+with atomic core merge tests that retain newer local restrictions, this verifies
+snapshot consistency without claiming globally latest policy or a global lock.
+
+Pages may be fetched in order or re-fetched after a lost response, but a request
+cannot skip ahead. Finish acknowledgement requires that every page was issued
+and that the pinned root matches. This acknowledgement is not cryptographic
+proof of remote installation: the receiver's own completeness validation and
+atomic core merge remain the readiness authority. The source must separately
+recheck its own readiness/current credential before releasing a token. Source
+retention has no credential fields; the source route reads credential authority
+separately from the owner only after these checks.
+
+The core now accepts the version-1 `InstallAdmissionBaseline` local command
+value after shell completeness/authentication checks. It rechecks formation,
+collection limits, strict key ordering and every record through the normal
+domain merge path, staging one bounded model copy before commit. Stale source
+records and absent source policy cannot erase newer local state; equal-version
+conflicts, malformed records or union-capacity failures reject the entire
+baseline. One correlated `AdmissionBaselineApplied` or
+`AdmissionBaselineRejected` publication prevents a large baseline from exhausting
+per-transition effects before reporting its outcome. Applied state is queued
+for bounded gossip and remains available to anti-entropy; observers refresh
+their projection from the aggregate publication rather than expecting one event
+per record. An applied baseline reports `self_removed` if its merged state
+excludes the local identity. The shell must handle this as ejection, never as
+permission to install credentials or mark catch-up complete. No raw token,
+transport authorization, IO-network rule parser or introducer-readiness flag
+is added to the pure core. Owner integration applies the readiness and
+self-ejection checks described above; this does not imply full formation
+conformance.
+
+The worker's outbound IO adapter now has a distinct admitted-member handshake
+path. Its secret-free target snapshot comes from the current member record,
+not join material: same formation, non-self assigned node, Alive/Suspected
+liveness, certificate pin, and one to eight literal unicast IP endpoints of at
+most 128 bytes each with nonzero ports. Invalid endpoint claims fail closed;
+DNS and redirects remain unsupported. It sends the assigned local identity,
+not an applicant label, and never sends a join token. It shares the existing
+four-attempt dial budget, 15-second total deadline, five-second TLS/frame
+deadlines and bounded exchange pool with bootstrap IO. Cancelled/dropped
+unregistered results close their connections.
+
+The owner must still validate the returned member ACK against its current
+generation, formation, membership, certificate and source restrictions before
+registering it; a routing snapshot is not current authorization. The real QUIC
+admission/traffic test now uses this adapter after adoption and confirms SWIM
+and policy exchanges through registered sessions. The runtime scheduling
+contract below connects automatic member repair for the supported PoC topology;
+an IO helper alone is not evidence of autonomous worker reconnection.
+
+#### PoC reconnect scheduling
+
+When both members advertise usable peer endpoints, only the lower assigned
+`NodeId` initiates a missing member connection. A local worker without an
+advertised endpoint initiates toward the remote advertised endpoint regardless
+of ID ordering. No route is invented when neither side advertises one. This
+uses immutable assigned identities, not labels or connection arrival order;
+it leaves the registry's first-live-binding rule intact. It is not automatic
+admission of an unknown worker. Stable advertisements and all-to-all reachability
+are the supported three-worker profile; asymmetric reachability and live
+advertisement/topology changes require further collision/fallback evidence.
+
+One worker-local maintenance loop ticks every second, skipping missed ticks.
+Each owner query scans at most 64 ordered member records, returning at most one
+missing canonical route and a continuation cursor; a completed scan wraps to
+the beginning. Selection is permitted while standalone, catching up or joined,
+but does not establish introducer readiness. The runtime retains at most 64
+connection/attempt tasks, with at most one task per target node. These share
+the four concurrent handshake permits with operator bootstrap, not a new dial
+pool. A failed attempt releases its target slot and retries only on a later
+cursor visit: there is no immediate retry loop or offline send queue. The
+one-second scheduler cadence is this PoC's fixed minimum retry spacing, not an
+exponential fleet-scale retry policy. Owner-query wait is bounded to one second;
+member ACK registration adds at most five seconds to the 15-second dial budget.
+
+Generation changes cancel/drain old tasks and reset cursors. Owner registration
+still rejects late completions; session retirement closes connections held by
+IO tasks. Shutdown excludes and aborts maintenance before stopping the owner.
+Established outgoing connections use the same bounded stream/datagram pump as
+incoming ones. Transport loss only retires a session: it cannot write a
+membership tombstone or mark a member alive. Periodic peer selection includes
+Alive and Suspected members so a restored route can carry SWIM/refutation and
+anti-entropy; Dead and Left members remain excluded. Catch-up and ejection
+authority are unchanged.
+
+The real-runtime regression
+`simultaneous_admitted_dials_recover_crossed_connections_without_readmission`
+holds both outgoing handshake replies until both incoming sessions register.
+Both outgoing registrations are then rejected as duplicates and both crossed
+connections close. Normal maintenance restores policy and reliable exchanges,
+then repairs a second deliberate transport loss, with unchanged formation,
+assigned IDs and certificates and no tombstones. The fixture uses two real
+QUIC workers in one process after adoption, while the joiner is catching up;
+it is not partition/heal or arbitrary-topology evidence. Ordinary connection
+loss is also exercised by the catch-up lifecycle fixture.
+
+The formation owner now has a bounded inbound application-session registry:
+64 total registered connections, at most 16 provisional applicants, and a
+10-second provisional lifetime. Session IDs increase for the process lifetime
+and are not reset by formation adoption/leave. A second live connection using
+the same certificate is refused without replacing the first; a reconnect may
+register after the old connection has closed and been pruned. This is not
+interrupted-join outcome recovery, which remains a separate admission contract.
+
+Handshake registration uses the 64-entry peer lane, not reserved operator or
+completion capacity. Its payload is capped at 4,096 bytes before enqueueing.
+The serialized owner validates TLS facts and the handshake against its current
+generation/model. After transitions and periodic wakeups it prunes closed,
+expired or invalid bindings; removal and formation changes close held QUIC
+connections even if an IO task retains a clone. Shutdown also closes queued
+handshake connections that were never registered. The worker's `peer::server`
+dispatcher additionally caps inbound connection tasks at 64 and concurrent TLS
+handshakes at 16, refusing excess arrivals without a permit-wait queue. TLS
+and the first application handshake each have a five-second deadline; the
+first accepted bidi stream must have index zero. Each registered connection
+has at most 16 incoming stream tasks, sharing the owner's 64-exchange budget
+with outbound reliable work. Shutdown/abort closes the endpoint and its
+connections even if another caller retains an endpoint clone. These adapter
+limits are implemented but not yet exposed through worker startup configuration.
+
+Voluntary departure effects belong to the old formation even though the pure
+leave transition returns a replacement standalone model. The owner captures
+only the bounded live notification candidates and their authorized routes
+before that transition, then encodes/submits its `Leave` datagrams with the old
+formation and sender before retiring sessions. It does not queue these effects
+for delivery through the replacement formation or retry them after retirement.
+The dedicated encoding path refuses other message kinds or a leave target
+different from the old sender. Submission is non-blocking best effort: missing
+routes, rejected/oversized datagrams and transport failure increment the bounded
+send-failure diagnostic. Session closure may also discard a queued datagram;
+no receipt or network flush is promised. Survivors must therefore converge via
+announcement dissemination or ordinary SWIM. The internal codec regression
+checks actual CBOR identity after model replacement. The public three-worker
+CLI journey now verifies departure, survivor dead-state convergence, readmission
+with the retained certificate/new assigned ID, and historical leave replay after
+readmission. Deliberately dropped-announcement and interrupted-transition fault
+evidence remain required; successful submission alone does not prove receipt.
+
+Real QUIC tests now exercise this owner path, including post-handshake packets
+and standalone credential verification. The executable peer listener and
+automatic introducer catch-up are connected as described above; handshake registration alone grants no membership
+or introducer readiness. The registry now checks active network blocks against
+QUIC's current transport-observed IP before registration and on each owner
+sweep. Lifted (`Allow`) entries do not block; malformed or oversized active
+network policy fails closed. A real endpoint-rebind test verifies closure after
+migration to a blocked source IP, plus rule lifting and invalid-policy closure.
+Registered packets now enter a bounded owner RPC carrying the IO-owned session
+ID, lifecycle generation, transport class and raw frame. The stream/datagram
+byte cap is checked before enqueueing on the shared 64-entry peer lane. At
+dequeue time the registry rechecks the current source, session lifetime and
+membership binding before the wire decoder constructs a core input; validation
+and the core transition occur in the same owner turn. Unknown/stale sessions
+and malformed packets cannot reuse a captured context to bypass current policy.
+
+The owner correlates at most one reliable session response with that active
+request and returns its encoded bytes to the originating stream adapter.
+An absent response is not an acceptance receipt. The owner now holds the fresh
+standalone formation's join token in its IO shell, separate from the replayable
+core and per-request presented token. For `VerifyCredential`, it rechecks the
+correlated registry session, source, name and fingerprint, performs the bounded
+constant-time token comparison/network checks, and supplies an explicit core
+outcome in the same owner turn. This local check performs no asynchronous IO;
+future asynchronous checks must use the reserved completion mechanism.
+
+Real QUIC tests now cover the core's lock refusal, invalid-token refusal, and
+successful owner-driven insertion/ACK followed by independent validation and
+adoption in the joiner's core. Leave generates a fresh standalone token; a
+test proves the previous token cannot admit into that replacement formation.
+Adoption clears the abandoned token and requires target credential catch-up;
+it cannot retain the previous formation's admission authority.
+
+Admission now upgrades the introducer's session to the inserted member identity
+and removes its provisional expiry. Known-member reconnect ACKs bind against
+the current formation's certificate records. Member-destination effects resolve
+only those live, source-authorized sessions: datagrams use QUIC datagrams with
+no stream fallback; reliable requests use at most 64 in-flight tasks and the
+existing operation-wide deadline. Reliable responses re-enter the owner for
+current-generation/session validation. PullReply effects return on the active
+request stream, not an unrelated connection stream.
+
+Missing routes, send-capacity exhaustion and transport errors increment bounded
+local failure counters; they do not claim delivery or kill the membership owner.
+Core probe/reconciliation timeouts continue to govern recovery. There is no
+additional immediate reconciliation-round cancellation solely because its peer
+departs or its transport fails: its existing ten-second round timer can remain
+pending. The PoC owner starts periodic reconciliation every five seconds, so
+repair can wait for the next cadence after that timeout. The real-wire test
+`departed_reconciliation_round_can_delay_learning_a_readmitted_identity`
+establishes three live original records, holds a pull to the departing peer,
+delivers its authenticated departure, answers survivor probes without gossip,
+and then serves the missing new identity through the next pull. It observes
+the record absent after ten seconds and learned at about fourteen seconds.
+This proves the timing counterexample, not that every historical process
+failure had that cause. The process harness therefore uses a seventeen-second
+readmission observation budget (ten plus five plus two seconds of scheduling
+margin), not a production SLO or a new transport timeout.
+
+Bounded automatic outbound dialing follows the reconnect scheduling contract
+above. Formation changes abort outstanding reliable
+tasks, and registry retirement closes their connections. IO completions share
+the owner's completion processing quota; shutdown remains reserved.
+
+The real-QUIC integration test now reconnects after admission and runs two
+owners through SWIM traffic, reliable reconciliation replies and lock/unlock
+convergence in both directions. The second owner is initialized from the
+validated adopted core in the test, not joined through the production client
+API. Its sustained exchanges now use the production registered-connection
+dispatcher, not test-only receive pumps. Executable listener, dialing and
+introducer catch-up progress is recorded in the
+[formation conformance ledger](tasks/cluster-formation-conformance.md);
+this two-owner fixture alone is not the three-worker process gate.
+The dispatcher uses this owner RPC rather than constructing trusted peer
+contexts itself or relying on periodic cleanup as a per-message gate.
 
 Each QUIC connection is maintained as long as both peers are alive. QUIC's built-in keepalive (configurable via `peer.quicKeepAlive`, default 10s) detects connection loss at the transport layer. The SWIM probe loop operates at a higher layer and independently detects node liveness. The QUIC idle timeout (configurable via `peer.quicIdleTimeout`, default 30s) closes connections that have no traffic and no keepalive.
 
@@ -273,13 +1046,18 @@ none of its own.
 }
 ```
 
-`engines` advertises the workload runtime engines and lifecycle identifiers the node can actually execute, used for workload compatibility checks. A node advertises only engines whose complete security contract it implements. The admitted profile supports `wasm-component` with `orishu.workload/v1`; another engine requires a new architectural decision. See [protocol-workload.md](protocol-workload.md#runtime-engine).
+`engines` advertises the graph profiles, runtime engines and component
+lifecycles the node can actually enforce. The admitted design uses graph
+profile `orishu.workload-graph/v1`, engine `wasm-component`, and lifecycle
+`orishu.component/v1`; another engine requires a new architectural decision.
+See [protocol-workload.md](protocol-workload.md#runtime-engine).
 
 ### EngineCapability
 ```
 {
-  "engine":           <string>,   -- "wasm-component" in the admitted profile
-  "runtimeLifecycle": <string>    -- e.g. "orishu.workload/v1"; opaque compatibility identifier
+  "engine":             <string>,     -- "wasm-component"
+  "componentLifecycles": [<string>],  -- includes "orishu.component/v1"
+  "workloadGraphProfiles": [<string>] -- includes "orishu.workload-graph/v1"
 }
 ```
 
@@ -312,7 +1090,8 @@ prior states would reach different results from the same delta.
 **Membership-owned delta types.** `MembershipUpdate` (`data` is a `NodeRecord`,
 `key` is its node ID), `TombstoneUpdate` (`data` is a membership tombstone,
 `key` is the removed node ID), and `BlocklistUpdate` (`data` is a blocklist
-entry, `key` is its rendered blocklist key). These three converge through the
+entry, `key` is its rendered blocklist key), and `MembershipPolicyUpdate`
+(`data` is the singleton policy, `key` is `membership`). These converge through the
 membership merge rules above.
 
 **Every other delta type is not membership's.** A membership implementation
@@ -321,6 +1100,29 @@ to their owning subsystem without decoding `data`, and must not store any part
 of them in membership state. An unrecognized `deltaType` is relayed the same
 way rather than rejected, so a subsystem can add one without a membership
 change.
+
+### Replicated membership policy (formation PoC)
+
+`MembershipPolicyUpdate` carries the singleton `{ "locked": bool, "version":
+VersionTuple }` under key `membership`. Absence means the initial unlocked
+policy; it is distinct from an explicit versioned unlock. Local peer admission,
+capacity and protocol compatibility remain node-local configuration. An
+authenticated operator command advances the last observed policy version with
+the local actor, refusing counter overflow. Exact replay is idempotent,
+equal-version differing payloads are conflicts, and newer versions win.
+Admission and operator removal consult the replicated lock. Adoption/leave
+discard the previous formation's policy; introduction remains gated by the
+shell until target admission-state catch-up is complete.
+
+The policy uses canonical leaf key `0x04 || UTF-8("membership")`; its value is
+`0x04 || version(epoch, counter, actor) || u8(locked)`, with the existing
+length-prefixed actor encoding. This extension uses membership hash domains
+`orishu.membership.{leaf,bucket,node}/2`. The formation transport must negotiate
+this policy-aware profile and reject older profiles before exchanging digests.
+There is no implicit hash fallback or mixed-profile cluster. Existing entity
+value layouts are unchanged. Policy is included in gossip and bounded
+anti-entropy, never credentials. Lock success means local acceptance, with
+cluster-wide effect after convergence, not a synchronous partition-proof fence.
 
 ### MerkleDigest
 ```
@@ -347,25 +1149,26 @@ written big-endian. Length prefixes are what stop `("ab", "c")` and
 | `0x01` | member record | node ID |
 | `0x02` | membership tombstone | node ID |
 | `0x03` | blocklist entry | rendered blocklist key |
+| `0x04` | membership policy | literal `membership` |
 
 The tag keeps the namespaces disjoint, so a member and a tombstone for the same
 node cannot collide onto one leaf.
 
-**Leaf hash.** `SHA-256("orishu.membership.leaf/1" || u32(len(key)) || key ||
+**Leaf hash.** `SHA-256("orishu.membership.leaf/2" || u32(len(key)) || key ||
 canonical-value-encoding)`.
 
-**Bucket assignment.** `SHA-256("orishu.membership.bucket/1" || key)`, of which
+**Bucket assignment.** `SHA-256("orishu.membership.bucket/2" || key)`, of which
 the top `depth` bits of the first two bytes give the bucket index. Hashing
 rather than taking the key directly spreads sequentially named nodes evenly, so
 one divergent entry lands in one bucket rather than smearing across all of them.
 
 **Bucket hash.**
-`SHA-256("orishu.membership.bucket/1" || u32(count) || leaf hashes in ascending
+`SHA-256("orishu.membership.bucket/2" || u32(count) || leaf hashes in ascending
 leaf-key order)`. Sorting is what makes the result independent of insertion
 history. An empty bucket hashes its zero count and is not skipped.
 
 **Tree.** A complete binary tree over exactly `2^depth` buckets, folded
-pairwise as `SHA-256("orishu.membership.node/1" || left || right)` up to the
+pairwise as `SHA-256("orishu.membership.node/2" || left || right)` up to the
 root. Because the bucket count is fixed by configuration there is no ambiguous
 padding rule.
 
@@ -399,7 +1202,10 @@ either check is refused rather than compared, and produces no reply.
   "nodeVersion":        <string>,
   "workloadId":         <string>,
   "workloadEpoch":      <uint64>,
-  "simulationCodeHash": <bytes>,         -- SHA-256 of the executed WASM artifact
+  "componentGraphHash": <bytes>,         -- digest of admitted instances/channels/plan
+  "componentInstanceId": <string>,
+  "phaseId":            <string>,
+  "componentCodeHash":  <bytes>,         -- digest of the invoked WASM Component
   "partitionId":        <string>,
   "stepRange":          [<uint64>, <uint64>],  -- [from, to] step numbers
   "timestamp":          <string>         -- RFC 3339, diagnostic only
@@ -430,6 +1236,7 @@ Sent over a dedicated bidirectional QUIC stream. The stream is closed after the 
 ```
 JoinReq payload:
 {
+  "attemptId":        <string>,          -- Stable shell correlation across retries; not assigned membership identity
   "joinToken":        <string>,          -- Mandatory MVP join token
   "nodeName":         <string>,          -- Human-readable name; serves as primary identifier until cluster assigns an ID
   "certFingerprint":  <bytes>,           -- SHA-256 of the joining node's TLS certificate
@@ -589,6 +1396,15 @@ Announce payload:
     resurrected record.
   - `Leave` is authoritative only when `targetId == senderId` (self-announcement).
 - A node that detects it has been suspected may refute by broadcasting `Alive` with `incarnation + 1`. The increment is checked: a node whose incarnation is exhausted reports the condition rather than wrapping, because an incarnation of `0` would rank below every stale `Suspect` still in flight and leave the node permanently unable to defend itself.
+- If an authenticated subject's `Ping` or correctly correlated direct `Ack`
+  leaves that subject locally `Suspected`, send one bounded `Announce(Suspect)`
+  datagram directly back to the subject with the held suspicion incarnation.
+  The original notification/gossip may have been lost while its route was
+  unavailable. This reminder neither clears suspicion nor renews its timer;
+  only a newer subject refutation changes the state. Do not generate reminders
+  from unmatched ACKs, indirect third-party reports or terminal `Dead` records.
+  This uses the existing announcement wire contract and adds at most one
+  datagram per validated direct contact, with no new queue or timer.
 - `Leave` may only be announced by the node itself. Any `Leave` where `targetId != senderId` is discarded — otherwise any member would hold a one-datagram eviction primitive.
 - A self-announced `Leave` takes effect as `Dead(incarnation + 1)`, so it outranks the departing node's own latest `Alive` and cannot be undone by a replay of one.
 
@@ -668,12 +1484,15 @@ Cursor:
 
 ### PartitionIntent / PartitionAck
 
-Ownership transfer proposals for simulation space partitions. Sent over a dedicated bidirectional stream. See [partition ownership](./orishu-runtime-design.md#partition-ownership-and-rebalancing) in the runtime design.
+Ownership transfer proposals for a component-instance partition. Different
+components may use different compatible decompositions and placements. Sent
+over a dedicated bidirectional stream. See [partition ownership](./orishu-runtime-design.md#partition-ownership-and-rebalancing).
 
 ```
 PartitionIntent payload:
 {
   "workloadEpoch":    <uint64>,
+  "componentInstanceId": <string>,
   "partitionId":      <string>,
   "currentOwner":     <string>,          -- Node ID of current partition owner
   "proposedOwner":    <string>,          -- Node ID of proposed new owner
@@ -691,6 +1510,7 @@ PartitionIntent payload:
 PartitionAck payload:
 {
   "workloadEpoch":    <uint64>,
+  "componentInstanceId": <string>,
   "partitionId":      <string>,
   "partitionVersion": <uint64>,
   "accepted":         <bool>,
@@ -717,6 +1537,8 @@ Boundary data exchange between partition neighbors. Sent over long-lived bidirec
 HaloDelta payload:
 {
   "workloadEpoch":   <uint64>,
+  "componentInstanceId": <string>,     -- owner of this field/state channel
+  "channelId":       <string>,
   "step":            <uint64>,           -- Step number this halo data is for
   "sourcePartition": <string>,           -- Partition ID that produced this halo data
   "targetPartition": <string>,           -- Partition ID that needs this halo data
@@ -728,11 +1550,43 @@ HaloDelta payload:
 
 **Behavioral rules:**
 
-- The `(workloadEpoch, step, sourcePartition, targetPartition, face)` tuple uniquely identifies a halo exchange.
+- The `(workloadEpoch, componentInstanceId, channelId, step,
+  sourcePartition, targetPartition, face)` tuple uniquely identifies a halo exchange.
 - Both directions of a partition boundary use the same bidirectional stream.
 - If the stream is reset or the connection is lost, the receiver cannot compute the next step for the affected partition. The SWIM failure detector will eventually mark the peer as failed.
 - Halo data must be received for ALL faces before a partition can compute its next step.
 - Workload messages also carry piggybacked gossip in the `MessageEnvelope.gossip` field. If a peer accepted a workload message, it was alive at that instant, making a separate `Ping` unnecessary.
+
+### ComponentChannelData
+
+Reliable transfer of an admitted typed channel when a producer and consumer
+component invocation are placed on different workers.
+
+```
+ComponentChannelData payload:
+{
+  "workloadEpoch":       <uint64>,
+  "step":                <uint64>,
+  "invocationId":        <string>,
+  "producerInstanceId":  <string>,
+  "producerPartitionId": <string>,
+  "consumerInstanceId":  <string>,
+  "consumerPartitionId": <string>,
+  "channelId":           <string>,
+  "schemaId":            <string>,
+  "coverage":            <map>,
+  "chunkIndex":          <uint>,
+  "chunkCount":          <uint>,
+  "data":                <bytes>,
+  "contentHash":         <bytes>
+}
+```
+
+The receiver accepts data only for the exact admitted graph, boundary,
+invocation dependency, channel schema and producer/consumer partitions. Chunks
+are bounded, ordered, digest-verified and complete before the dependent phase
+may run. They are correctness-bearing workload data: never coalesced, skipped
+or treated as observer projections.
 
 ---
 
@@ -745,11 +1599,12 @@ StepVote payload:
 {
   "workloadEpoch": <uint64>,
   "step":          <uint64>,             -- Step number that this node has completed
-  "partitions":    [<string>, ...],      -- Partition IDs this vote covers
-  "stateHashes":   {                     -- Per-partition state hash after completing this step
-    <partitionId>: <bytes>,              --   SHA-256 of the partition state
-    ...
-  }
+  "executions": [{
+    "componentInstanceId": <string>,
+    "partitionId": <string>,
+    "invocations": [<string>, ...],
+    "stateHashes": { <channelId>: <bytes>, ... }
+  }]
 }
 ```
 
@@ -766,13 +1621,20 @@ StepCommit payload:
 **Behavioral rules:**
 
 - A node emits `StepVote` after it has:
-  1. Received all required halo data for step `n` on all owned partitions.
-  2. Computed step `n` on all owned partitions.
-  3. Sent its outgoing halo data for step `n` to all neighbors.
-- `StepCommit` is disseminated after every partition owner for step `n` has emitted a valid `StepVote`. This confirmation is epidemic — each node that has received all votes for step `n` may emit `StepCommit` to its peers.
-- If a partition owner disappears before emitting `StepVote`, the step cannot commit. The cluster retries from the last committed step using the most recent checkpoint or replicated partition state.
-- `stateHashes` enable verification that all nodes agree on the simulation state after a step (consistency check).
-- For speculative execution: if multiple nodes compute the same partition, the first valid `StepVote` for that `(epoch, step, partitionId)` wins. See [protocol-workload.md](./protocol-workload.md) for speculative execution semantics.
+  1. Received every required halo and cross-component channel for its assigned
+     invocations at step `n`.
+  2. Completed and validated all assigned plan nodes/component partitions.
+  3. Sent every required outgoing halo and component channel to admitted
+     consumers.
+- `StepCommit` is disseminated only after every required invocation/partition
+  in the admitted plan is covered by compatible votes and the complete
+  candidate validates. This confirmation is epidemic.
+- If an owner disappears before voting, the step cannot commit. The cluster
+  retries from the last committed boundary using complete component/runtime
+  checkpoint state or replicated partition state.
+- `stateHashes` enable verification of each component-owned committed channel.
+- For speculative execution, the first valid result for an exact `(epoch,
+  step, invocationId, componentInstanceId, partitionId)` wins.
 
 ---
 
@@ -784,7 +1646,8 @@ Checkpoint and catch-up state transfer. Sent over a dedicated bidirectional stre
 CheckpointReq payload:
 {
   "workloadEpoch": <uint64>,
-  "partitionId":   <string>,
+  "componentInstanceId": <string>,
+  "componentPartitionId": <string>,
   "checkpointId":  <string | null>,      -- Specific checkpoint to fetch (null = latest)
   "step":          <uint64 | null>       -- Specific step boundary (null = latest available)
 }
@@ -794,13 +1657,15 @@ CheckpointReq payload:
 CheckpointReply payload:
 {
   "workloadEpoch":   <uint64>,
-  "partitionId":     <string>,
+  "componentInstanceId": <string>,
+  "componentPartitionId": <string>,
   "checkpointId":    <string>,
   "step":            <uint64>,           -- Step number at which this checkpoint was taken
   "simulationTime":  <float>,
   "partitionMap":    <map>,              -- Partition ownership at checkpoint time
-  "data":            <bytes>,            -- Serialized checkpoint payload
-  "contentHash":     <bytes>,            -- SHA-256 of the data field
+  "stateSchema":     <string>,
+  "data":            <bytes>,            -- one component-partition checkpoint part
+  "contentHash":     <bytes>,
   "provenance":      [<StepProvenance>, ...]  -- Provenance chain up to this checkpoint
 }
 ```
@@ -809,8 +1674,10 @@ CheckpointReply payload:
 
 - Used by late-joining nodes to catch up with the current simulation state before they can own future steps.
 - Used during partition reassignment when a new owner needs the current state.
-- The stream supports flow control — large checkpoints may span multiple QUIC dataframes.
-- The receiver must verify `contentHash` against the received `data` before accepting the checkpoint.
+- The stream supports flow control — a large component part may span multiple QUIC dataframes.
+- The receiver verifies identity/schema/content before staging the part. A run
+  restores or reassigns only after every required component and runtime part at
+  the boundary is present; no individual reply is a complete checkpoint.
 - The stream is closed after the reply.
 
 > **CheckpointReq/Reply vs FetchChunk.** `CheckpointReq`/`CheckpointReply` carries *live, in-progress* partition state during an active run (late-joiner catch-up, reassignment). Retrieval of a **committed, immutable artifact** (checkpoint or result) from storage uses `FetchChunk` (below). Committed-artifact bytes are never moved over a swarm/torrent transport — see [ADR 0015](./adr/0015-use-quic-native-artifact-transfer.md).

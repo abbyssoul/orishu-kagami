@@ -3,12 +3,14 @@
 Status: **accepted**
 Date: **2026-09-04**
 
+Refined by: [ADR 0024](0024-orishu-orchestrates-a-workload-component-graph.md)
+
 ## Context
 
-An Orishu workload is not merely configuration or input data. Its package
-contains client-supplied executable physics that every eligible worker loads to
-advance its assigned partitions. The same artifact must behave consistently
-across machines while being unable to corrupt the worker's cluster membership,
+An Orishu workload is not merely configuration or input data. Its closure
+contains client-supplied executable physics whose assigned component instances
+workers load to advance their partitions. The same component artifact must
+behave consistently across machines while being unable to corrupt membership,
 networking, storage, or host process.
 
 id Tech arrived at the same boundary for distributable game logic. Quake III
@@ -58,11 +60,13 @@ validates the manifest, digest, signature policy, engine, lifecycle identifier,
 imports, and declared limits before instantiation. A load failure cannot execute
 package initialization or partially change the accepted workload.
 
-The first and only admitted execution format is a content-addressed WebAssembly
-Component using engine `wasm-component`, lifecycle `orishu.workload/v1`, and WIT
-world `orishu:workload/lifecycle@1`. All participating workers execute the same
-pinned component bytes and compatible lifecycle. Architecture-specific JIT or
-AOT caches are derived local artifacts and never workload identity.
+The first and only admitted execution format is content-addressed WebAssembly
+Components. ADR 0024 refines the original singular lifecycle into graph profile
+`orishu.workload-graph/v1`, engine `wasm-component`, component lifecycle
+`orishu.component/v1`, and WIT world `orishu:simulation/component@1`. All
+participating workers validate the same immutable graph, pinned component bytes
+and compatible lifecycles. Architecture-specific JIT/AOT caches are derived
+local artifacts and never workload identity.
 
 ### The component world is the capability boundary
 
@@ -80,8 +84,9 @@ validation succeeds.
 
 ### The runtime owns infrastructure and time
 
-Guest code supplies the state transition for one partition and simulation
-boundary. Orishu owns the outer loop, partition assignment, halo exchange,
+Guest components supply their declared transformations for component
+partitions and simulation boundaries. Orishu owns the outer loop, component
+placement, partition assignment, host-mediated channels, halo exchange,
 networking, barriers, committed time, cancellation, checkpoint/result storage,
 and provenance. The guest neither joins the cluster nor drives its own event
 loop. All durable effects leave the sandbox as validated return values or
@@ -108,7 +113,7 @@ determinism, and lifecycle semantics. It must not weaken existing cluster
 policy. Defense-in-depth process isolation for the WebAssembly runtime remains
 permitted without changing the guest contract.
 
-Kagami local preview should execute the same pinned component and lifecycle as
+Kagami local preview should execute the same pinned graph and lifecycles as
 Orishu where the supported profile allows it. Shared native numerical crates
 may be source used to build both hosts and components, but a native library is
 not the artifact submitted to a cluster and local preview cannot silently grant

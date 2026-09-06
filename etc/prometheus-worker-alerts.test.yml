@@ -1,0 +1,113 @@
+rule_files:
+  - prometheus-worker-alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: healthy-idle-transient-down-unready-and-missing-are-distinct
+    interval: 1m
+    input_series:
+      - series: up{job="orishu-worker",instance="healthy"}
+        values: 1x5
+      - series: orishu_worker_ready{job="orishu-worker",instance="healthy"}
+        values: 1x5
+      - series: up{job="orishu-worker",instance="transient"}
+        values: 1x5
+      - series: orishu_worker_ready{job="orishu-worker",instance="transient"}
+        values: 0 1x4
+      - series: up{job="orishu-worker",instance="down"}
+        values: 0x5
+      - series: orishu_worker_ready{job="orishu-worker",instance="down"}
+        values: 0x5
+      - series: up{job="orishu-worker",instance="unready"}
+        values: 1x5
+      - series: orishu_worker_ready{job="orishu-worker",instance="unready"}
+        values: 0x5
+      - series: up{job="orishu-worker",instance="missing"}
+        values: 1x5
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: OrishuWorkerScrapeUnavailable
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: OrishuWorkerSustainedUnready
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: OrishuWorkerReadinessSeriesMissing
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: OrishuWorkerScrapeUnavailable
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: down, severity: warning}
+            exp_annotations: {summary: Worker diagnostics cannot be scraped}
+      - eval_time: 2m
+        alertname: OrishuWorkerSustainedUnready
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: unready, severity: warning}
+            exp_annotations: {summary: Reachable worker reports sustained local unreadiness}
+      - eval_time: 2m
+        alertname: OrishuWorkerReadinessSeriesMissing
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: missing, severity: warning}
+            exp_annotations: {summary: Successful worker scrape lacks the readiness series}
+  - name: recovery-clears-each-alert
+    interval: 1m
+    input_series:
+      - series: up{job="orishu-worker",instance="down"}
+        values: 0x1 1x4
+      - series: orishu_worker_ready{job="orishu-worker",instance="down"}
+        values: 1x6
+      - series: up{job="orishu-worker",instance="unready"}
+        values: 1x6
+      - series: orishu_worker_ready{job="orishu-worker",instance="unready"}
+        values: 0x2 1x3
+      - series: up{job="orishu-worker",instance="missing"}
+        values: 1x6
+      - series: orishu_worker_ready{job="orishu-worker",instance="missing"}
+        values: _ _ _ 1x3
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: OrishuWorkerScrapeUnavailable
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: down, severity: warning}
+            exp_annotations: {summary: Worker diagnostics cannot be scraped}
+      - eval_time: 2m
+        alertname: OrishuWorkerSustainedUnready
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: unready, severity: warning}
+            exp_annotations: {summary: Reachable worker reports sustained local unreadiness}
+      - eval_time: 2m
+        alertname: OrishuWorkerReadinessSeriesMissing
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: missing, severity: warning}
+            exp_annotations: {summary: Successful worker scrape lacks the readiness series}
+      - eval_time: 3m
+        alertname: OrishuWorkerScrapeUnavailable
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: OrishuWorkerSustainedUnready
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: OrishuWorkerReadinessSeriesMissing
+        exp_alerts: []
+  - name: stale-is-absent-not-zero-and-deleted-target-needs-inventory
+    interval: 1m
+    input_series:
+      - series: up{job="orishu-worker",instance="stale-ready"}
+        values: 1x6
+      - series: orishu_worker_ready{job="orishu-worker",instance="stale-ready"}
+        values: 1x1 stale
+      - series: up{job="orishu-worker",instance="deleted-target"}
+        values: 1x1 stale
+      - series: orishu_worker_ready{job="orishu-worker",instance="deleted-target"}
+        values: 1x1 stale
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: OrishuWorkerScrapeUnavailable
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: OrishuWorkerSustainedUnready
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: OrishuWorkerReadinessSeriesMissing
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: stale-ready, severity: warning}
+            exp_annotations: {summary: Successful worker scrape lacks the readiness series}

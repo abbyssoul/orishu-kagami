@@ -1,0 +1,14 @@
+{
+  "command": "setComponentProperty",
+  "object": 0,
+  "component": {
+    "plugin": "kagami.mass_sources",
+    "name": "inertial_mass"
+  },
+  "property": "mass",
+  "value": {
+    "kind": "quantity",
+    "expression": "2.7",
+    "unit": "g"
+  }
+}

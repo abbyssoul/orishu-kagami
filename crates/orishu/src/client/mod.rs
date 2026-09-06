@@ -15,8 +15,8 @@ use crate::model::{
     blocklist::{self, BlocklistAddRequest, BlocklistAddResult},
     checkpoint::{self, CheckpointId},
     cluster::{
-        self, ClusterEvent, EventFilter, JoinIntent, JoinToken, LeaveResult, LockIntent, LogFilter,
-        LogLine, MembersSelector, WorkloadCompatibilityReport,
+        self, ClusterEvent, EventFilter, JoinToken, LockIntent, LogFilter, LogLine,
+        MembersSelector, WorkloadCompatibilityReport,
     },
     node::{self, DiagnosticResult, InspectSource, NodeId, RemoveMode},
     result::{self, ResultId},
@@ -98,7 +98,7 @@ impl std::error::Error for ClientError {}
 pub trait ClusterApi {
     /// Get cluster info. Return information about cluster in aggregate.
     /// For the list of individual member, see [`MembershipApi`]
-    async fn summary(&self) -> Result<cluster::Manifest, ClientError>;
+    async fn summary(&self) -> Result<cluster::Summary, ClientError>;
 
     /// GET a list of events happening in the cluster.
     async fn events(&self, filter: &EventFilter) -> Result<Vec<ClusterEvent>, ClientError>;
@@ -207,30 +207,48 @@ pub trait WorkloadApi {
 /// CRUD APIs to mange cluster membership.
 #[async_trait]
 pub trait MembershipApi {
-    /// Lock cluster membership. No new nodes will be accepted by participants.
-    async fn lock(&self) -> Result<LockIntent, ClientError>;
+    /// Set the formation lock with an explicit retry identity and precondition.
+    /// The receipt is local acceptance, not a synchronous cluster-wide fence.
+    async fn set_lock(
+        &self,
+        request: &cluster::LockRequest,
+    ) -> Result<cluster::LockReceipt, ClientError>;
 
     /// Get membership lock state.
     async fn is_lock(&self) -> Result<LockIntent, ClientError>;
 
-    /// Unlock the cluster membership to allow admission of new members.
-    async fn unlock(&self) -> Result<(), ClientError>;
+    /// Submit an identified join to the directly addressed worker. The returned
+    /// operation is processing state, not a successful admission assertion.
+    async fn join(&self, req: &cluster::JoinRequest)
+    -> Result<cluster::JoinOperation, ClientError>;
+    /// Poll retained local operation state using the same worker and credential.
+    async fn join_status(
+        &self,
+        id: &cluster::OperationId,
+    ) -> Result<cluster::JoinOperation, ClientError>;
 
-    /// Instruct a recipient of this message to join the cluster
-    async fn join(&self, req: &JoinIntent) -> Result<cluster::JoinRequestAccepted, ClientError>;
+    /// Query the original issuer's retained evidence; never authorizes admission.
+    async fn inspect_admission(
+        &self,
+        request: &cluster::AdmissionInspectionRequest,
+    ) -> Result<cluster::AdmissionInspection, ClientError>;
 
     /// Command the local worker to leave its current cluster and return to standalone.
-    async fn leave(&self) -> Result<LeaveResult, ClientError>;
+    async fn leave(
+        &self,
+        request: &cluster::LeaveRequest,
+    ) -> Result<cluster::LeaveReceipt, ClientError>;
 
-    /// List nodes in the cluster
-    async fn list(&self, filter: &MembersSelector) -> Result<Vec<node::Manifest>, ClientError>;
+    /// Collect bounded local-view pages, not a globally consistent snapshot.
+    async fn list(&self, filter: &MembersSelector) -> Result<Vec<node::Inspection>, ClientError>;
 
-    /// Get information about a particular node, optionally specifying the data source.
+    /// Inspect a formation-assigned identity. The PoC supports indirect reads;
+    /// unsupported source modes return an explicit error.
     async fn get(
         &self,
         id: &NodeId,
         source: Option<InspectSource>,
-    ) -> Result<node::Manifest, ClientError>;
+    ) -> Result<node::Inspection, ClientError>;
 
     /// Kick-out a node from the cluster and create a tombstone
     async fn remove(&self, id: &NodeId, mode: &RemoveMode) -> Result<(), ClientError>;
@@ -256,7 +274,8 @@ pub trait ClientApi {
 
     // ── Cluster resource ──────────────────────────────────────────────────────
 
-    async fn get_join_token(&self) -> Result<JoinToken, ClientError>;
+    /// Retrieve privileged, formation/certificate-bound bootstrap material.
+    async fn get_join_token(&self) -> Result<cluster::JoinMaterial, ClientError>;
     async fn create_join_token(&self) -> Result<JoinToken, ClientError>;
 
     // ── Node resource ─────────────────────────────────────────────────────────

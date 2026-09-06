@@ -6,13 +6,20 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to check out for a release gate.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ !inputs.ref }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,18 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+      - uses: ./.github/actions/setup
         with:
-          toolchain: "1.97"
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Linux window-system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwayland-dev libxkbcommon-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+          kagami: "true"
       - run: make fmt-check
       - run: make docs-check
       - run: make lint
@@ -48,18 +48,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+      - uses: ./.github/actions/setup
         with:
-          toolchain: "1.97"
-      - uses: Swatinem/rust-cache@v2
-      - name: Install Linux window-system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwayland-dev libxkbcommon-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
-            mesa-vulkan-drivers libgl1-mesa-dri libegl1 xvfb
+          kagami: "true"
+          kagami-runtime: "true"
       - run: make build
       - run: make test
       - run: make test-docs
@@ -79,6 +73,22 @@ jobs:
           done
           systemd-analyze verify --root="$root" /etc/systemd/system/orishu-worker.service
 
+  packaging-contract:
+    name: Release packaging contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
+      - name: Check release version derivation
+        shell: bash
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          python3 scripts/release/check-version.py "v$version"
+
   kagami-platforms:
     name: Kagami (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -90,10 +100,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
-        with:
-          toolchain: "1.97"
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup
       - name: Build and test Kagami
         run: cargo test --locked -p kagami -p kagami-renderer --all-targets

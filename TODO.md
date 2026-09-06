@@ -66,7 +66,14 @@ Ref: https://fabiensanglard.net/doom3/
 **Done** ADR written and accepted. See [ADR 0002](./docs/adr/0002-initial-value-problem-scope.md)
 
 
-[~] Transfer field-cad's ADR about document model of the kagami.
+[X] Transfer field-cad's ADR about document model of the kagami.
+
+**Done** Field CAD's document mechanics (atomic validated commit, checkpoint
+undo, interactive-edit bracketing, the versioned document and its durable write
+protocol) are adopted, and the decisions of its that do *not* survive this
+repository's ADRs are recorded alongside them, in
+[ADR 0019](./docs/adr/0019-kagami-experiment-document-model.md). Implementation
+is the [Kagami capability programme](./docs/tasks/kagami/README.md).
 
 
 [X] Transfer field-cad's ADR about MCP/server and UI equivalence.
@@ -221,3 +228,122 @@ there are no viewer and studio, but there are clients (orishuctl, orishu-monitor
 
 
 Let me know if I haven't cover anything else and lets update docs/capture this info/fix issues.
+
+[] Objective: transfer relevant functionality from existing PoC: field-cad to build a new version of the Field-CAD called kagami in this monorepo.
+Note the task is not to simply copy-paste code. This monorepo has a number of ARDs that you must check first that might be different from PoC decisions made while prototyping field-cad.
+
+In particular, this repo already transferred variables package (which was initially prototyped but not used in field-cad). Field-cad is using fieldcad-expressions crate which is a PoC solving the same problem: a CAD user expects to be able to use math expression when defining properties of the objects they work with. For example to enter: 'position.x = 13/ 4 + 1'. Expressions crate solved that well but the implementation needed cleanup. 
+Do use new implementation in this repo - crates/orishu-variables - as a generic variables system with namespace etc. It allows plugins, catalog templates etc to define variables which users can use through out UI.
+For example, a gravity system plugin will export a global const gravity const (G) which user will be able to use through out the app.
+Note also, that design objective for kagami to be a user facing UI to craft/view/modify an experiment. Maybe even preview results using local runtime. But for details experiments, to submit the simulation job the orishu cluster.
+
+Similarly, we already transferred the catalog but changed the ARD. Catalog instantiated object are not directly linked to the instance, but only indirectly via variables system. 
+
+Note also that not all of the implemented field-cad user stories have been captured in this repo ./docs/user-stories/kagami So some you'll need to infer from the implementation of field-cad.
+Start with defining a stand-alone crate to be used by kagami as a document model (in the TEA model+actions).
+Then define a document server - as a sole mechanism to create / modify scene document - either from user UI actions or via MCP. (keep in mind MCP - UI equivalence; which is also implemented in field-cad) 
+
+Create a plan with tasks breakdown first. I anticipate the work will take a few sessions thus keeping plan persistent as a collection of task an agent can take on is important.
+place it under ./docs/tasks/kagami and link to existing tasks, adrs, [roadmap](./docs/roadmap/README.md) where it makes sense.
+
+Field-CAD source code: ../field-cad
+You are free to explore it.
+
+Do adhere to the TEA design principles and SANS-IO library design and coding guidelines as outlined in @docs/Coding style.md
+Note that another agent is actively working in this repo on the orishu-worker PoC. Your work is unlikely to intersect but its something to be mindful of if using workspace scoped cargo commands.
+
+**Promoted** to the [Kagami capability programme](./docs/tasks/kagami/README.md):
+thirteen ordered, independently assignable tasks (K1–K13) covering the sans-IO
+experiment model crate, the document server, persistence, catalog
+instantiation, app adoption, and the missing user stories. The decisions —
+including where Field CAD's prototype is deliberately superseded — are recorded
+in [ADR 0019](./docs/adr/0019-kagami-experiment-document-model.md).
+
+
+[x] User stories for Kagami. Promoted to the
+[Kagami stories](./docs/user-stories/kagami/README.md), ADRs
+[0020](./docs/adr/0020-compose-object-behaviour-through-plugin-components.md)–[0022](./docs/adr/0022-persist-default-view-outside-experiment-intent.md),
+and K7–K13 in the [Kagami capability programme](./docs/tasks/kagami/README.md).
+
+Original request retained for provenance:
+Is it clear from the body of work to recreate field-cad capabilities in this repo as Kagami that:
+- a user can creates simulated objects/entries by composition. Component are contributed by kagami plugins.
+Dynamics contributes position, velocity, acceleration (impulse/forces), while gravity plugin contributes gravity field, gravity coupling charge - gravitational mass etc.
+- A view dialog allows user to select switch Orthographic/Perspective projection mode, selectable from the view control.
+- field-cad essentially has two main classes of entities: modeled objects (particles and fields) and probs/sensors. particles moves, fields evolve, while probs/sensors don't change the simulation but record or visualize value (such as fields using flow lines or vectors).
+- Probs can be attached to particles and camera can follow objects as well.
+- sensors values can be queries via MCP to make it possible for agent to 'sense' the scene simulated.
+- we have added a type of simulated entity - Particle emitter. Its entity like any other, if dynamics attached to it - it will move dynamically. If its coupled to a field it will obey field flows. It can also spawn other object from the catalog (multiple types with a preset frequency and capacity).
+- Will we include ability to see particle's trails - recorded history of positions that makes for an interactive visualization? 
+
+etc.
+
+Do we have corresponding user stories in docs/user-stories/kagami ?
+
+Does it change the tasks or the plan of moving field-cad capabilities over?
+
+
+--- 
+Composition of objects from plugin contributed components (although in practice it will be instantiation of templates) - is the core of the design that touches how orishu simulates objects behavior as well as how kagami 'edits' experiments. We need to capture that in key docs.
+
+Perspective/Orthographic projection toggle is client side only, but it is preserved in the saved files as to not to confuse the user. We do need a user story to write it as a feature that something user can/able to do in the app.
+
+Simulated objects / probs - again, core part of the design. Needs a clear user story.
+Same: attachment of prob to object and camera following an object - is a user story.
+
+Do clarify that reading sensor values via MCP is a user story. It is a feature that an agent can use to 'sense' the scene simulated.
+
+Particle emitters is where design shines: catalog and object creation by compositions combined. It is a valuable feature that proved its worth in field-cad and we must not lose it. It is a user story.
+
+Particle trails is a visualization feature that is nice to have but not essential. It was fiddly to add to the field-cad and we should not lose it. It is a user story.
+
+Field vectors and flow lines - essential for visualizing fields. It is a user story.
+
+
+I guess if authoring and viewport behaviors are currently left in the follow-up, we at least can close some of the gaps as to not loose this information.
+
+undo and redo refusal while a simulation runs - this requires a bit more consideration. Lets say for now that when a simulation is submitted to run - it's a new mode - observation (replay) where no experiment modification is accepted. If a user wants to modify initial experiment - it is allowed, but will in effect switch a user from 'watching results unfold' to the initial condition editing. This should be very clear from UI - which mode the user is in. So from that perspective - 'refusal to undo' is a UI feature "no undo button while simulation is playing; stop first - which will take you to the initial scene, then undo".
+Important to clarify this nuance in our design docs.
+
+I overall agree with your recommended domain clarification with the above comments.
+
+I totally agree that its time to clarify dynamics and gravity. This decision already been made in field-cad PoC and I guess its worth repeating here.
+Just as you have proposed: position and velocity are indeed intrinsic components of an particle (entity ESC modeled by kagami). A user need to add 'dynamics' component to have inertial mass, impulse and forces accumulating; Impulse drives object's velocity and consequently position;
+Adding field integration component (electrostatic, not just gravity) - provides updates to (drives) entity forces (and thus whole dynamics). So thus the system composes!
+
+You are spot on with 'Particle emitters are a major addition'. That's why I mentioned it. Do update the design as you proposed to include it. This means we do need to embed emmitable definitions into workload and the whole instantiation machinery is to be shared with orishu runtime.
+
+Please update the stories: add new/amend existing to capture the above. And update the tasks accordingly.
+
+And do Update the plan accordingly.
+---
+
+answers:
+1. We will return to it later.
+2. Agreed with your recommendation. remove persisted motion authority. An object without Dynamics is kinematic/static during a run; an object with Dynamics is integrated.
+3. Agreed with recommended resolution.
+4. That's a major point of entire app and indeed must be clearly documented.
+Fields are - plugin owned state for the domain. An experiment author defines a domain (like 1x2x1 box) and choses fields that will be modeled in this 'box': electro-magnetic, gravitational or something else contributed by custom plugin. An extended example is hydrodynamic model - where 'field' is a flow of real medium. Key property of fields - they are defined for each point in the domain. Thus sensors - prob the values. 
+Note that plugins contribute a computational model, how fields are computed. Key example is Coulomb (electrostatic) and Maxwell/Yee (electrodynamic) - do model the same 'electromagnetic' field, coupled using the same 'property' on objects - charge. But they compute that fields differently and can't be used together. The same for gravity: we aim to ship two models of gravity: classical and GEM (Gravitoelectromagnetism).
+Thus, plugin bundles more then just a field definition, it also bundles update method expressed as code/kernel.
+
+5. Indeed, the proposed mode is how field-cad implements it.
+Related inconsistency is noted. Think about this way. orishu produces a new snapshot of the whole experimental setup: positions of all objects, forces on them etc. It also produces field values. In case of maxwell solver or GEM - its a value in each point of the domain. A simple client will receive entire field snapshot. 
+It is an optimization to subscribe to only receive update in a region where sensors are. 
+Yes - a user cap specify preference etc. 
+
+Totally agree that real invariant should be that observers cannot affect scientific state or block simulation commit. Need to write it down.
+
+6. Suggestion accepted.
+7. Good point - M3 is the right place for field visualization feature.
+8. This uncovers an interesting gap indeed. Lets consider two scenarios form user's perspective:
+ - As a user I open a previously authored file - my new experiment. I move camera, change perspective etc. If I close the app and re-open it - I expect my view to show exactly where I left: perspective and view and all. SO that tells us that view revisions do mark doc dirty.
+ - A user opening computed result - they see initial experiment and start 'playback'. Things fly around, user can move camera etc. There is no changes to the original stream - if another user opens it - they will start from the same initial position where it was. That's because in playback mode - a client is not editing anything (that includes the view). Its viewing a server owned data stream from different angles. 
+9. Agreed.
+
+Please update planning inconsistencies that can be corrected directly and then lets try to settle above decisions with answers provided, except for #1. We should revisit #1 after your update.
+
+---
+
+You've been working bringing field-cad, the PoC part of the experiment authoring UI into this repo as kagami. This is not a simple copy-paste, because orushi made a few decisions differently (or closely) learning from PoCs.
+In the previous session you've create a list of task here docs/tasks/kagami, which had been refined since it was originally written. Please pick from K1/K3 follow-up 

@@ -40,6 +40,14 @@ sandboxed WebAssembly workload-component contract. Kagami manages and consumes
 finished plugins; it is not a source-code editor or compiler. See
 [Simulation plugins](docs/simulation-plugins.md).
 
+Researchers author a bounded domain, select field families and one
+computational model per family, and compose modeled objects from
+plugin-contributed components. Dynamics opts an object into integration;
+field-coupling components contribute forces. Particle emitters reuse the same
+composition by spawning self-contained authored blueprints. Probes, field
+vectors, flow lines, trails, and MCP sensor reads observe runs without entering
+or blocking scientific state transitions.
+
 Field CAD was the original proof of concept for the authoring, simulation, and
 visualization workflow. It is not a separate product in this repository. Proven
 ideas and implementations from Field CAD are being rebuilt behind Orishu's

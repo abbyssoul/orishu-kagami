@@ -41,10 +41,25 @@ application crate.
   interface. It is the seam used by every operator or visualization client.
 - `crates/kagami-renderer` hides Kagami's GPU pipeline behind Iced's shader-program
   interface. It renders presentation state and must not own simulation state.
+- `crates/kagami-document` owns the authoritative experiment model: objects
+  composed from plugin-contributed components, the closed set of authoring
+  commands, the validated transition, and edit history. It is sans-IO and has
+  no UI, transport, or runtime dependency. What the *installed* schemas can
+  govern is a separate projection over that model, not part of it, so an
+  experiment holding a component whose plugin is absent stays readable and
+  editable elsewhere.
+- `crates/kagami-session` owns the document server: the current revision,
+  guarded and idempotent command envelopes, undo/redo, change events, which
+  revision is persisted and where, and the read projections adapters consume.
+  It is the sole mechanism by which an experiment is created or modified; UI
+  and MCP are adapters over it, converting through the explicit versioned
+  representation each crate publishes rather than through its internal types.
 
-The prototype scene tree currently lives in `apps/kagami` because it is demo UI
-state, not the authoritative experiment model. Extracting it as a library would
-create a shallow module and prematurely bless the wrong model.
+The prototype scene tree still lives in `apps/kagami` because it is demo UI
+state, not the authoritative experiment model. It is replaced by
+`crates/kagami-document` and the document server as the
+[Kagami capability programme](./tasks/kagami/README.md) lands; until then, do not
+treat it as domain state.
 
 ## Client-server from outside, peer-to-peer inside
 
@@ -124,6 +139,12 @@ coordination, workload artifacts, checkpoints, and other correctness-bearing
 flows require reliable, identified, validated transfer; omitting one cannot be
 repaired merely by receiving a newer message.
 
+A committed observation logically describes the complete requested experiment
+state, including selected fields over the authored domain. A simple consumer
+may receive a complete field snapshot. Region, channel, and level-of-detail
+subscriptions are bounded delivery optimizations; their queues and sampling
+work are isolated so no observer can affect scientific state or block commit.
+
 Kagami may interpolate or extrapolate between authoritative observations for a
 smooth display, but that result is labelled presentation-only. It cannot be
 used as a scientific result, checkpoint, halo value, or simulation input, and
@@ -149,12 +170,21 @@ authoring schemas                    |                 pinned closure
 workload component                   +-------------> Orishu cluster
 ```
 
-A simulation plugin combines declarative authoring schemas with a pinned
-sandboxed workload component. Schemas describe fields, parameters, dimensions,
+A simulation plugin combines declarative authoring schemas with digest-pinned
+sandboxed workload code. Schemas describe fields, parameters, dimensions,
 constraints, initial conditions, and observations; they allow Kagami to expose
 generic, validated authoring controls without loading arbitrary extension code
-into its process. The component implements the executable state transition
+into its process. That code implements the executable state transition
 through the workload lifecycle described below.
+
+Fields are plugin-owned domain state: conceptually defined at every point in
+the authored domain, though their numerical representation is model-specific.
+An experiment selects one computational model per field family. Coulomb and
+Maxwell/Yee are mutually exclusive electromagnetic alternatives sharing stable
+charge coupling; classical gravity and GEM are analogous gravitational
+alternatives. Hydrodynamics may model a real medium and its flow as field
+state. Each plugin bundles both the authoring vocabulary and executable update
+method; see [ADR 0023](./adr/0023-fields-are-plugin-modelled-domain-state.md).
 
 The distinction from the object catalog is strict. A catalog template is
 reusable authored data and never selects executable behaviour. A simulation
@@ -162,45 +192,62 @@ plugin explicitly adds physical-model vocabulary and executable physics.
 Built-in gravity and electrodynamics support must use the same public contract
 as third-party plugins. See [Simulation plugins](./simulation-plugins.md).
 
-### Workload components are sandboxed programs
+Objects compose those schemas rather than selecting a species implementation.
+Pose and velocity are intrinsic kinematic state. A dynamics component owns
+inertial integration; without it an object remains kinematic/static during a
+run and no separate persisted motion authority exists. Gravity, electrostatic, and other coupling
+components contribute typed forces at a committed boundary. The lifecycle
+combines contributions deterministically and integrates each object once; see
+[ADR 0020](./adr/0020-compose-object-behaviour-through-plugin-components.md).
+
+Particle emission uses the same composition. An emitter is an ordinary object
+whose component names catalog templates during authoring. The authoring command
+atomically persists their materialized spawn blueprints; compilation revalidates
+and copies those blueprints into the workload closure, and runtime spawns
+are run state. Orishu never reads the authoring catalog; see
+[ADR 0021](./adr/0021-capture-particle-emitter-recipes-in-workloads.md).
+
+### Orishu orchestrates sandboxed workload components
 
 Clients can submit new simulation logic, not just new parameters. Orishu treats
-that logic as an untrusted guest program: a pinned WebAssembly Component that
-implements the versioned workload lifecycle. This is the modern form of the VM
+that logic as a graph of untrusted, digest-pinned WebAssembly Component
+instances behind a versioned lifecycle. This is the modern form of the VM
 boundary used by id Tech for distributable game code—portable program bytes on
 one side, engine-owned scheduling and a narrow system-call surface on the
 other.
 
 ```text
-content-addressed workload component
-                |
-       validate digest, policy,
-       lifecycle, imports, limits
+immutable workload manifest
+  component instances + typed channels + deterministic step plan
                 |
                 v
-  +--------- capability sandbox ---------+
-  | wl_init / load / step / checkpoint   |
-  | guest memory + bounded computation   |
-  +----------------+---------------------+
-                   | typed results / allowed host calls
-                   v
-       Orishu worker runtime authority
-       partitions | halos | barriers | storage | network
+       Orishu phase coordinator
+     /              |                \
+field-model guest  coupling guest  Dynamics guest
+     \              |                /
+      host-mediated candidate state/contributions
+                |
+                v
+ validate complete candidate -> distributed commit
 ```
 
-The worker owns the outer time loop, cluster membership, networking, partition
-state, committed simulation boundaries, storage, and provenance. The workload
-can see only values supplied through `orishu:workload/lifecycle@1`; it receives
+The worker owns the outer time loop, cluster membership, networking, component
+placement, committed simulation boundaries, storage, and provenance. Each guest
+can see only values supplied through `orishu:simulation/component@1`; it receives
 no ambient filesystem, network, clock, randomness, process, or threading
-capability. Its memory, execution, host calls, and outputs are bounded and
-validated. A failed guest step cannot become committed state.
+capability. Guests cannot call one another; Orishu mediates bulk typed channels.
+Memory, execution, host calls, and outputs are bounded and validated. A failed
+required phase rejects the complete candidate boundary.
 
-The portable component digest identifies executed physics across heterogeneous
-nodes. A local JIT/AOT cache is disposable implementation detail. Native shared
+The workload graph and portable component digests identify executed physics
+across heterogeneous nodes. Orishu may distribute independently partitionable
+components while preserving the admitted dependencies and reduction order. A
+local JIT/AOT cache is disposable implementation detail. Native shared
 libraries are not a workload format, and any future runtime engine requires a
 new security decision rather than claiming that the ABI alone makes it
 equivalent. See
 [ADR 0009](./adr/0009-execute-workloads-as-sandboxed-portable-programs.md) and
+[ADR 0024](./adr/0024-orishu-orchestrates-a-workload-component-graph.md), plus
 the [workload contract](./protocol-workload.md).
 
 Logically, a workload is the immutable root manifest plus the complete closure
@@ -289,6 +336,15 @@ decision before it is implemented. See
 [ADR 0012](./adr/0012-start-with-file-sharing-and-preserve-collaborative-authoring.md)
 and [Implement time-addressable run playback](./tasks/implement-time-addressable-run-playback.md).
 
+A saved file may also carry a separately versioned client-owned default view,
+including projection and camera pose. Authoring view edits advance that view
+revision and dirty the file, but are not part of the experiment revision, undo,
+or workload. Observation/replay view edits are ephemeral. Within a window, Kagami switches
+explicitly between Authoring and Observation/replay; returning to initial
+conditions stops a local preview or detaches from a remote run, but never
+silently stops remote execution. See
+[ADR 0022](./adr/0022-persist-default-view-outside-experiment-intent.md).
+
 ### Variables and expressions cross the workload boundary
 
 Kagami treats expression-capable numeric properties and named variables as
@@ -318,7 +374,7 @@ variable definitions + property expressions + property schemas
                          /           \
                   accepted         rejected
                      |
-       frozen canonical values -> workload component
+       frozen canonical values -> component-instance graph
 ```
 
 The variables and expressions subsystem is a shared pure-domain library. It

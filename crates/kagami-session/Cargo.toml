@@ -1,0 +1,39 @@
+[package]
+name = "kagami-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kagami's document server: the sole mechanism by which an experiment is created or modified"
+
+# Dependency budget is part of this crate's contract.
+#
+# This is the document *server* (ADR 0019): it owns the current revision,
+# decides command envelopes, and publishes read projections and change events.
+# It is not a transport and not a run authority, so no async runtime, network,
+# TLS, MCP SDK, UI toolkit, or solver may appear in its graph.
+# `tests/dependencies.rs` asserts that against the resolved graph.
+#
+# Filesystem access is permitted, but only for the document format
+# (task K4, `persist`); nothing above that module may read or write a file.
+#
+# - kagami-document:  the model, the transition, and the edit history it
+#                     decides over. This crate depends on it, never the reverse.
+# - kagami-catalog:   the installed component schemas an edit is validated
+#                     against, and (task K5) the materialised object candidates
+#                     an instantiation commits.
+# - serde:            the explicit, versioned shape an adapter converts
+#                     through (`wire`). Not a transport, and not the
+#                     experiment file: see that module for the boundary it is
+#                     and the two it is not.
+# - thiserror:        structured rejection types.
+[dependencies]
+kagami-catalog = { workspace = true }
+kagami-document = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = "0.23"
+serde_json = { workspace = true }

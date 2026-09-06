@@ -1,0 +1,15 @@
+{
+  "commandId": "ui-1",
+  "revision": 1,
+  "change": {
+    "kind": "edited",
+    "revision": 1,
+    "created": [
+      0
+    ],
+    "removed": [],
+    "label": "Add object"
+  },
+  "event": 1,
+  "replayed": false
+}

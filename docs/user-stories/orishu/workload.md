@@ -7,13 +7,13 @@ These stories are written primarily from the cluster user persona: the researche
 A workload manifest is a resource that defines a simulation workload. The
 manifest contains _metadata_ (name, author, tags) and a _spec_ describing the
 simulation domain, discretization parameters, references to external resources
-such as initial conditions, and a reference to the workload component that
-implements the governing simulation logic. A workload also declares
+such as initial conditions, and a component-instance graph with typed channels
+and a deterministic step plan implementing the governing simulation logic. A workload also declares
 _requirements_ — the full set of conditions a node must satisfy: hardware
 capabilities (CPU, memory, accelerators), runtime lifecycle compatibility, and
 an execution profile (numeric mode, reduction order, determinism constraints).
-Not all nodes may satisfy every requirement, so the cluster tracks which nodes
-are eligible to run the workload. See the
+Not all nodes may satisfy every component requirement, so the cluster tracks
+per-instance eligibility and whether a complete legal placement exists. See the
 [workload contract](../../protocol-workload.md) for the package lifecycle and
 sandbox boundary.
 
@@ -55,7 +55,10 @@ As a cluster user, I want to "just run" my simulation by providing a workload ma
   operation to prepare eligible nodes, and then starts the simulation.
 - If the manifest cannot be fetched or parsed, the command fails with a clear error before any workload is stopped, replaced, or otherwise changes cluster state.
 - Functional equivalence to running `orishuctl workload load <url/path>` followed by `orishuctl workload start`, after ensuring the load operation completes and all nodes report ready before starting.
-- **Loading into an idle cluster:** (same as #Load a workload) The workload manifest is replicated through the cluster. Eligible nodes fetch the referenced workload artifacts they need, validate them, and transition to a `Ready` state. The cluster waits for all eligible nodes to report ready before starting the simulation.
+- **Loading into an idle cluster:** (same as #Load a workload) The manifest is
+  replicated, nodes fetch artifacts needed for their assigned component
+  partitions, and the cluster waits until every required plan role has a ready,
+  legal placement. A node need not load components it cannot or will not host.
 - **Loading while a simulation is already running:** (same as #Load a workload) This follows the same replacement behavior as `orishuctl workload load <url/path>`: it is equivalent to gracefully stopping the current simulation followed by loading the new workload into an idle cluster.
 - Running from a manifest is a privileged operation requiring authentication, as it may replace the currently active workload and starts execution.
 
@@ -69,7 +72,7 @@ As a cluster user, I want to load a workload manifest into the cluster and prepa
 **Then** the workload is loaded across the cluster and prepared for execution.
 
 **Acceptance criteria:**
-- A command is available to load a workload, e.g. `orishuctl workload load <url/path>`. The command submits a workload manifest to the cluster and causes eligible nodes to fetch, validate, and load the referenced workload artifacts they require.
+- A command is available to load a workload, e.g. `orishuctl workload load <url/path>`. The command submits a workload manifest and causes assigned or candidate nodes to fetch and validate only the component/input artifacts relevant to their possible placements.
 - Gracefully stops any currently running simulation, if present, before loading the new workload. The cluster user does not need to issue a separate stop command — the load operation implies that. If the cluster user needs to bypass the graceful stop (e.g. the current simulation is misbehaving), they should explicitly run `orishuctl workload stop --force` before loading the new workload.
 - Eligible workers converge on the same workload manifest and trust policy. Each eligible worker fetches and validates the referenced workload artifacts it needs, loads the simulation code, and prepares to compute on its assigned portion of the domain.
 - Thin submission, portable-bundle import, cache reuse, and peer retrieval are
@@ -78,7 +81,9 @@ As a cluster user, I want to load a workload manifest into the cluster and prepa
 - Artifact descriptors contain identity and compatibility only. Source URLs,
   cache paths, peer holders, and credentials remain outside the replicated
   workload definition and may change without changing its identity.
-- Before a node reports `Ready`, it verifies workload content hashes, validates any required signatures, and confirms it can satisfy the workload's declared requirements (hardware capabilities, runtime lifecycle compatibility, and execution profile).
+- Before a node reports an assignment `Ready`, it verifies the relevant
+  artifact hashes/signatures and confirms the assigned component instance,
+  graph profile, lifecycle, limits and execution/placement constraints.
 - Before instantiation, every node treats the package as hostile code and
   verifies the `wasm-component` engine, lifecycle and component world, closed
   import set, resource limits, and interruptibility. A valid signature never
@@ -92,7 +97,10 @@ As a cluster user, I want to load a workload manifest into the cluster and prepa
 - The accepted source-bearing expressions and resolved parameter set are frozen
   for the workload epoch. Changing an expression requires normal workload
   replacement and never changes a running simulation in place.
-- **Loading into an idle cluster:** The workload manifest is replicated through the cluster. Eligible nodes fetch the referenced workload artifacts they need, validate them, and transition to a `Ready` state. The cluster waits for all eligible nodes to report ready before the cluster user can issue a start command.
+- **Loading into an idle cluster:** The manifest is replicated and assigned
+  nodes fetch/validate their component artifacts. Start becomes available when
+  every required component partition and dependency has a ready legal
+  placement, not when every cluster node can execute every component.
 - **Loading while a simulation is already running:** This is equivalent to gracefully stopping the current simulation followed by loading the new workload. The currently running simulation is stopped, workers complete their current time step, and the runtime should attempt to write both a checkpoint artifact and a result artifact whenever storage and policy permit. Either artifact may still be incomplete if some required chunks were never durably written. The prior workload is then unloaded and the new workload is loaded. The cluster user does not need to issue a separate stop command — the load operation handles the transition gracefully. The cluster user receives feedback indicating that the previous simulation was stopped and the new workload is being loaded. If the cluster user needs to bypass the graceful stop (e.g. the current simulation is misbehaving), they should explicitly run `orishuctl workload stop --force` before loading the new workload.
 - Loading is a privileged operation requiring authentication, as it modifies the cluster's active workload state.
 
@@ -120,18 +128,24 @@ As a cluster user, I want to verify whether a workload manifest is compatible wi
 
 **Given** a healthy cluster and a workload manifest (URL or local path)
 **When** I check workload compatibility
-**Then** I receive a per-node eligibility report without any side effects on the cluster.
+**Then** I receive per-component/node eligibility and a placement-feasibility
+report without any side effects on the cluster.
 
 **Acceptance criteria:**
-- A command is available to check workload compatibility, e.g. `orishuctl workload check <url/path>`. The command evaluates the referenced workload manifest against the cluster as a whole and reports if the manifest is valid and which nodes can satisfy the workload's requirements.
-- The check covers at minimum: the workload's `requirements` — hardware capabilities (`requirements.hardware`), runtime lifecycle compatibility (`requirements.runtimeLifecycle`), and execution profile constraints (`requirements.executionProfile`) — as well as artifact signature validation when the cluster's trust policy requires signed workloads.
+- A command is available to check workload compatibility, e.g. `orishuctl workload check <url/path>`. It validates the graph and reports which nodes can host each component role and whether at least one complete legal placement satisfies every dependency.
+- The check covers at minimum: hardware capabilities, workload-graph profile,
+  every component lifecycle, component/aggregate limits, placement constraints,
+  and execution-profile constraints, plus artifact signatures when cluster
+  policy requires them.
 - The check evaluates the same bounded, versioned variables and expressions
   contract used by workload acceptance, including field references, cycles,
   dimensions, and canonical resolution, without loading or persisting it.
 - The output includes:
-  - Total number of nodes in the cluster versus number of eligible nodes.
-  - For each ineligible node: the node ID and the specific reason(s) it cannot run the workload (e.g. "missing GPU", "unsupported runtime lifecycle: requires orishu.workload/v1", "unsigned artifact rejected by cluster policy").
-  - A clear summary verdict: whether enough eligible nodes exist to run the workload.
+  - Total nodes and per-component-instance eligibility.
+  - For each refused assignment: node, component instance and specific reasons
+    such as missing accelerator, unsupported lifecycle/profile, limit, trust or
+    co-location/separation constraint.
+  - A clear verdict stating whether a complete legal placement exists.
 - The command is read-only and does not load, distribute, or execute the workload. The manifest is fetched to the requesting node (or the contacted cluster node) for inspection but is not persisted or propagated to other nodes.
 - No authentication is required for local access; remote access follows standard authentication requirements (same tier as other read-only operations).
 - If the manifest cannot be fetched or parsed, the command fails with a clear error before attempting any node checks.
@@ -146,9 +160,13 @@ As a cluster user, I want to start the forward time evolution of a loaded simula
 **Then** the simulation begins evolving across the cluster from the initial conditions.
 
 **Acceptance criteria:**
-- A command is available to start a simulation, e.g. `orishuctl workload start`. The command tells the cluster to begin the forward time evolution of the currently loaded simulation when all eligible nodes are ready.
-- If all eligible nodes are in the `Ready` state, computation begins simultaneously across all workers from the initial conditions.
-- If some eligible nodes are still loading, computation begins when the last required node reports ready. The cluster user receives feedback indicating that the start command was received but is waiting for nodes to be ready, along with a breakdown of how many nodes are ready versus still loading.
+- A command is available to start a simulation, e.g. `orishuctl workload start`.
+  It begins only when every required component partition in one legal placement
+  is ready.
+- Assigned components begin from one initial boundary under the admitted step plan;
+  unrelated or merely eligible nodes need not participate.
+- While required assignments are loading, status identifies the blocking
+  component instances, partitions and nodes.
 - The run is associated with a new workload epoch, and partition ownership is fixed for that epoch until a safe rebalance boundary is reached.
 - Starting a freshly loaded workload from initial conditions begins a **new result sequence**; result artifacts sealed during and after this run are segments of that sequence.
 - If the simulation is already running, this command has no effect and simply confirms that the simulation is in progress.
@@ -165,7 +183,9 @@ As a cluster user, I want to start the forward time evolution of a loaded simula
 **Then** the simulation begins evolving across the cluster from the initial conditions.
 
 **Acceptance criteria:**
-- A command is available to start a simulation with immediate execution, e.g. `orishuctl workload start --force` (or similar). In this mode, the cluster begins execution without waiting for all eligible nodes to reach `Ready`; each node begins computation as soon as it has loaded the workload and become eligible to contribute.
+- A command is available to start with the minimum complete legal placement,
+  e.g. `orishuctl workload start --force`. It may skip optional/redundant
+  placements but never starts a partial scientific dependency graph.
 - Nodes that are slower to load effectively join a simulation that is already in progress. These late-joining nodes request checkpoint or catch-up state for the current workload epoch and committed simulation boundary, validate what they receive, and only then contribute to further computation, following the same mechanism used when a new worker joins an already-running simulation.
 - Late-joining nodes do not begin computing from partial or guessed state. They must synchronize from validated checkpoint or catch-up state before they can own partitions for future steps.
 - This mode trades coordinated start for faster time-to-first-result and is useful when the cluster has heterogeneous node performance or when minimizing idle time is preferred over a synchronized launch.

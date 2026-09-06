@@ -1,7 +1,7 @@
 # Publish installable Orishu Kagami artifacts
 
-Status: **ready for packaging hardening and test scaffolds; publication is
-gated by Milestone 8 product readiness**
+Status: **in progress; candidate archive/Debian/Cargo-path/Homebrew scaffolds
+exist, while supported publication is gated by Milestone 8 product readiness**
 
 Roadmap package: **P-INSTALL**
 
@@ -24,9 +24,16 @@ create a second runtime/configuration model.
 
 ## Current state
 
-The repository already contains useful but incomplete scaffolding:
+The repository now contains useful but incomplete candidate infrastructure:
 
-- a tag/manual GitHub Actions workflow builds one Linux x86-64 tar archive;
+- a reusable workflow builds deterministic Linux x86-64/ARM64 and macOS Apple
+  Silicon/Intel suite archives plus a Windows x86-64 Kagami zip;
+- a dry-run-first release workflow gates the exact candidate commit through CI,
+  assembles checksums, and separates approved publication from construction;
+- candidate jobs build and inspect six Debian packages and install all four
+  applications into a clean Cargo prefix from their workspace packages;
+- release helpers have unit coverage, and Homebrew publication is a
+  checksum-derived pull request to a separately configured tap;
 - a multi-target Dockerfile builds `orishu-worker`, `orishuctl`, and the
   placeholder `orishu-monitor`;
 - `cargo-deb` metadata exists for those three binaries;
@@ -38,12 +45,13 @@ The repository already contains useful but incomplete scaffolding:
 None of these is currently a supported published installation method. Known
 gaps include:
 
-- release archives have no published checksum/signature/SBOM contract or clean
-  installation journey;
+- release archives have checksum and GitHub provenance scaffolding but no
+  selected SBOM/signature policy or clean persona installation journey;
 - the worker container defaults to a TCP listener without provisioning the TLS
   material that runtime validation requires;
 - no registry image, Homebrew formula, crates.io package set, or Kagami native
-  installer is published;
+  installer is published; crates.io packaging is currently blocked by
+  unpublished path dependencies without registry version requirements;
 - `orishu-monitor` is included in archive/container/Debian scaffolding while
   remaining a placeholder;
 - Debian metadata currently enables and starts the worker automatically, while

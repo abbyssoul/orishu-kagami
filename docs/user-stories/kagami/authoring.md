@@ -13,8 +13,9 @@ instead of restating it.
 Kagami's product model has two entities, and every story belongs to one of
 them:
 
-- **Experiment** — the editable intent a user crafts: the world (objects and
-  their physical properties), the computational domain and discretization,
+- **Experiment** — the editable intent a user crafts: the world (modeled
+  objects, their composed physical components, and non-perturbing observation
+  instruments), the computational domain and discretization,
   simulation parameters (time step and related controls), which fields and
   physical models are active, initial conditions, and requested observations.
   An experiment is saved to and loaded from a versioned **experiment
@@ -31,6 +32,10 @@ them:
 The experiment is editable and owned by Kagami; a run's computed states are
 immutable output with provenance. Editing an experiment never mutates a run,
 and a run never mutates the experiment that produced it.
+
+The app makes that boundary visible as two workspace modes. **Authoring** shows
+and edits the initial experiment. **Observation/replay** shows a particular
+run and offers playback and visualization without experiment-editing controls.
 
 ## Experiment documents
 
@@ -78,11 +83,13 @@ indicated.
 - The document is versioned and carries enough provenance (schema, model, and
   catalog versions; units) for Kagami to detect compatibility when opening it
   later.
-- The document persists experiment intent only: computed states, results, and
-  run history are not part of an experiment document.
-- After a successful save the experiment is marked unmodified; later edits
-  mark it modified again. The file name and modified state are visible in the
-  window (for example, in the title).
+- The document persists experiment intent and may also carry a separately
+  versioned client-owned default view. Computed states, results, active-run
+  state, credentials, and run history are never part of it.
+- After a successful save both the experiment revision and authoring-view
+  revision are marked saved. Later scientific edits or supported authoring
+  camera/projection edits mark the file modified again. The file name and one
+  combined modified state are visible in the window.
 - If the file cannot be written (for example: missing permission, invalid
   path, or insufficient disk space), the open experiment is left intact and a
   clear error explains what failed.
@@ -103,9 +110,9 @@ a live Kagami service.
   catalog-qualified variables, the recipient can still open and inspect the
   source but needs copies of the referenced catalog files and compatible
   plugin schemas to validate, edit, or compile those expressions.
-- The file contains editable intent only and does not silently carry a live
-  cluster connection, run-control capability, presentation state, credentials,
-  or observation cache.
+- The file does not silently carry a live cluster connection, run-control
+  capability, credentials, or observation cache. It may carry a client-owned
+  opening view, which never affects experiment meaning or synchronizes cameras.
 - Opening a shared copy creates an independent local authoring session. Later
   edits to either copy do not propagate automatically.
 - Simultaneous edits are reconciled explicitly by people or external version
@@ -126,6 +133,8 @@ that I can continue or reproduce prior work.
 - All authored state is restored: world, domain, simulation parameters,
   physics choices, initial conditions, and requested observations, with stable
   object identifiers preserved.
+- A saved default projection, camera pose, focus/orbit and other supported
+  opening-view settings are restored separately from experiment intent.
 - An opened experiment is restored paused and unmodified; opening a file
   never starts a simulation or by itself consumes compute resources.
 - An incompatible, unknown, or corrupt document is rejected with a clear
@@ -172,7 +181,74 @@ adopted.
   that has been loaded or is running on a cluster; changing a submitted
   experiment means editing it and submitting again.
 - Presentation state (camera, selection, visibility, window layout) never
-  changes simulated values and is not part of the saved experiment document.
+  changes simulated values. A bounded default view may be saved in the file's
+  separate presentation section without entering the experiment revision,
+  undo history, or workload; changing its supported authoring subset advances
+  the view revision and marks the file dirty.
+
+### Compose a modeled object from plugin components
+
+As a scientist-researcher, I want to compose an object's behaviour from
+plugin-contributed components so that its visible configuration explains how
+it participates in the simulation.
+
+**Given** compatible simulation plugins are installed
+**When** I create an object directly or instantiate a catalog template and add,
+remove, or configure its components
+**Then** Kagami validates one coherent composition and shows what each
+component contributes.
+
+**Acceptance criteria:**
+- Every modeled object has stable identity, pose and initial velocity; an
+  object with no executable physical component remains valid but is not
+  silently simulated.
+- An object without Dynamics is kinematic/static during a run. An object with a
+  compatible Dynamics component is integrated; there is no separate persisted
+  motion-authority switch.
+- Component types, properties, dimensions, constraints and compatibility come
+  from installed plugin schemas. Built-in and third-party components use the
+  same authoring contract.
+- A catalog template is the normal reusable way to instantiate a composition,
+  but its template name, filename or particle species never selects hidden
+  physics.
+- Adding a dynamics component supplies inertial mass and opts the object into
+  force/impulse integration. Position and velocity are intrinsic kinematic
+  state; accumulated force and acceleration are run state or observations.
+- Gravity, electrostatic and other field-coupling components contribute forces
+  to dynamics. They do not independently advance the object's position.
+- Inertial mass, gravitational mass and electric charge remain distinct
+  dimensioned properties; any relationship between them is explicit and
+  editable.
+- An invalid or conflicting composition is refused atomically with component-
+  specific diagnostics and creates no revision or partial object.
+
+### Configure a particle emitter
+
+As a scientist-researcher, I want an emitter to create particles from catalog
+templates during a run so that I can model bounded streams and mixed
+populations without authoring every particle individually.
+
+**Given** an experiment contains compatible catalog templates and emitter
+components
+**When** I configure an emitter's spawn recipes, rate, capacity, direction,
+spread, initial velocity, and optional lifetime
+**Then** each run can create the selected composed objects reproducibly.
+
+**Acceptance criteria:**
+- An emitter is an ordinary modeled object. Adding dynamics or a field coupling
+  makes the emitter itself move under the same rules as any other object.
+- A spawn table may select multiple templates with explicit weights; the
+  authoring command atomically materializes and persists their complete spawn
+  blueprints and source fingerprints.
+- Workload compilation revalidates and embeds those self-contained spawn
+  blueprints and provenance without consulting the mutable catalog. A running
+  Orishu workload never reads Kagami's catalog or a mutable template.
+- Spawned particles are run state, not new experiment revisions or undo
+  entries.
+- Emission follows simulation time and a deterministic seed/profile, survives
+  checkpoint/restart without duplication, and reports capacity exhaustion.
+- Blueprint size, recipe count, rate, total/live particle capacity, lifetime
+  and per-step work are bounded and validated before acceptance.
 
 ### Define variables and use expressions
 
@@ -329,17 +405,17 @@ set.
 
 **Given** Kagami is running with its built-in plugins (for example
 electrodynamics and gravity)
-**When** I add a plugin — its manifest and its kernel
+**When** I add a plugin — its manifest and executable component artifacts
 **Then** Kagami validates it against the plugin and workload contracts and
 makes its phenomenon available as a physics choice for experiments.
 
 **Acceptance criteria:**
 - Kagami ships with a pre-defined set of plugins; they are always available
   for experiments.
-- A plugin is added as a manifest plus a content-addressed workload component
-  (its kernel). The manifest names the plugin and describes the phenomenon it
+- A plugin is added as a manifest plus one or more content-addressed workload
+  components containing its numerical implementation. The manifest names the plugin and describes the phenomenon it
   models, including the variables it exports. Kagami validates the manifest
-  and the kernel against the [workload contract](../../protocol-workload.md) —
+  and its components against the [workload contract](../../protocol-workload.md) —
   engine, lifecycle, component world, declared imports, and limits — before
   the plugin becomes available.
 - An invalid or unsupported plugin is reported as unavailable with structured
@@ -376,23 +452,23 @@ they can model the same phenomenon without rebuilding it.
 - The shared artifact preserves the plugin's identity: adding it elsewhere
   produces the same content-addressed plugin.
 
-### Author an experiment with a plugin
+### Author an experiment with plugin-contributed models
 
-As a scientist-researcher, I want to choose which plugin's phenomenon my
-experiment models so that I can simulate fields beyond the built-in set.
+As a scientist-researcher, I want to choose plugin-contributed computational
+models so that I can simulate fields beyond the built-in set.
 
 **Given** an experiment open in the editor and at least one available plugin
-**When** I select a plugin for the experiment's physics
-**Then** the experiment records the modeled phenomenon and that plugin's
-kernel, and submission or export includes the kernel in the workload closure.
+**When** I select a model for a field family
+**Then** the experiment records the stable plugin/model/schema identities and
+submission or export includes its executable code in the workload closure.
 
 **Acceptance criteria:**
-- The experiment's physics choice lists available plugins — built-in and added
-  custom plugins — with their availability and diagnostics.
-- Selecting a plugin is a normal validated experiment edit: one revision and
+- The model choice lists models from built-in and added custom plugins with
+  their field family, availability, compatibility and diagnostics.
+- Selecting a model is a normal validated experiment edit: one revision and
   undo entry, or a rejection with a reason.
-- The experiment records which phenomenon it models by plugin identity. The
-  plugin's kernel is part of the workload closure at submission and export;
+- The experiment records field-family, plugin, model and schema identities. The
+  selected executable code is part of the workload closure at submission/export;
   the experiment remains reproducible without the plugin's source or the
   Kagami installation that added it.
 - If a referenced plugin artifact is missing at submission, Kagami reports
@@ -453,12 +529,173 @@ experiment so that I can correct authoring mistakes without rebuilding state.
   reason and the history is left unchanged.
 - Undo preserves identity: undoing a removal restores the object with the
   same identifier and attachments, never a replacement.
-- Undo and redo are refused while a simulation is running. Solver motion is
-  run state and never changes authored objects, so merely running or observing
-  a simulation neither adds nor discards document history.
+- Undo and redo are available only in Authoring mode. Observation/replay mode
+  does not display them, because it presents immutable run output rather than
+  the editable initial scene; a run boundary never becomes an undo entry.
+- Choosing **Edit initial conditions** explicitly returns to Authoring and the
+  authored initial scene, where undo/redo are available again. It stops a local
+  preview, but merely detaches from a remote run unless the user separately
+  invokes the privileged stop action.
 - Redo is available only after an undo; a new edit clears the redo branch.
 
+## Observing the experiment
+
+### Add and attach a probe
+
+As a scientist-researcher, I want to add a non-perturbing probe at a fixed
+position or attached to a modeled object so that a run records scientific
+values at the location I care about.
+
+**Given** an experiment and plugin-declared observation channels
+**When** I add a probe, choose channels, and optionally attach it to an object
+with a local offset
+**Then** the observation request follows the object without changing its
+physics.
+
+**Acceptance criteria:**
+- The world and scene tree distinguish modeled objects, which may affect and
+  evolve in the simulation, from observation instruments, which only request
+  or visualize values.
+- Modeled simulation state includes particles/objects and selected fields:
+  particles may move and fields may evolve, while instruments never drive
+  either evolution.
+- A probe has stable identity and either a world pose or an object attachment
+  plus local offset. Renaming the object preserves the attachment; deleting it
+  is refused until the dependency is cleared in the same edit.
+- Probe channels use stable plugin-declared identities with dimensions and
+  validity semantics. A temporarily unavailable channel is retained and shown
+  unavailable rather than discarded.
+- Probes and attached sampling regions never carry physical components or
+  contribute forces. A detector intended to perturb the experiment must be
+  modeled explicitly as a composed object.
+- Recording cadence and retention are bounded workload/output requests;
+  viewport visibility and transport subscription density remain client-local.
+
+### Select fields and their computational models
+
+As a scientist-researcher, I want to define a simulation domain and select the
+fields and computational models active in it so that the experiment states both
+what exists throughout space and how it evolves.
+
+**Given** installed plugins contribute compatible field and model schemas
+**When** I select field families and one model for each family
+**Then** Kagami validates an explicit, executable combination.
+
+**Acceptance criteria:**
+- A selected field is conceptually defined at every point of the authored
+  domain; its mesh, basis, particles, cells, or other numerical representation
+  is declared by the chosen model rather than mistaken for the field itself.
+- Exactly one model evolves each selected field family. Coulomb and Maxwell/Yee
+  are alternative electromagnetic models and cannot both own that family;
+  classical gravity and GEM are alternative gravitational models.
+- Alternative models can use stable coupling properties such as electric
+  charge or gravitational mass, so changing model does not silently reinterpret
+  an object's authored composition.
+- Compatible families may coexist. Hydrodynamic models may treat a real medium
+  and its flow as field state over the same domain.
+- Each model comes from a plugin's declarative schemas and pinned executable
+  update code. Switching model is an explicit validated edit and unavailable or
+  incompatible models are never replaced implicitly.
+
+### Switch projection and follow an object
+
+As a scientist-researcher, I want to switch between perspective and
+orthographic projection and optionally have the camera follow an object so that
+I can inspect the scene from a useful, stable frame of reference.
+
+**Given** an experiment or run is visible
+**When** I choose a projection in the view control or select an object to
+follow
+**Then** the current window updates without changing scientific experiment
+intent or run state.
+
+**Acceptance criteria:**
+- The view control clearly exposes Perspective and Orthographic projection and
+  reports the active choice.
+- In Authoring mode, projection, camera pose, orbit/focus and supported follow
+  settings update the file's default-view revision, mark the file modified, and
+  are restored on reopen without changing experiment revision, undo, or workload.
+- In Observation/replay mode, camera and projection changes are ephemeral and
+  never dirty the experiment file or alter a result/run reference.
+- A camera may follow a modeled object's authoritative observed pose while the
+  run evolves; the user can stop following without changing that object.
+- If a followed object is absent from the current experiment or observation,
+  Kagami reports that condition and safely releases the follow target.
+- Camera movement and following are per-window presentation. They do not affect
+  another observer and are not controllable through the shared MCP surface.
+
+### Visualize a vector field
+
+As a scientist-researcher, I want to display a field with vectors or flow lines
+so that its direction, magnitude and structure are understandable in space.
+
+**Given** a run supplies a compatible field observation over a region
+**When** I enable vector glyphs or flow lines and choose their client-side
+density and styling
+**Then** Kagami visualizes only values supported by that observation.
+
+**Acceptance criteria:**
+- Vector and flow-line layers consume dimensioned field samples carrying run,
+  boundary, model, precision, completeness and validity provenance.
+- Singular, outside-domain, unavailable and stale samples are distinguished
+  from zero; a flow line stops or is marked when no valid continuation exists.
+- Density, seeding, color, scale and visibility are bounded presentation
+  choices and do not alter requested observations, solver state or another
+  observer's view.
+- Interpolation used for display is labeled presentation-only and can never
+  become a result, checkpoint, force, or authored value implicitly.
+
+### Show live trails and recorded trajectories
+
+As a scientist-researcher, I want to show a bounded history of particle
+positions so that motion is apparent while I interact with a live or replayed
+run.
+
+**Given** object-position observations are available
+**When** I enable trails and choose a duration or sample limit
+**Then** Kagami draws each selected object's recorded path through simulation
+time.
+
+**Acceptance criteria:**
+- A live trail may be a best-effort client history of authoritative boundaries;
+  dropped/coalesced observations create visible gaps rather than invented path.
+- An exact trajectory is an authored, retained observation request and is
+  queryable during replay or through MCP with coverage and provenance.
+- Neither form is derived from render-frame positions or unlabelled
+  interpolation/extrapolation.
+- History duration, selected object count, samples and GPU/CPU memory are
+  bounded; overload degrades explicitly without affecting the run.
+- Seeking or changing run identity rebuilds or clears incompatible trail
+  history rather than joining unrelated paths.
+- Trail visibility and styling are client-local, are not physical state, and
+  are not required for the first essential field-visualization slice.
+
 ## Running simulations
+
+### Switch between authoring and observation
+
+As a scientist-researcher, I want Kagami to state whether I am editing initial
+conditions or observing a run so that I never mistake playback for an editable
+experiment.
+
+**Given** an experiment is open or a run is selected
+**When** I submit/start a run or choose Edit initial conditions
+**Then** Kagami switches explicitly between Observation/replay and Authoring.
+
+**Acceptance criteria:**
+- Submitting or opening a run enters Observation/replay and prominently shows
+  the run identity, simulation time and playback state.
+- Observation/replay exposes run controls and visualization but no document
+  mutation, undo or redo controls. MCP authoring is gated by the same mode.
+- Edit initial conditions returns to the initial authored scene and makes
+  document controls available; it never adopts a displayed computed state.
+- Leaving a local preview stops it. Leaving a remote run detaches the window and
+  does not stop cluster execution unless the user separately confirms that
+  privileged action.
+- Opening or creating an experiment starts in Authoring and never resumes a run
+  from saved presentation data.
+- An MCP client must request the transition to Authoring explicitly before an
+  edit; a rejected edit cannot switch modes as a hidden side effect.
 
 ### Run an experiment locally
 
@@ -474,8 +711,8 @@ states.
 - A local run executes an immutable input compiled from a specific experiment
   revision, advancing it with fixed time steps using the same physics the
   experiment would use when submitted to a cluster.
-- Local preview executes the same plugin kernel (workload component) and
-  lifecycle the cluster would run, where the supported profile allows it; it
+- Local preview executes the same immutable component graph, step plan and
+  lifecycles the cluster would run, where the supported profile allows it; it
   never silently grants capabilities that remote execution denies.
 - Play, pause, and single-step controls are available; stepping advances the
   simulation by exactly one accepted step and then pauses.
@@ -616,8 +853,9 @@ simulation states as they are produced.
 - Cluster observations update only the selected run projection. They never
   modify the open experiment, including when they are newer than its submitted
   revision.
-- Observing is read-only: connecting, watching, or disconnecting never
-  changes the simulation, its performance, or its stored artifacts.
+- Observing is scientifically read-only. Bounded subscription, transport, and
+  rendering work is isolated and may degrade or disconnect, but it cannot alter
+  scientific state, enter the step decision, or block simulation commit.
 - If the connection drops, the last received observation may remain visible
   but is clearly labeled stale; Kagami never mixes data from different
   observations.
@@ -672,9 +910,12 @@ new revision.
 - Adoption names the source workload, run, simulation boundary, and observation
   identity and retains that provenance in the resulting authored state.
 - Adoption is atomic and validated against the current experiment. Failure
-  leaves the document and its history unchanged and reports a domain reason.
+  leaves the document and its history unchanged, reports a domain reason, and
+  keeps the user in Observation/replay mode.
 - A successful adoption marks the experiment modified, creates one undo entry,
-  and does not mutate the source run, workload, observation, or artifact.
+  switches to Authoring mode, and does not mutate the source run, workload,
+  observation, or artifact. It stops the owned local preview, but only detaches
+  from a remote run unless the user separately has and invokes stop authority.
 - An adoption guarded by a stale base revision is rejected under the same
   concurrency rules as any other externally initiated edit.
 
@@ -708,14 +949,10 @@ that produced them.
 
 ## Follow-ups
 
-These stories are deliberately deferred from the initial set and should be
-captured as separate stories once the experiment model exists:
+These stories remain deliberately deferred:
 
-- Detailed per-entity authoring: objects and physical components, probes,
-  slice planes, and per-field model selection beyond the plugin choice
-  (compare Field CAD's world, measurement, and field-system stories).
-- Viewport navigation and presentation controls (camera, selection, gizmos,
-  display layers) as client-local stories.
+- Detailed slice-plane/volume authoring, selection and manipulation gizmos,
+  and viewport navigation beyond projection and object following.
 - Comparing observations across runs and exporting selected results.
 - Live multi-writer experiment authoring, shared presence, presenter-follow
   mode, and synchronized playback.

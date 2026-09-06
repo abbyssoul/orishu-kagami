@@ -2,7 +2,7 @@
 
 Artifact type: **report — derived, non-authoritative**
 
-Snapshot date: **2026-09-05**
+Snapshot date: **2026-09-07**
 
 This file is a compact view of the authoritative
 [implementation roadmap](README.md) and [tracked tasks](../tasks/README.md).
@@ -34,10 +34,13 @@ timeline
     section Author and execute locally
       M2 — Authoring and admission : K-DOCUMENT, X-PLUGIN, K-CATALOG core implemented
                                     : K-CATALOG core accepted
+                                    : X-FIELDS and emitter blueprint capture
+                                    : X-COMPOSITION component-graph contract
                                     : Workload compilation and admission
                                     : O-WASM and early K-MCP
       M3 — Single-node simulation  : O-RUNTIME, O-STORAGE, O-CLIENT
                                     : Gravity built-in, K-RUN, minimal V-LIVE
+                                    : Probe queries, field visualization, deterministic emitters
                                     : Runtime and storage observability
     section Form and distribute
       M4 — Cluster formation PoC   : N-FORMATION is in progress
@@ -49,6 +52,7 @@ timeline
     section Observe and extend
       M6 — Live and replay         : Complete V-LIVE and V-REPLAY
                                     : Independent multi-client playback
+                                    : K-VIEW field layers, follow, and trails
                                     : K-PREVIEW and run-control MCP parity
       M7 — Extension parity       : External and bundled plugins
                                     : Catalog and authoring MCP parity
@@ -69,7 +73,7 @@ at once.
 | --- | --- | --- | --- |
 | M0 — Green and truthful foundation | In progress; not formally accepted | Documentation checks pass and the restored roadmap is tracked | Close remaining baseline/API decisions and verify every selected slice has a bounded task |
 | M1 — Shared semantic spine | In progress | N-MEMBERSHIP and its shared membership identity prerequisite are accepted | Complete workload, quantity/variable, observation, provenance, API-shape, and remaining identity contracts |
-| M2 — Authoring and admission | In progress | Generic variable engine and the `kagami-catalog` crate, authority, variable projection, shipped examples, and materialization core exist and are accepted; N-MEMBERSHIP is accepted | Implement the document authority, dimensional integration, workload admission, plugin inventory, and Wasm host |
+| M2 — Authoring and admission | In progress | The K1 experiment model and K3 document authority are implemented; K7 now captures the core composition, instrument, emitter, mode and viewport stories; the generic variable engine and the `kagami-catalog` core exist | Complete the K1/K3 boundary follow-up and dimension layer/K2, then persistence/default view, catalog instantiation, app adoption, plugin/composition contracts, workload admission, and Wasm host |
 | M3 — Single-node simulation | Not started as a milestone | Prototype worker/client/Kagami surfaces exist but do not prove the outcome | Stable M1/M2 contracts, then a real admitted single-worker run |
 | M4 — Operational cluster formation PoC | In progress | N-MEMBERSHIP is accepted; replicated lock and codec/TLS adapter tests have landed | Complete remaining preflight, worker integration, operator surface, observability, and three-process proof |
 | M5 — Distributed execution | Planned; specification gates remain | Accepted formation, purge, and transfer constraints exist | N-FORMATION, single-node runtime, storage, workload, and scientific-profile fixtures |
@@ -96,14 +100,19 @@ States mirror the authoritative roadmap as of the snapshot date:
 | S-IDENTITY | M1 | Partial | Complete cluster projection and run identity contracts |
 | S-OBSERVE | M1 | Ready | Implement shared run and observation frame types |
 | S-PROVENANCE | M1 | Planned | Write the bounded task after identity, workload, observation, and plugin identities stabilize |
-| K-DOCUMENT | M1–M2 | Planned | Specify and implement the authoritative experiment model and persistence |
+| K-DOCUMENT | M1–M2 | Partial | K1 model and K3 authority are implemented; complete the landed-boundary follow-up and S-VARIABLES slice 2/K2, then K4 and K5 in parallel and K6 app adoption |
 | X-PLUGIN | M1–M2 | Planned | Specify manifest, declarative schema, inventory, and management contracts |
+| X-COMPOSITION | M2–M3 | Ready after gates | Host-orchestrated component graph accepted; define shared graph/phase/channel types and implement the multi-component host |
+| X-FIELDS | M2–M3 | Ready after gates | Define field families, mutually exclusive model selection, stable couplings, workload state and observation projections |
 | X-BUILTINS | M3–M7 | Planned | Implement gravity and electrodynamics through the public plugin/Wasm path |
 | X-DIST-PROFILE | M1–M5 | Decision gate | Define candidate schema and evidence task; accept or replace ADR 0016 only after M5 evidence |
 | K-CATALOG | M2–M7 | Core implemented and accepted | `kagami-catalog` carries the format, bounded loader, variable projection, guarded writes, catalog authority, shipped examples, and self-contained materialization. Identity collisions, rename events, symlinked ancestors and targets, missing descendants below a symlink, and temporary paths are all refused before any effect outside the catalog root. Later: shared dimension inference, document instantiation, workload capture, UI, and MCP |
 | K-MCP | M2–M7 | Ready; later slices gated | Implement transport/status first; add authoring and run parity after their authorities exist |
-| O-WASM | M2 | Planned | Specify and implement the capability-limited component host |
-| O-RUNTIME | M3 | Planned | Specify the single-node fixed-step run authority and commit loop |
+| K-OBSERVATION | M2–M6 | Ready after gates | Compile K8 instruments into workload requests and expose their retained readings through UI and bounded MCP queries |
+| K-VIEW | M2–M6 | Ready after gates | Add saved authoring view/modes, essential field vectors/flow lines in M3, then richer replay plus live-gap/exact-trajectory trails |
+| X-EMITTER | M2–M5 | Ready after gates | Capture catalog spawn blueprints, implement deterministic single-node spawning, then prove fenced distributed ownership |
+| O-WASM | M2 | Ready after shared graph/ABI | Implement the capability-limited multi-component host and deterministic phase coordinator |
+| O-RUNTIME | M3 | Planned | Specify the single-node component-plan authority and atomic commit loop |
 | O-STORAGE | M3 | Planned | Specify local content-addressed inputs and committed result/checkpoint storage |
 | O-API-SHAPE | M1 | Decision gate | Resolve resource compaction and version the initial client surface |
 | O-CLIENT | M3 | Planned | Specify after API shape, runtime, storage, and observation contracts |
@@ -113,12 +122,12 @@ States mirror the authoritative roadmap as of the snapshot date:
 | V-REPLAY | M6 | Ready after stored observations | Implement exact time-addressable persisted playback |
 | N-MEMBERSHIP | M1–M2 | **Accepted** | Feed the accepted sans-IO core into N-FORMATION |
 | N-FORMATION | M4 | **In progress** | Complete remaining preflight, worker integration, operator surface, observability, and real three-process proof |
-| N-CLUSTER | M5 | Planned | Specify after formation and single-node runtime semantics are proven |
+| N-CLUSTER | M5 | Planned | Specify component-partition placement, reliable cross-component channels and distributed commit after formation and single-node semantics are proven |
 | N-TRANSFER | M5 | Planned | Specify bounded verified QUIC artifact transfer |
 | N-PURGE | M5 | Planned | Specify persisted tombstones and inventory suppression |
 | N-ARTIFACT | M5 | Planned | Specify availability, replication, repair, and discovery after storage/transfer/purge |
 | P-SCALE | M5–M8 | Planned | Specify and grow the staged 1/3/5/12/32-worker evidence harness |
-| P-INSTALL | M8 | Ready for early slices | Implement the linked artifact-publication task and installation matrix; publication waits for M8 product readiness |
+| P-INSTALL | M8 | In progress | Candidate archives, Debian builds, Cargo-path install tests, staged checksums/provenance, and Homebrew handoff exist; next define crates.io graph, lifecycle tests, SBOM/signing, and supported M8 publication |
 | P-OBSERVABILITY | M0–M8 | Ready by owning slice | Implement worker/formation instrumentation first, then extend with each service |
 | P-OBS-DOCS | M4–M8 | Planned | Ship tested operator guidance alongside each observability slice |
 | P-MONITOR | M5–M8 | Planned | Specify after real membership and operational projection models stabilize |

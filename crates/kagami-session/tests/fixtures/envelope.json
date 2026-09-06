@@ -1,0 +1,41 @@
+{
+  "commandId": "ui-1",
+  "actor": "ui",
+  "expectedRevision": 0,
+  "command": {
+    "kind": "edit",
+    "commands": [
+      {
+        "command": "createObject",
+        "spec": {
+          "name": "Earth",
+          "transform": {
+            "translation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "velocity": {
+            "linear": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "angular": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

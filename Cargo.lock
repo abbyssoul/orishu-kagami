@@ -2666,6 +2666,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagami-document"
+version = "0.1.0"
+dependencies = [
+ "cargo_metadata",
+ "kagami-catalog",
+ "orishu-variables",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "kagami-renderer"
 version = "0.1.0"
 dependencies = [
@@ -2673,6 +2685,18 @@ dependencies = [
  "glam 0.33.6",
  "iced",
  "pollster",
+]
+
+[[package]]
+name = "kagami-session"
+version = "0.1.0"
+dependencies = [
+ "cargo_metadata",
+ "kagami-catalog",
+ "kagami-document",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

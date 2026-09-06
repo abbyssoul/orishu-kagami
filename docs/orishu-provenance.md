@@ -23,7 +23,8 @@ Checkpoint and result records retain, at minimum:
 - producing-formation display-name snapshot;
 - exact artifact and per-chunk content hashes;
 - relevant simulation boundary or time range;
-- executed component digest, lifecycle, and execution profile;
+- admitted component-graph/step-plan digest, every executed component digest
+  and lifecycle, and the execution profile;
 - schema/model, dimensions, precision, validity, and completeness metadata; and
 - producing worker/runtime identities required by the accepted profile.
 
@@ -44,8 +45,8 @@ A checkpoint records sufficient identity to prevent use with an unrelated or
 incompatible workload. A derived result sequence groups artifacts but adds no
 new authority.
 
-`StepProvenance` records which worker/runtime/component produced a partition and
-step range. It is useful forensic evidence and may be carried with checkpoint
+`StepProvenance` records which worker/runtime/component instance and phase
+produced a component partition and step range. It is useful forensic evidence and may be carried with checkpoint
 coordination, but durable output must summarize or anchor the provenance it
 needs rather than depend on a transient gossip history remaining available.
 

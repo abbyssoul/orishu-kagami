@@ -3,9 +3,11 @@
 Status: **accepted**
 Date: **2026-09-04**
 
+Refined by: [ADR 0024](0024-orishu-orchestrates-a-workload-component-graph.md)
+
 ## Context
 
-A workload needs a compute definition, executable WebAssembly Component,
+A workload needs a compute definition, one or more executable WebAssembly Components,
 initial conditions, and potentially large geometry or supporting artifacts.
 Users should be able to share a workload without operating an artifact
 repository, while workers should not retransmit a rarely changing kernel every
@@ -96,7 +98,7 @@ runtime availability state and is never persisted in the workload manifest.
 Source hints belong to a submission request, distribution envelope, or live
 availability index and may change without creating a new workload identity.
 
-Keep the workload component, initial conditions, geometry, and other large
+Keep workload components, initial conditions, geometry, and other large
 assets as independently addressable artifacts. Inline data is reserved for
 small, explicitly bounded values where deduplication and streaming are not
 useful. Large inputs may use a descriptor over partition-aligned chunks rather

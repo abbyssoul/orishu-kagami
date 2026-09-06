@@ -1,0 +1,35 @@
+name: Set up Orishu Kagami build environment
+description: Install the pinned Rust toolchain, native Linux dependencies, and build cache.
+
+inputs:
+  kagami:
+    description: Install Linux window-system libraries needed to build Kagami.
+    required: false
+    default: "false"
+  kagami-runtime:
+    description: Install Linux software-rendering libraries needed by Kagami smoke tests.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
+      with:
+        toolchain: "1.97"
+        components: rustfmt, clippy
+    - name: Install Kagami build dependencies
+      if: runner.os == 'Linux' && inputs.kagami == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwayland-dev libxkbcommon-dev \
+          libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+    - name: Install Kagami software-rendering dependencies
+      if: runner.os == 'Linux' && inputs.kagami-runtime == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mesa-vulkan-drivers libgl1-mesa-dri libegl1 xvfb
+    - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1

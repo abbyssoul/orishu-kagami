@@ -1,0 +1,201 @@
+name: Build release artifacts
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Stable workspace version without a leading v.
+        required: true
+        type: string
+      ref:
+        description: Exact commit to build.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable workspace version without a leading v.
+        required: true
+        type: string
+      ref:
+        description: Commit, branch, or tag to build (defaults to this run's commit).
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-artifacts-${{ inputs.ref || github.sha }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  scripts:
+    name: Verify release helpers and identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
+      - run: python3 scripts/release/check-version.py "${{ inputs.version }}"
+
+  unix-archive:
+    name: ${{ matrix.target }} archive
+    needs: scripts
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          kagami: "true"
+      - name: Build native release binaries
+        run: >-
+          cargo build --locked --release --target "${{ matrix.target }}"
+          -p orishu-worker -p orishuctl -p orishu-monitor -p kagami
+      - name: Smoke-test native binaries
+        shell: bash
+        run: |
+          bindir="target/${{ matrix.target }}/release"
+          "$bindir/orishu-worker" --help >/dev/null
+          "$bindir/orishuctl" --help >/dev/null
+          "$bindir/orishu-monitor" --help >/dev/null
+          "$bindir/kagami" --version | grep -F "${{ inputs.version }}"
+      - name: Build deterministic archive
+        run: >-
+          python3 scripts/release/package.py
+          --version "${{ inputs.version }}"
+          --target "${{ matrix.target }}"
+          --format tar.gz
+          --binary-dir "target/${{ matrix.target }}/release"
+          --binary orishu-worker --binary orishuctl --binary orishu-monitor --binary kagami
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-archive-${{ matrix.target }}-${{ inputs.version }}
+          path: dist/orishu-kagami-${{ inputs.version }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  windows-kagami:
+    name: Windows Kagami archive
+    needs: scripts
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: cargo build --locked --release --target "$env:TARGET" -p kagami
+      - run: target/$env:TARGET/release/kagami.exe --version | Select-String -SimpleMatch "${{ inputs.version }}"
+      - run: >-
+          python scripts/release/package.py
+          --product kagami
+          --version "${{ inputs.version }}"
+          --target "$env:TARGET"
+          --format zip
+          --binary-dir "target/$env:TARGET/release"
+          --binary kagami
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-archive-${{ env.TARGET }}-${{ inputs.version }}
+          path: dist/kagami-${{ inputs.version }}-${{ env.TARGET }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  cargo-install:
+    name: Install every application from its workspace package
+    needs: scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          kagami: "true"
+      - name: Install candidate applications into a clean prefix
+        shell: bash
+        run: |
+          root="$RUNNER_TEMP/orishu-cargo-install"
+          cargo install --locked --path apps/orishu-worker --root "$root"
+          cargo install --locked --path apps/orishu-ctl --root "$root"
+          cargo install --locked --path apps/orishu-monitor --root "$root"
+          cargo install --locked --path apps/kagami --root "$root"
+          "$root/bin/orishu-worker" --help >/dev/null
+          "$root/bin/orishuctl" --help >/dev/null
+          "$root/bin/orishu-monitor" --help >/dev/null
+          "$root/bin/kagami" --version | grep -F "${{ inputs.version }}"
+
+  debian-packages:
+    name: ${{ matrix.package }} Debian package (${{ matrix.arch }})
+    needs: scripts
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { package: orishu-worker, arch: amd64, os: ubuntu-24.04 }
+          - { package: orishuctl, arch: amd64, os: ubuntu-24.04 }
+          - { package: orishu-monitor, arch: amd64, os: ubuntu-24.04 }
+          - { package: orishu-worker, arch: arm64, os: ubuntu-24.04-arm }
+          - { package: orishuctl, arch: arm64, os: ubuntu-24.04-arm }
+          - { package: orishu-monitor, arch: arm64, os: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: taiki-e/cache-cargo-install-action@417450f3c33ee20393705369577571770643d4c7 # v3
+        with:
+          tool: cargo-deb@3.7.0
+      - name: Build and inspect package
+        id: package
+        shell: bash
+        run: |
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
+          cargo deb --locked --verbose -p "${{ matrix.package }}"
+          file="$(find target/debian -maxdepth 1 -name '${{ matrix.package }}_*.deb' -print -quit)"
+          test -n "$file"
+          dpkg-deb --info "$file"
+          dpkg-deb --contents "$file"
+          test "$(dpkg-deb --field "$file" Version)" = "${{ inputs.version }}-1"
+          test "$(dpkg-deb --field "$file" Architecture)" = "${{ matrix.arch }}"
+          dpkg-deb --fsys-tarfile "$file" | tar -tf - | grep -Fx "./usr/bin/${{ matrix.package }}"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-deb-${{ matrix.package }}-${{ matrix.arch }}-${{ inputs.version }}
+          path: ${{ steps.package.outputs.file }}
+          if-no-files-found: error
+          retention-days: 7

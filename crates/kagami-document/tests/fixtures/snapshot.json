@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "revision": 1,
+  "objects": [
+    {
+      "id": 0,
+      "name": "Earth",
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "velocity": {
+        "linear": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "angular": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "shape": {
+        "shape": "sphere",
+        "radius": 6371000.0
+      },
+      "components": [
+        {
+          "component": {
+            "plugin": "kagami.mass_sources",
+            "name": "inertial_mass"
+          },
+          "schemaVersion": 1,
+          "properties": {
+            "mass": {
+              "kind": "quantity",
+              "source": "5.972e24",
+              "displayUnit": null,
+              "siValue": 5.972e+24,
+              "dimension": [
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "Marker",
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "velocity": {
+        "linear": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "angular": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "components": []
+    }
+  ],
+  "setup": {
+    "domain": {
+      "lower": [
+        -0.5,
+        -0.5,
+        -0.5
+      ],
+      "upper": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "cells": [
+        32,
+        32,
+        32
+      ],
+      "boundary": [
+        "periodic",
+        "periodic",
+        "periodic"
+      ]
+    },
+    "timeStep": 0.001,
+    "plugins": []
+  }
+}

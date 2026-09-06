@@ -7,6 +7,381 @@ For the cluster-internal peer-to-peer protocol, see [protocol-p2p.md](./protocol
 
 ## Transport
 
+### Implemented formation subset
+
+The worker currently serves `GET /api/v1/cluster` over HTTP/1.1 or HTTP/2 on
+a Unix socket, and HTTP/1.1 or HTTP/2 over explicitly configured TLS/TCP.
+Plaintext TCP configuration is rejected. Client HTTP/3 remains planned, not
+an implemented fallback. Local reads require no bearer token; remote reads
+require the worker-local operator bearer credential. Join and monitoring
+credentials do not authorize this route. The CLI can explicitly load the
+worker-local operator credential through `--operator-token-file` or the path
+in `ORISHU_OPERATOR_TOKEN_FILE`; see the
+[operator authentication instructions](../apps/orishu-ctl/README.md#operator-authentication).
+`POST /api/v1/cluster/lock` additionally implements identified lock/unlock
+intents with the worker-local operator credential, including on Unix sockets.
+Identified join submission/status and voluntary leave are also implemented
+through the membership resources described below. Responses are CBOR with
+`Cache-Control: no-store`; successful summaries identify the source worker
+in `X-Node-Id`.
+
+The current response is `ApiResponse::Ok` containing
+`ResponseData::ClusterSummary`, not the imported authored-manifest-shaped
+`ClusterManifest`. The shared client and `orishuctl cluster info` consume the
+same typed resource. Its version-1 fields are:
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | `1`; other versions are rejected by the client decoder |
+| `formationId`, `clusterName` | Immutable formation identity and reusable label, respectively |
+| `sourceNodeId` | Assigned identity of the worker whose model was read |
+| `memberCount`, `aliveCount` | Retained member records and locally observed live members |
+| `membershipLocked` | Locally held replicated lock, not a global fence |
+| `participation` | `standalone`, `joining`, `joinUnresolved`, `catchingUp`, `joined`, `ejected`, or `stopping`; never inferred from member count |
+| `introducerReady` | Whether the local worker can enforce every admission gate |
+| `workload` | `"none"` in this no-compute PoC |
+| `view` | `"localAtRequest"`; a current local read, not proof of global convergence |
+
+Startup currently yields `standalone`, one alive member and
+`introducerReady: false`: the standalone owner runs, but peer session/effect
+integration is still pending. Reads use its published local projection; a
+stopped owner yields `503`/`OwnerUnavailable`, never a cached success described
+as fresh. Listing lifecycle variants does not claim those transitions
+are implemented. Other membership mutations
+remain in the formation task. Unmatched routes do not
+report successful placeholder operations.
+
+`joinUnresolved` means an emitted admission attempt exhausted its core retries
+without validated local adoption. Remote insertion may already have happened;
+the remaining source formation does not prove otherwise. The owner refuses a
+new begin-join, drops transient secret/send state and does not invent rollback
+or success. If no JoinReq was ever submitted to transport, exhaustion can
+return to `standalone`. This conservative distinction precedes the still-pending
+identified operation-status/recovery API; operators must not infer that an
+unresolved target membership entry can safely be erased or that restarting is
+outcome recovery. Clients must recognize the new lifecycle enum value.
+
+### Formation client ingress limits
+
+The formation PoC's HTTP/1 listener contract is 64 accepted connections per
+configured listener, including connections with no authenticated request yet.
+At capacity, acceptance pauses at the bounded OS listen backlog; excess clients
+are not promised an HTTP overload response before admission. Existing accepted
+connections and the separate peer listener can continue to make progress.
+Closing or expiring an accepted connection releases capacity. This is not a
+reserved remote administrator lane or a guarantee against sustained saturation.
+
+HTTP/1 request heads have a five-second read deadline, an 8 KiB buffer limit and
+at most 32 headers. These checks precede route authentication. The existing
+16-slot mutation and 16-slot inspection budgets and five-second handler
+deadlines remain separate: handler capacity alone cannot bound partial heads.
+These fixed PoC bounds do not add runtime configuration or enable remote client
+modes beyond the documented Unix and TLS/TCP subset. A transport write that
+remains pending for five seconds closes its
+connection. This is a write-stall deadline, not a total response deadline or
+minimum-throughput guarantee for a reader that continues making progress.
+The shared Unix/TLS client listener also closes a connection after ten seconds
+without a successful transport read or write, for both HTTP/1.1 and HTTP/2.
+This reclaims silent incomplete frames/header blocks and silent window-blocked
+responses even when no socket write is pending. Idle keep-alive clients must
+reconnect. This is connection inactivity, not a per-stream or absolute header
+deadline: traffic on another stream, PINGs or trickled bytes can keep the
+connection active. Such traffic does not reset the separate five-second
+HTTP/1 header or handler deadlines. Future long-lived delivery must review
+this limit explicitly rather than silently disabling it for formation routes.
+The existing response codec caps each serialized response at 1 MiB; the HTTP/1
+buffer is separately capped at 8 KiB. Pagination and handler budgets bound
+response construction; pipelining must not queue the entire response batch
+behind a blocked writer. Validation is tracked in the formation conformance
+ledger. Future streaming/observation routes must define their own delivery
+contract before relying on, relaxing or replacing these formation-PoC limits.
+
+HTTP/2 additionally has an explicit 16-concurrent-stream limit per connection,
+8 KiB decoded header-list limit, 4 KiB HPACK table, 16 KiB maximum frame size,
+65,535-byte initial stream and connection receive windows with adaptive window
+growth disabled, and a 16 KiB per-stream send-buffer setting. These do not
+replace the process-wide handler budgets or the per-listener connection cap.
+A seventeenth open stream is refused; cancelling one permits replacement.
+Oversized decoded request headers receive a terminal 431 response, and valid
+subsequent streams can still use the connection.
+
+With these settings, the pinned decoder permits at most five non-final
+CONTINUATION frames per header block; a sixth non-final frame closes the
+connection with `ENHANCE_YOUR_CALM`. A final sixth continuation is permitted.
+Continuations must retain the initial HEADERS stream ID; a mismatch closes the
+connection with `PROTOCOL_ERROR`. A real-worker test verifies both refusals and
+the valid final-sixth-frame control. This bounds continuation frame work, not
+elapsed time for an unfinished header block or a partially received frame.
+
+Real-process Unix HTTP/2 tests also verify response DATA obeys zero per-stream
+credit and exhausted connection credit, explicit window updates resume the
+selected responses, cancellation returns stream capacity, and independent
+control and shutdown progress with window-blocked responses. This is response
+flow-control/recovery evidence, not inbound flow-control violation coverage or
+incomplete HEADERS/CONTINUATION deadline evidence. A stream waiting for
+HTTP/2 window credit need not have a pending socket write, so the five-second
+transport write-stall timeout is not evidence of a per-stream send deadline.
+HTTP/1 header timing and slow-reader tests do not establish those HTTP/2 cases.
+
+Response-write failure cannot roll back an accepted mutation. A client missing
+a complete validated receipt must use the supported operation/status/replay
+path rather than infer that the command was rejected.
+
+The Rust HTTP client preserves the received HTTP status in `ClientError::ApiError`
+for non-success responses carrying a CBOR error envelope. It does not treat a
+success envelope carried by a non-success HTTP status as an accepted outcome.
+This corrects the earlier loss of error status to zero without changing wire
+schemas. Raw HTTP-caller consumers must handle these responses as errors rather
+than successful returns containing an error envelope.
+
+### Client listener shutdown
+
+The worker's owner supervisor is the single authority that stops client
+listeners after membership-owner termination. Signal handling requests runtime
+shutdown; it does not race a second listener-drain timeout against the
+supervisor. Client connections receive a one-second graceful drain budget,
+then remaining connections are cancelled. This budget begins after owner
+termination, not at signal receipt; the process regression separately requires
+exit within three seconds of SIGTERM while incomplete client requests remain
+open. These are local lifecycle bounds, not cluster convergence deadlines.
+
+A disconnected client must still treat an emitted mutation without a validated
+receipt as potentially accepted and use the documented operation/replay path.
+Listener cancellation does not undo an accepted membership transition.
+
+### Implemented join-material retrieval
+
+`GET /api/v1/cluster/token` requires exactly one worker operator bearer
+credential on every transport, including the same-user Unix socket. Neither
+join nor monitoring credentials authorize retrieval. It returns version-1
+`JoinMaterial`, replacing the imported bare `JoinToken` retrieval response:
+`schemaVersion`, `formationId`, `introducerNodeId`, `introducerFingerprint`,
+`peerEndpoints`, `introducerReady`, and secret `token`. The token is exactly
+64 lowercase hexadecimal characters and redacted from Rust debug formatting;
+serialization deliberately includes it only on this privileged export path.
+The owner reads identity, endpoints and token in one serialized turn. It never
+places secret material in the membership core, gossip or ordinary projections.
+
+Responses use CBOR and no-store. The route shares the 16-request membership-read
+budget and five-second owner deadline; no token or peer endpoint, overload,
+owner loss or timeout returns `503`/`JoinMaterialUnavailable`. Missing/wrong or
+duplicate credentials return `401` without secret output. Config-free workers
+without an explicit peer endpoint cannot provide usable join material.
+
+Executable material reports `introducerReady: true` only for an explicitly
+enabled, initialized standalone or fully caught-up joined introducer with a
+peer endpoint and installed formation token. Incomplete adoption/catch-up still
+withholds readiness and target token export;
+retrieving a token does not itself enable admission. No expiration
+timestamp is fabricated: this PoC token belongs to the current formation and
+is discarded on adoption/leave/restart. Rotation remains unsupported. Operators
+must obtain material over the protected client path and transfer/store it
+privately. The join adapter must verify the exact certificate pin and
+formation before sending the secret to any endpoint candidate; a redirect
+cannot relax that requirement. Retrieval alone is not evidence of that adapter.
+
+The prepared version-1 `JoinRequest` input has `schemaVersion`, `operationId`,
+`formationId` (the expected current source worker formation), and `material`
+(the complete target `JoinMaterial`). It does not imply automatic leave.
+The CLI now validates private JSON material, preserving the pin instead of
+lowering it to the imported token-only `JoinIntent`. The current literal-address
+profile accepts one to eight endpoints of at most 128 bytes each, with unicast
+IPs and nonzero ports; DNS and redirects are not enabled by this input path.
+Readiness is advisory and admission must still re-check gates. The identified
+request executor, operation-status/retry contract and HTTP handler are not yet
+connected; CLI execution explicitly rejects before transmission. The imported
+`JoinIntent`/`JoinRequestAccepted` client methods are not evidence of support.
+
+The bounded local operation tracker now specifies `JoinOperation` version 2:
+`operationId`, historical `sourceFormationId`/`sourceNodeId`, `targetFormationId`
+and tagged `state`, plus required `recoveryReference` (object or explicit null).
+The reference contains `attemptId`, `applicantFingerprint`, `introducerNodeId`
+and `introducerFingerprint`. The owner binds it after pinned handshake during
+the serialized turn that starts admission, before another status request can
+observe that turn. The applicant fingerprint comes from the worker's local
+certificate, not caller-supplied identity. The reference remains immutable
+across retry, adoption and retained historical outcomes. It contains no token;
+the attempt nonce is correlation, not an assigned member ID or authorization.
+Null means no reference was bound and does not independently prove remote
+non-admission. Missing fields and older operation versions are rejected.
+JoinRequest and JoinMaterial remain version 1, and this resource change does
+not change peer ALPN; worker and operator clients must be rebuilt together.
+The reference alone is not a safe-retry procedure. Process restart still loses
+operation history.
+
+#### Issuer admission inspection
+
+`POST /api/v1/membership/admission-inspections` is an authenticated, read-only
+query of the directly addressed issuer, not an admission command or persisted
+resource. Its version-1 CBOR request contains `schemaVersion`, `formationId`
+and the exact `reference` from version-2 join status. It requires the operator
+credential even on Unix; join and monitoring credentials do not authorize it.
+No query parameters, content encoding or `If-Match` are accepted. The request
+is bounded to 4 KiB, shares the 16-request inspection budget, and has a
+five-second handler deadline. Response uses the normal CBOR envelope/no-store
+policy, echoes the request, and names the actual `sourceFormationId` and
+`sourceNodeId`; the report's own `schemaVersion` is 1.
+
+| Tagged `outcome.kind` | Meaning and safe interpretation |
+| --- | --- |
+| `wrongIssuer` | Formation, node or certificate pin differs from the reference. Stop; this process cannot establish that attempt's outcome. |
+| `recordUnavailable` | No retained accepted record for the fingerprint/attempt pair. This is unknown, not proof of refusal, non-insertion or absent exclusion. |
+| `currentMember` with `nodeId` | The retained assignment passes current local membership identity/liveness/exclusion checks. This does not prove current token, source-network authorization, catch-up readiness or successful replay. |
+| `retiredOrRestricted` with `nodeId` | The retained assignment no longer passes those checks. Do not resurrect it or infer permission for a new attempt. |
+
+The serialized owner performs the lookup against its current formation-lifetime
+ledger and membership. It does not allocate an identity, renew a retry budget,
+disclose a digest/token, clear restrictions or modify membership. Reports are
+local-at-request facts, not cluster-wide fences; a stale report never authorizes
+admission. Ledger capacity does not prevent lookup of a retained record.
+HTTP authentication/decoding/overload/timeout failures produce no negative
+admission evidence. The [operator recovery procedure](cluster-admission-recovery.md)
+uses bounded polling and mandatory stop conditions; its complete deliberate
+process-fault acceptance remains outstanding. Clients reject non-`wrongIssuer`
+reports whose source formation/node contradict the referenced issuer, as well
+as any report whose echoed request differs from the query.
+
+#### Join operation phases and retention
+
+JoinOperation phases are `connecting`, `admitting`, `catchingUp`,
+`joined`, `failedBeforeAdmission`, `unresolved`, and `catchUpFailed`; adopted
+phases carry `nodeId`. Processing acceptance is not admission. Catch-up cannot
+change the assigned identity, and possible admission cannot transition to a
+clean pre-admission failure. Unresolved/adopted-but-failed work continues to
+exclude another join pending explicit recovery.
+
+The selected PoC history bound is 64 accepted join requests per worker process,
+retained across formation changes with no eviction or persistence across restart.
+Full history rejects new IDs but still serves exact retries. Matching uses a
+domain-separated SHA-256 digest of canonical typed request serialization;
+records retain no admission token. Same ID/different request conflicts; exact
+replay is checked before current-source eligibility so adoption cannot hide its
+accepted outcome. New work requires the expected source formation, standalone
+participation and no active join. This tracker and DTO have unit evidence;
+owner execution, cancellation supervision, authenticated status routes and
+client polling are not yet connected. No public `202` route is claimed yet.
+
+Owner integration now reserves a completion slot on the bounded control lane
+before accepting preparation. New work returns a single-use shell job; exact
+replay returns only status. Dropping that job, including a dropped preparation
+reply, queues a guaranteed pre-admission failure rather than orphaning the
+record. A completed pinned handshake returns through that reserved slot; the
+owner rechecks source generation/formation and validates the ACK before starting
+the core attempt. Emission advances the record to `admitting`, and validated
+adoption records `catchingUp` with the assigned target node ID. Records survive
+adoption and remain replayable. Explicit leave preserves an honest failure or
+uncertain/adopted history while releasing old lifecycle exclusion; it is not
+remote outcome recovery. The real owner/dial test and cancellation tests cover
+this integration. Runtime job deadlines, HTTP routes and client polling still
+remain required before public operation acceptance is enabled.
+
+Runtime execution now owns prepared jobs independently of the requesting client
+future. It retains at most four job tasks, reaps completed tasks before adding
+work, uses the shared dialer, and enforces a 16-second outer job deadline around
+the dialer's 15-second budget. Existing configured peer endpoints are reused;
+without one, an explicit join creates and retains a client-only UDP endpoint
+using the first candidate's address family. Candidate addresses must be usable
+with that bound endpoint. Config-free startup still opens no peer port, and
+this outgoing endpoint is not advertised as a new peer listener. Failed or
+cancelled jobs drop their preparation and record pre-admission failure.
+Shutdown excludes new jobs, aborts/drains owned tasks within a one-second bound,
+then stops the owner and closes the retained endpoint. A runtime test checks
+bad-pin failure, exact replay, unchanged membership and shutdown cleanup.
+Authenticated public submission/status routes and client polling remain unwired.
+
+### Implemented identified join routes
+
+`POST /api/v1/membership/joins` now consumes `JoinRequest`; `GET
+/api/v1/membership/joins/{operationId}` reads its retained `JoinOperation`.
+Both directly target the worker and require exactly one operator bearer
+credential, including on Unix sockets. Requests never relay to another worker.
+POST requires CBOR with no content encoding, bounds the body at 16 KiB, and
+uses the shared 16-mutation request budget. GET uses the 16-read budget.
+Query parameters and `If-Match` are rejected; source preconditions belong in
+the request. Each handler has a five-second deadline through owner response.
+
+POST returns `202` for pending phases or `200` for a replayed terminal record;
+GET returns `200` for a found record. Both use CBOR/no-store, current serving
+`X-Node-Id`, and a `Location` naming the operation resource. Unknown status IDs
+return `404`; invalid input `400`/`415`; stale source `412`; ID conflict or
+ineligible participation `409`; overload/history exhaustion/unavailable outcome
+`503`; handler timeout `504`/`OutcomeUnknown`. Timeout or client disconnect
+does not revoke work already transferred to runtime supervision. Retry the
+same identified body or query status rather than inventing a new operation.
+
+The shared client's join method now accepts the identified DTO and checks
+returned operation/source/target identities. Status reads check the operation
+ID. `orishuctl join` returns the processing record, and `join-status` enables
+explicit polling; neither command substitutes HTTP success for `state.phase`.
+The real CLI journey covers missing credentials, bad-pin failure, polling,
+unknown IDs, stale source, changed-request conflict and exact replay. The
+executable now permits explicit standalone introduction and automatically
+schedules bounded catch-up after adoption. `scripts/check-formation-cli.py`
+exercises A admitting B, B reaching `joined` and introducing C, exact replay,
+three-worker live identity convergence and lock/unlock through different entry
+nodes. The runtime test separately verifies withheld readiness/target token
+export while catch-up is incomplete, cancellation and automatic retry.
+Interrupted-admission recovery and full lifecycle/fault conformance remain
+outstanding; a successful happy path does not close formation acceptance.
+
+### Implemented node inspection
+
+`GET /api/v1/cluster/nodes/{nodeId}` returns `NodeInspection`, not the imported
+`NodeManifest`. This changes the in-progress client DTO/API contract: clients
+expecting manifests must update. The optional query is exactly
+`source=indirect`; omission has the same meaning. Direct/best-effort and other
+query forms return `400`/`UnsupportedSource`, not a silent source substitution.
+
+The version-1 resource contains `schemaVersion`, `formationId`, `sourceNodeId`,
+`view: localAtRequest`, `nodeId`, `workerName`, `certFingerprint`, `liveness`,
+`incarnation`, record `version`, advertised `accepts` flags, `peerEndpoints`
+and `clientEndpoints`. Unknown schema versions are rejected; the client checks
+the returned target ID against the request. Absent connection/storage statistics
+are omitted. Advertised acceptance flags do not prove introducer readiness.
+
+Inspection performs one indexed lookup at a serialized owner boundary with no
+peer IO. Remote facts may be stale; this does not prove target reachability or
+global convergence. Responses use CBOR/no-store, source `X-Node-Id`, and the
+same local-read/remote-operator authentication policy as summary reads. Unknown
+targets return `404`/`UnknownNode`, owner unavailability/overload returns `503`,
+and the five-second deadline returns `504`. At most 16 HTTP inspections await
+the owner across client listeners, using its bounded 16-entry control lane.
+Record fields retain membership validation bounds. Removed records absent
+from membership are not fabricated from tombstones.
+
+### Implemented membership listing
+
+`GET /api/v1/cluster/nodes` returns version-1 `MembershipPage` containing
+`formationId`, `sourceNodeId`, at most four `members` (the inspection resource
+above), and optional `nextAfter`. Records are ordered by assigned node ID.
+Continue with URL-encoded `formationId` and `after=nextAfter`; `after` is an
+exclusive key, not an offset. A continuation requires the formation ID and a
+changed formation returns `412`/`StaleFormation`. Unknown/duplicate parameters,
+invalid identities and queries over 1,024 bytes return `400`. There is no
+server-side cursor storage or expiry history. A missing/deleted cursor key
+still starts at the next larger ID; exhaustion returns an empty terminal page.
+
+Each page is a separate current local read, not a retained snapshot. Concurrent
+changes may omit newly inserted earlier IDs or combine facts from different
+read boundaries. Restart listing when a newer view is needed; never use this
+operator listing as admission-state catch-up or proof of global convergence.
+Paging performs O(log members + 4 records) owner work. Listing shares inspection
+authentication, concurrency and deadline bounds, CBOR/no-store, and source
+headers. Tombstones are not synthesized as members.
+
+The shared client's `list` now returns inspection resources rather than imported
+manifests. It collects at most 4,096 records and 16 MiB of endpoint text under a
+30-second overall deadline, additionally respecting per-request timeouts.
+It rejects oversized pages, non-advancing IDs/cursors and changed formation or
+source identities rather than returning a partial success. Name (exact), state
+(case-insensitive) and role filters apply locally after bounded collection.
+`introducer`/`worker` select advertised peer/work acceptance flags, not verified
+readiness; unknown state/role filters fail explicitly. `ls` emits these same
+resources in JSON/YAML. These limits are the current PoC profile, not a fleet
+scalability claim.
+
+### Target transport
+
 The client protocol is **HTTP/3** ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)) over QUIC ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000)).
 
 HTTP/3 was chosen because:
@@ -41,7 +416,7 @@ For development and debugging convenience, workers may optionally support `appli
 
 ## Worker operational diagnostics
 
-Status: **accepted design; routes not implemented**
+Status: **loopback routes implemented behind `observability`; remote security and full conformance pending**
 
 [ADR 0017](adr/0017-worker-operational-observability.md) specifies a dedicated,
 feature-gated HTTP/1.1-compatible listener, configured independently of client
@@ -55,9 +430,28 @@ and peer admission. It serves this process, never a relayed cluster view:
 | `GET /startupz` | `200` | `503` | Bounded plain-text status/reason |
 
 These responses do not use CBOR, the client response envelope, or require an
-assigned `X-Node-Id` during startup. The implementation task finalizes content
-types, error/method behavior, resource limits and configuration before handlers
-ship. Probe meaning is defined in the [observability guide](orishu-observability.md).
+assigned `X-Node-Id` during startup. Metrics use
+`text/plain; version=0.0.4; charset=utf-8`; probes use plain text. Responses
+disable caching. Query parameters return 400; unknown routes return 404, and
+no client mutation/token routes are mounted. The current catalogue is three
+health gauges, six process-lifetime owner counters, eight bounded-lane slot
+gauges and six client-service instruments, all unlabelled, with
+constant-size snapshots and less than 6 KiB of text. Client service accounting
+is enabled only with runtime metrics; it excludes diagnostics, pre-service
+transport rejection and response delivery. Handler success is not command
+acceptance. See the
+[metric catalogue](orishu-observability.md#implemented-local-surface) for event
+semantics, restart behavior and retained values after owner closure.
+The `observability.metrics` startup setting selects `/metrics` independently
+of `observability.probes`, which selects all three health routes together.
+Both groups default on when the listener is enabled; disabled routes return
+404. Route selection grants no client/peer admission authority and does not
+permit remote exposure. An enabled listener with both groups disabled is
+rejected at configuration validation.
+The dedicated listener allows sixteen connections and inherits the formation
+HTTP header/stream/idle/write bounds above; it does not share mutation permits.
+Non-loopback binds currently fail startup, including wildcard addresses.
+Probe meaning is defined in the [observability guide](orishu-observability.md).
 
 Loopback diagnostic reads may be unauthenticated. Remote metrics require the
 ADR's TLS and monitoring-only access policy; these credentials cannot authorize
@@ -138,7 +532,12 @@ List endpoints that may return large result sets support cursor-based pagination
 
 ### Optimistic concurrency
 
-Optimistic concurrency applies to the **versioned, operator-controlled resources**: the membership lock (`POST`/`DELETE /cluster/lock`), the workload spec (workload replacement) and workload run-state changes (the `PATCH` on the workload resource that sets `runState`). For these, a read (`GET`) returns an opaque `ETag` header derived from the resource's current version. A client that wants optimistic concurrency sends that validator back in an `If-Match` header on the subsequent write. Successful state-changing responses may also return an updated `ETag` when they carry the updated resource representation. `ETag` values are opaque validators, not a serialized `VersionTuple`.
+The planned optimistic-concurrency mechanism for versioned workload resources
+uses an opaque `ETag` and `If-Match`. The formation PoC lock contract below
+instead requires an explicit formation precondition and operation identity;
+it does not yet implement policy compare-and-swap or ETags and rejects
+`If-Match` rather than silently ignoring it. A local policy version is not a
+global convergence fence.
 
 **Validator discovery is explicit, never hidden client state.** The validator is always obtained from a prior read (or a write response that returns one); the client carries it back deliberately. There is no implicit session memory of versions.
 
@@ -186,8 +585,12 @@ These endpoints manage the local worker's membership status and are not routed o
 
 | Method | Path | Tier | Description |
 |---|---|---|---|
-| `POST` | `/membership` | 2 | Command the local worker to join an existing cluster. Returns 409 Conflict if already in a cluster. |
-| `DELETE` | `/membership` | 1 (local) / 2 (remote) | Command the local worker to leave its current cluster and return to standalone. Idempotent. |
+| `POST` | `/membership/joins` | 2, including local | Identified join submission; processing is not completed admission. |
+| `GET` | `/membership/joins/:operationId` | 2, including local | Retained join-operation status. |
+| `POST` | `/membership/leaves` | 2, including local | Identified local departure with retained historical receipt. |
+
+The imported `POST`/`DELETE /membership` shapes below are not implemented by
+the formation PoC. In particular, there is no unauthenticated local leave exception.
 
 ### Admin API
 
@@ -198,9 +601,7 @@ Administrative resources are cluster-scoped, not operator-owned. In the MVP, any
 | Method | Path | Tier | Description |
 |---|---|---|---|
 | `GET` | `/cluster` | 1 (local) / 2 (remote) | Cluster summary. |
-| `GET` | `/cluster/lock` | 2 | Get membership lock state. |
-| `POST` | `/cluster/lock` | 2 | Lock cluster membership. Idempotent. |
-| `DELETE` | `/cluster/lock` | 2 | Unlock cluster membership. Idempotent. |
+| `POST` | `/cluster/lock` | 2 | Identified lock/unlock intent; see the formation contract below. Read current lock through `GET /cluster`. |
 | `GET` | `/cluster/events` | 1 (local) / 2 (remote) | List recent cluster events. |
 | `GET` | `/cluster/logs` | 1 (local) / 2 (remote) | Fetch recent log lines. |
 | `GET` | `/cluster/audit-log` | 2 | List administrative audit events. |
@@ -370,13 +771,19 @@ observation.
 }
 ```
 
-`engines` advertises the workload runtime engines and lifecycle identifiers the node can actually execute, so the cluster can check workload compatibility before a run. A node must advertise only engines whose complete security contract it implements. The admitted profile uses `wasm-component` with `orishu.workload/v1`; another engine requires a new architectural decision and must not be advertised merely because it can mimic the function signatures. See [Runtime engine](./protocol-workload.md#runtime-engine).
+`engines` advertises the workload graph profiles, runtime engines and component
+lifecycles the node can actually enforce, so the cluster can check compatibility
+before a run. The admitted design uses graph profile
+`orishu.workload-graph/v1`, engine `wasm-component`, and component lifecycle
+`orishu.component/v1`. Another engine requires a new architectural decision.
+See [Runtime engine](./protocol-workload.md#runtime-engine).
 
 #### EngineCapability
 ```json-schema
 {
-  "engine":           <string>,   -- "wasm-component" in the admitted profile
-  "runtimeLifecycle": <string>    -- e.g. "orishu.workload/v1"; opaque compatibility identifier
+  "engine":                 <string>,
+  "componentLifecycles":    [<string>],
+  "workloadGraphProfiles":  [<string>]
 }
 ```
 
@@ -531,7 +938,54 @@ This endpoint is only available on a standalone worker (one that has not yet joi
 
 ---
 
-### `DELETE /membership`
+### Implemented `POST /membership/leaves`
+
+The formation PoC uses this identified resource instead of the imported empty
+`DELETE /membership` command below. All requests require the addressed worker's
+operator credential, including Unix-socket requests. Join and monitoring
+credentials do not authorize departure. No compute drain or artifact transfer
+is implemented by this membership-only operation.
+
+The CBOR request has exactly `schemaVersion: 1`, `operationId` (the same bounded
+ID type as joins/locks), and `formationId` (the source worker's current formation).
+The owner rechecks the formation and queued generation before acceptance. It
+refuses `joining`, `joinUnresolved` and shutdown states with `409`; an ambiguous
+admission must be resolved rather than hidden by another identity change.
+Joined, catching-up and ejected workers can leave. A standalone formation of
+one is a recorded no-op; a standalone introducer with other member records
+leaves normally. The membership lock does not forbid voluntary departure.
+
+`200` returns a `LeaveReceipt` with `schemaVersion`, `operationId`,
+`previousFormationId`, `previousNodeId`, `changed` and `current` (the synthetic
+summary at local acceptance). Changed departures create fresh random formation/
+node IDs and a fresh join token, retain the certificate and local operator
+credential, and reuse the display cluster label. No tombstone is written.
+Old work is generation-fenced; a best-effort old-identity departure announcement
+does not prove remote receipt. Survivors converge through announcement or SWIM.
+
+The worker retains at most 64 successful leave receipts, including no-ops, for
+its process lifetime, across adoption/leave/ejection. It never evicts them into
+reexecution. Exact typed request replay returns the historical receipt before
+checking current formation; changed input under a retained ID returns `409`.
+New requests with stale formation return `412`; a full history returns `503`.
+Rejected requests consume no receipt slot. Restart loses this history and
+starts a fresh formation, so old source preconditions cannot apply there.
+The `current` field in a replay is historical, not a fresh status read.
+
+This route shares the 16-request mutation budget with joins/locks, checks
+authorization before reading a body, accepts at most 4 KiB bounded CBOR and
+uses a five-second whole-handler deadline. Duplicate credentials return `401`;
+invalid bodies/schema return `400`; unsupported encoding/media returns `415`.
+`If-Match` is unsupported (`400`). Owner loss/overload returns `503`; timeout
+returns `504 OutcomeUnknown`. A client disconnect or timeout does not revoke
+an accepted operation: retry the identical body to recover it. Responses use
+CBOR, no-store and a current serving-node header where the owner is available.
+
+`orishuctl leave --formation-id SOURCE --operation-id ID` targets the worker
+selected by `--host`, requires its operator-token file, and prints the receipt.
+Only local departure is acknowledged; poll surviving workers separately.
+
+### Imported `DELETE /membership` (not implemented by the formation PoC)
 
 Command the local worker to gracefully leave its current cluster and return to standalone. The worker drains in-flight computation, transfers result data to replicas, announces `Leave` to peers via the peer protocol, drops its cluster-assigned ID (see [Node identity](orishu-runtime-design.md#node-identity)), and becomes a standalone cluster of one.
 
@@ -594,60 +1048,64 @@ The response follows the uniform `Manifest<Spec, Status>` structure used across 
 
 ### `GET /cluster/lock`
 
-**Response headers:**
-- `ETag: "<opaque>"` — current validator for the membership lock resource.
-
-**Response `200 OK`:**
-```
-{
-  "data": {
-    "locked":  <bool>,
-  }
-}
-```
+Not exposed by the formation PoC. Read `membershipLocked` in the current
+`GET /cluster` summary; the shared client's `is_lock()` uses that projection.
 
 ### `POST /cluster/lock`
 
-Lock cluster membership. Idempotent — succeeds even if already locked.
+Set the desired lock state with a required version-1 `LockRequest` CBOR body:
 
-The membership lock is a cluster-scoped resource, not a lock owned by the administrator who created it.
-
-**Request headers:**
-- `If-Match: "<opaque>"` — optional optimistic concurrency precondition.
-
-**Request body (optional):**
-```
-{
-  "locked": <bool | null>      -- desired lock state: must be true, or omitted
-}
+```json
+{"schemaVersion":1,"operationId":"lock-001","formationId":"formation-a","locked":true}
 ```
 
-**Response headers:**
-- `ETag: "<opaque>"` — validator for the updated membership lock resource.
+Use `locked: false` to unlock. `operationId` is 1–64 ASCII letters, digits,
+underscores or hyphens. All fields are required; unknown/duplicate fields and
+unsupported versions are rejected. The exact endpoint is the addressed worker:
+the shared client does not follow HTTP redirects. Every request authenticates
+with that worker's operator credential before its body is read. The body limit
+is 4,096 bytes, with the bounded CBOR scanner's structural limits; compression
+is not accepted. At most 16 mutation handlers across all client listeners hold
+permits, without a permit wait queue. Body reading and owner response share a
+five-second deadline; the owner also uses its bounded 16-entry control lane.
 
-**Response `200 OK`:**
-```
-{
-  "data": {
-    "locked":  true,
-  }
-}
-```
+The owner checks formation and lifecycle generation when consuming the command.
+It accepts policy changes only while standalone or joined. A `200` response
+contains `ResponseData::LockReceipt`: `schemaVersion`, `operationId`,
+`formationId`, `sourceNodeId`, `locked`, and `policyVersion` (null for a no-op
+against the initial unlocked policy). This is historical **local acceptance**,
+not current state, a lock owned by this administrator, or global convergence.
+Read a fresh summary to inspect current state. Any authenticated operator may
+submit a newer intent; the replicated policy's ordering determines convergence.
 
-**Response `412 Precondition Failed`:** returned if `If-Match` was provided and the current validator does not match.
+Retry the exact same request against the same worker. It returns the original
+outcome without reapplying the intent, even after a later unlock. Reusing an ID
+for different contents returns `409 OperationConflict`. Results, including
+domain rejections, are retained for this worker's current formation lifetime,
+up to 1,024 distinct operation IDs. When full, new IDs return
+`503 OperationHistoryFull`; existing retries still work. There is no time-based
+eviction that could turn a delayed retry into a new policy change. History
+expires on formation change or restart, when the old formation precondition
+also becomes invalid. This is an explicit PoC throughput limit, not a durable
+audit log or an unbounded production operation service.
+
+`412 StaleFormation` means no mutation of the replacement formation.
+`409 ParticipationUnavailable` or `PolicyRejected` reports a local refusal.
+`401 Unauthorized`, `400 InvalidRequest`/`InvalidBody`, `415 UnsupportedMediaType`
+and `503 Overloaded`/`OwnerUnavailable` cover admission failures.
+`If-Match` is rejected as `400 UnsupportedPrecondition` until policy
+compare-and-swap is specified. A timeout or owner failure after submission
+returns `504` or `503 OutcomeUnknown`: the command may have committed. A lost
+connection does not cancel it. Recover by replaying the same ID and body,
+never by assuming failure or automatically inventing another ID. No separate
+operation-polling endpoint is required for these synchronous local transitions;
+asynchronous join/catch-up uses the identified join resources described above.
 
 ### `DELETE /cluster/lock`
 
-Unlock cluster membership. Idempotent — succeeds even if already unlocked.
-
-In the MVP, any authenticated Tier 2 administrator may unlock this resource, even if another administrator originally locked it.
-
-**Request headers:**
-- `If-Match: "<opaque>"` — optional optimistic concurrency precondition.
-
-
-**Response `204 No Content`:**
-**Response `412 Precondition Failed`:** returned if `If-Match` was provided and the current validator does not match.
+Not exposed by the formation PoC. Use the identified POST with `locked: false`;
+the imported unconditioned DELETE contract must not bypass retry identity or
+the formation precondition.
 
 ---
 
@@ -995,7 +1453,8 @@ Evaluate a workload manifest against the current cluster without loading, distri
 
 Each entry in `nodes` reports whether that node can run the workload. For ineligible nodes, `reasons` contains one or more human-readable explanations, for example:
 - `"missing accelerator: gpu.nvidia — node has none"`
-- `"unsupported runtime lifecycle: requires orishu.workload/v1"`
+- `"unsupported workload graph profile: requires orishu.workload-graph/v1"`
+- `"unsupported component lifecycle: requires orishu.component/v1"`
 - `"unsupported integration scheme: package does not expose velocity-verlet"`
 - `"unsigned artifact rejected by cluster trust policy"`
 - `"insufficient memory: requires 16 GiB, node has 8 GiB"`
@@ -1031,9 +1490,23 @@ Each entry in `nodes` reports whether that node can run the workload. For inelig
     "kind":       "Workload",
     "metadata":   <ObjectMeta>,
     "spec": {
-      "domainType": <string>,
-      "model": {
-        "image": { "uri": <string> }
+      "compute": {
+        "workloadGraphProfile": "orishu.workload-graph/v1",
+        "components": [{
+          "instanceId": <string>,
+          "artifact": <ArtifactDescriptor>,
+          "pluginId": <string>,
+          "modelId": <string>,
+          "schemaId": <string>,
+          "engine": "wasm-component",
+          "lifecycle": "orishu.component/v1",
+          "roles": [<string>, ...],
+          "stateOwnership": [<string>, ...],
+          "limits": <map>
+        }, ...],
+        "channels": [<StateChannelDescriptor>, ...],
+        "stepPlan": <StepPlan>,
+        "placementConstraints": [<map>, ...]
       },
       "domain": {
         "dimensions": <uint8>,
@@ -1050,16 +1523,12 @@ Each entry in `nodes` reports whether that node can run the workload. For inelig
         }
       },
       "inputs": {
-        "geometry": {
-          "mesh": { "uri": <string> }
-        },
-        "initialConditions": {
-          "image": { "uri": <string> }
-        }
+        "geometry": <ArtifactDescriptor>,
+        "initialConditions": [<ArtifactDescriptor>, ...]
       },
       "requirements": {
         "hardware":          <map>,
-        "runtimeLifecycle": <string>,
+        "workloadGraphProfile": <string>,
         "executionProfile":  <map>
       }
     },
@@ -1078,9 +1547,9 @@ Each entry in `nodes` reports whether that node can run the workload. For inelig
 ```
 
 `spec.domain.discretization.time.integration.scheme` is a workload-defined
-identifier selected from the closed set the referenced workload component
-supports. `parameters` carries any scheme-specific stepping configuration the
-component exposes. If a component supports only one fixed integration scheme, the
+identifier selected from the closed set the admitted component graph and step
+plan support. `parameters` carries any scheme-specific stepping configuration
+the participating components expose. If the graph supports only one fixed integration scheme, the
 `integration` field may be omitted or `null`; if the package exposes multiple
 schemes, the selected one must be declared explicitly.
 

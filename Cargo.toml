@@ -20,7 +20,9 @@ dhat = "0.3.3"
 glam = { version = "0.33", features = ["bytemuck"] }
 iced = "0.14.0"
 kagami-catalog = { path = "crates/kagami-catalog" }
+kagami-document = { path = "crates/kagami-document" }
 kagami-renderer = { path = "crates/kagami-renderer" }
+kagami-session = { path = "crates/kagami-session" }
 orishu = { path = "crates/orishu" }
 orishu-identity = { path = "crates/orishu-identity" }
 orishu-membership = { path = "crates/orishu-membership" }

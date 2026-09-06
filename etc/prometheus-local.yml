@@ -1,0 +1,11 @@
+# Local development example; both processes must share the host network.
+# No remote worker exposure, credentials, or Prometheus self-scrape.
+global:
+  scrape_interval: 1s
+  scrape_timeout: 1s
+rule_files:
+  - prometheus-worker-alerts.yml
+scrape_configs:
+  - job_name: orishu-worker
+    static_configs:
+      - targets: ['127.0.0.1:9168']

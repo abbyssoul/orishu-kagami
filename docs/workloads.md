@@ -11,7 +11,7 @@ In compact form:
 ```text
 workload = compute definition
          + initial conditions
-         + pinned compute kernel
+         + digest-pinned executable components
          + required input artifacts
          + execution requirements
 ```
@@ -24,42 +24,83 @@ is not the results produced by that run.
 | Part | Meaning |
 | --- | --- |
 | Manifest | The root definition: identity and metadata, domain and discretization, parameters, requested model, inputs, execution profile, and references to every required artifact. |
-| Workload component | The content-addressed WebAssembly Component implementing the governing equations through Orishu's sandboxed workload lifecycle. This is the compute kernel executed by workers. Older documents may call it the workload package; it is not a distribution bundle. |
-| Initial conditions | The state at the initial simulation boundary: for example fields, particles, sources, geometry state, or a compatible checkpoint used to resume. |
-| Other inputs | Immutable geometry, meshes, material tables, accelerator data, schemas, or other artifacts required by this workload profile. |
+| Component graph | Bounded instances of digest-addressed WebAssembly Components plus their typed channels, deterministic step plan, ownership and placement constraints. Numerical kernels are implementation inside those components. |
+| Initial conditions | The state at the initial simulation boundary: for example fields, composed particles and sources, geometry state, or a compatible checkpoint used to resume. |
+| Other inputs | Immutable emitter spawn blueprints, geometry, meshes, material tables, accelerator data, schemas, or other artifacts required by this workload profile. |
 | Requirements | The runtime lifecycle, numerical/determinism profile, hardware needs, resource limits, and compatibility rules workers must satisfy. |
 
-The manifest is declarative. It says what must be run and with which inputs;
-the workload component supplies the executable state transition. Orishu supplies
+The manifest is declarative. It says which component instances must run, how
+their typed phases compose, and with which inputs. The components supply the
+scientific state transitions. Orishu supplies
 the infrastructure around it: sandboxing, partitioning, halo exchange,
 committed time, networking, checkpoint/result storage, and provenance. See the
 [workload lifecycle contract](./protocol-workload.md).
 
-The **compute definition** is the declarative part: domain, fields and physical
-model selection, discretization, stepping policy, parameters, and requested
-outputs. It is distinct from the executable component. The initial profile
-loads one root lifecycle component for a workload. That component may be built
-from reusable numerical kernels or composed components, but the complete code
-dependency graph is pinned before submission; Orishu never chooses executable
-physics implicitly from a domain or template name.
+The **compute definition** is the declarative part: domain, selected field
+families and computational models, discretization, stepping policy, parameters,
+and requested outputs. It is distinct from executable components. It declares
+a bounded component-instance graph, typed state/contribution channels and a
+deterministic step plan which Orishu validates and orchestrates. The complete
+code graph is digest-pinned before submission and Orishu never chooses
+executable physics implicitly from a domain or template name. See
+[ADR 0024](./adr/0024-orishu-orchestrates-a-workload-component-graph.md).
+
+## How the component graph advances one boundary
+
+Each component instance owns or transforms only the typed state declared by
+its model contract. For example, an electromagnetic component owns its field;
+a coupling/projection phase consumes that field plus charged entity properties
+and emits force contributions; Dynamics consumes admitted forces/impulses and
+is the sole writer of candidate particle velocity and position. An emitter may
+independently propose bounded new entities. Other plugins can introduce new
+state and transformations through the same versioned channel/phase mechanism.
+
+The step plan names these dependencies and deterministic reductions. Orishu
+supplies committed inputs, isolates outputs, invokes ready nodes, performs
+reliable transfers between differently placed producer/consumer partitions,
+validates the assembled candidate and commits it atomically. Components cannot
+call one another or share ambient memory. A failure in any required invocation
+leaves the prior boundary authoritative.
+
+Placement is runtime state, not workload identity. The manifest records only
+scientific placement constraints—such as required accelerator capability,
+compatible partition mapping, or mandatory co-location/separation. Orishu may
+co-locate every instance for a small run or distribute field, projection and
+entity work across eligible nodes without changing the component graph or its
+scientific ordering.
 
 ## From simulation plugin to workload
 
 A simulation plugin is an authoring-time package that combines declarative
-Kagami schemas with a pinned workload component. It makes a model available for
+Kagami schemas with digest-pinned workload component code. It makes a model available for
 researchers to select and configure; it is not itself a running workload and
 its installation location is not workload identity.
 
 When Kagami compiles an experiment, it translates the selected plugin's model,
 field, parameter, initial-condition, and observation choices into the workload
-manifest and adds the exact required schemas and workload component to the
+manifest and adds the exact required schemas and component artifacts to the
 digest-addressed closure. Orishu sees only that immutable workload. It neither
 consults Kagami's installed-plugin inventory nor resolves a mutable plugin name.
 
 Gravity and electrodynamics shipped with Kagami follow this same path as
-third-party plugins. Numerical kernels are implementation details used to build
-the workload component; object-catalog templates are reusable authored data and
-cannot choose the component. See [Simulation plugins](./simulation-plugins.md).
+third-party plugins. Numerical kernels are implementation details used inside
+workload components; object-catalog templates are reusable authored data and
+cannot choose executable instances. See [Simulation plugins](./simulation-plugins.md).
+
+Object behaviour remains explicit in the compiled component composition:
+field-model instances own their field state, coupling/projection phases produce
+typed entity contributions, and Dynamics alone integrates particle kinematics.
+Orishu mediates the admitted step plan and may distribute independent component
+partitions without changing workload identity or scientific ordering.
+If an authored emitter selects catalog templates, its authoring command first
+materializes their complete compositions into bounded blueprints in the
+experiment. Kagami compilation revalidates and copies those blueprints into the
+workload closure without consulting the current catalog.
+Workers never resolve catalog paths or mutable template names. Spawned objects
+are deterministic run state, and checkpoint state retains the emitter counters
+needed to avoid loss or duplication across restart. See
+[ADR 0020](./adr/0020-compose-object-behaviour-through-plugin-components.md)
+and [ADR 0021](./adr/0021-capture-particle-emitter-recipes-in-workloads.md).
 
 ## From experiment to results
 
@@ -109,8 +150,8 @@ tags such as `latest`, unpinned URLs, local absolute paths, and “whatever this
 server returns now” are not reproducible workload dependencies.
 
 The **workload closure** is the root manifest plus every artifact reachable
-from its descriptors. Two workloads may therefore share the same workload
-component or underlying kernel blobs while using different initial conditions.
+from its descriptors. Two workloads may therefore share component artifacts or
+underlying kernel blobs while using different graphs or initial conditions.
 Workers that already hold those code blobs transfer only the new manifest and
 missing input blobs.
 
