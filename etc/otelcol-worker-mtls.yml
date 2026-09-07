@@ -1,0 +1,13 @@
+# Overlay for otelcol-worker-local.yml, pinned to official otelcol 0.160.0.
+# Run the collector from a private directory containing collector-tls/.
+# These nonempty paths are intentional: an empty client_ca_file disables mTLS.
+# Do not substitute an optional environment variable for that path.
+receivers:
+  otlp:
+    protocols:
+      http:
+        tls:
+          cert_file: collector-tls/server.crt
+          key_file: collector-tls/server.key
+          client_ca_file: collector-tls/client-ca.crt
+          min_version: "1.3"

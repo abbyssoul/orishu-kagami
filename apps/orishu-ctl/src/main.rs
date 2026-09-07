@@ -814,12 +814,12 @@ fn load_manifest(source: &str) -> Result<workload::Manifest, Box<dyn std::error:
     let label = if source == "-" { "<stdin>" } else { source };
     let manifest = if source == "-" {
         let reader = std::io::BufReader::new(std::io::stdin().lock());
-        workload::Manifest::from_reader(reader)
+        workload::from_reader(reader)
     } else {
         let file = std::fs::File::open(source)
             .map_err(|e| format!("failed to open manifest file '{source}': {e}"))?;
         let reader = std::io::BufReader::new(file);
-        workload::Manifest::from_reader(reader)
+        workload::from_reader(reader)
     }
     .map_err(|e| format!("failed to parse manifest '{label}': {e}"))?;
     Ok(manifest)

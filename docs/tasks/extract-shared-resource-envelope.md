@@ -1,6 +1,13 @@
 # Extract the shared Kubernetes-style resource envelope
 
-Status: **ready; the catalog prerequisite for the Kagami migration is accepted**
+Status: **implemented and accepted**. `crates/orishu-resource` owns the
+envelope, both consumers are migrated, and the verification findings recorded
+below are resolved and covered by regression tests.
+
+The structural convention is documented once in
+[the shared resource envelope](../resource-envelope.md). What was implemented,
+what changed on the wire, and what is deliberately still open are recorded in
+[Implementation record](#implementation-record) below.
 
 Related decisions:
 [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md),
@@ -35,9 +42,12 @@ like Kubernetes. The shared shape makes resources familiar to read, print,
 save, and inspect; it does not create a Kubernetes API server, CRD mechanism,
 generic CRUD semantics, or a universal resource authority.
 
-## Current state
+## Starting state
 
-`crates/orishu/src/model/manifest.rs` currently defines:
+This section describes the code as it was before the work landed; see
+[Implementation record](#implementation-record) for what it is now.
+
+`crates/orishu/src/model/manifest.rs` defined:
 
 - unvalidated string `Name` and `ID` wrappers;
 - an Orishu-oriented `ObjectMeta`;
@@ -273,3 +283,163 @@ Do not revive the historical field spellings where current ADR 0013 and
 - Defining experiment or plugin resources before their authority and schema
   tasks are accepted.
 - Changing current API/wire formats merely to resemble Kubernetes more closely.
+
+## Implementation record
+
+### What landed
+
+`crates/orishu-resource` owns `Resource<M, S, T = NoStatus, P = AllowUnknown>`,
+`ResourceHeader`, the bounded `ApiVersion`/`Kind` new-types, and structural
+errors only. It depends on `serde` and nothing else.
+
+- `crates/orishu/src/model/manifest.rs` keeps `ObjectMeta`, `Name`, `ID`,
+  `MANIFEST_API_VERSION`, and `ParseError`; `Manifest<T, S>` is now a type
+  alias for the shared envelope over `ObjectMeta`.
+- `crates/kagami-catalog/src/document.rs` keeps `MetadataDocument`,
+  `SpecDocument`, and every value type; `TemplateDocument` is a type alias for
+  the shared envelope with `NoStatus` and `DenyUnknown`. `Envelope` is replaced
+  by `ResourceHeader`.
+
+The unknown-field policy differs by consumer and is preserved exactly: Orishu
+resources accept unknown top-level fields, catalog documents refuse them. That
+required hand-written serde on the envelope, since `deny_unknown_fields` cannot
+be conditional in a derive.
+
+### Wire compatibility
+
+Byte-compatible, and pinned by fixtures:
+
+- Workload, cluster, node, checkpoint, and result encodings —
+  `crates/orishu/tests/resource_wire.rs` with golden JSON and YAML.
+- All 48 shipped `etc/catalogs` templates' canonical fingerprints —
+  `crates/kagami-catalog/tests/fixtures/shipped_fingerprints.txt`, captured
+  before the catalog migration and unchanged after it.
+- The hand-written serde against the two derives it replaced —
+  `crates/orishu-resource/tests/envelope.rs` keeps byte-for-byte copies of both
+  previous definitions and asserts identical encoding, decoding, and
+  accept/reject behaviour.
+
+Intentional, documented changes:
+
+- `cluster::manifest` and `node::manifest` emit `kind: "Cluster"` and
+  `kind: "Node"` instead of the previous placeholder `kind: "()"`. `"Cluster"`
+  is what the client protocol already documented; `NODE_MANIFEST_KIND` already
+  existed but was unused. Nothing deserializes or validates these kinds, and
+  no worker constructs either resource.
+- A syntactically malformed discriminator (`apiVersion: "@@@"`, an oversized
+  `kind`) is now a decode error rather than a discriminator mismatch. Both
+  were already errors; only the variant changed.
+- `ParseError::InvalidResource` carries an `UnexpectedDiscriminator` rather
+  than two bare strings, so its message reports the caller's expected pair
+  instead of a hard-coded `orishu.dev/v1` / `Workload`.
+
+### Source-compatibility notes
+
+Moving the envelope into another crate makes an inherent `impl` on the alias
+illegal (E0116), so the following became free functions in their owning module:
+
+| Before | After |
+| --- | --- |
+| `workload::Manifest::{parse, parse_bytes, from_reader}` | `workload::{parse, parse_bytes, from_reader}` |
+| `cluster::Manifest::new(name, spec)` | `cluster::manifest(name, spec)` |
+| `TemplateDocument::new(metadata, spec)` | `kagami_catalog::document::new(metadata, spec)` |
+
+`ObjectMeta::new` is public and infallible; it previously returned
+`Result<_, Infallible>`.
+
+### Still open, deliberately
+
+- **`metadata.id` versus `metadata.uid`.** The implementation serializes `id`;
+  `docs/protocol-client.md` documents `uid`. Current wire behaviour is
+  preserved and the divergence is now noted in the protocol document.
+  O-API-SHAPE owns the reconciliation.
+- **Canonical workload identity.** `checkpoint::Record` and `result::Record`
+  still carry workload provenance as `manifest::Name` / `manifest::ID` under
+  the `workloadName` / `workloadId` spellings. They were audited as workload
+  provenance — not formation, node, run, or artifact identity — and pinned by
+  fixture. S-WORKLOAD owns replacing them with a canonical workload identity.
+- **Bounded Orishu parsing.** `workload::from_reader` is still unbounded, as
+  it was before. `orishu-resource` deliberately offers no parser, so a
+  network-facing caller must supply its own byte and nesting limits. Tracked
+  with the workload admission path rather than resolved here.
+
+## Verification review — 2026-09-07
+
+The extraction, consumer migrations, dependency boundary, catalog
+fingerprints, and Orishu wire fixtures were reviewed and their focused tests
+pass. One acceptance blocker and one documentation/test refinement remain:
+
+1. `ApiVersion::new` and `Kind::new` currently accept `impl Into<String>` and
+   call `into()` before `check`. Passing an untrusted borrowed `&str` therefore
+   allocates and copies the entire value before enforcing `MAX_LEN`, contrary
+   to this task's hostile-input rule and the public rustdoc claim that the
+   borrowed value is checked first. Validate a borrowed view before creating
+   an owned string; retain the allocation-free rejection path in `TryFrom<&str>`
+   and avoid an unnecessary second allocation for an already-owned valid
+   `String`. Add a regression test or an API-shape assertion that makes the
+   ordering evident rather than testing only the eventual error variant.
+2. `NoStatus` says any supplied `status` is refused, but the default permissive
+   `Resource<M, S>` accepts an explicit `status: null` as `None`; only
+   `DenyUnknown` currently refuses that spelling. Decide and document the
+   intended generic rule, then test both permissive and strict no-status
+   envelopes. The migrated catalog remains correct because it uses
+   `DenyUnknown` and its non-null and null cases already pass.
+
+After these are addressed, rerun the focused resource, Orishu wire/client,
+catalog fingerprint, clippy, doc-test, and documentation checks recorded by
+the task. The deliberately deferred `metadata.id`/`metadata.uid`, canonical
+workload identity, and bounded workload-admission parser remain owned by their
+named downstream work packages and do not block S-RESOURCE acceptance.
+
+### Review resolution — 2026-09-07
+
+Both findings are addressed.
+
+1. **Discriminator bounds now precede allocation.** `ApiVersion::new` and
+   `Kind::new` take `V: AsRef<str> + Into<String>` and validate `value.as_ref()`
+   before calling `into`. An oversized or empty value is refused with no
+   allocation; a valid `&str` is copied once, on the success path; a valid
+   owned `String` is moved rather than copied a second time. A syntactically
+   malformed value still allocates exactly one echoed copy, which the length
+   check has already bounded to `MAX_LEN`.
+
+   `crates/orishu-resource/tests/allocation.rs` asserts the ordering directly
+   with a thread-local counting allocator, rather than asserting only the error
+   variant — the previous ordering returned the identical `TooLong`. Restoring
+   the old `into`-then-`check` body makes that test fail
+   (`left: 1, right: 0`), so it is a real regression guard.
+
+2. **The no-value field rule is decided, documented, and tested.** One rule
+   governs both an unrecognised top-level field and an explicit `status: null`:
+   the envelope's unknown-field policy. Permissive resources accept both;
+   strict resources refuse both.
+
+   The permissive half is a compatibility requirement rather than an
+   oversight. Serde decodes `null` into an `Option` field as `None`, so the
+   Orishu manifest this envelope replaced already accepted `status: null`;
+   refusing it here would be a wire change hidden inside the extraction.
+   `both_definitions_reject_and_accept_the_same_documents` pins that against a
+   copy of the original derive.
+
+   `NoStatus`'s rustdoc previously overclaimed and now states the actual
+   matrix: a `status` carrying a value is refused under either policy, because
+   it reaches the uninhabited status type; `status: null` follows the policy,
+   because `Option` resolves null before the status type is consulted.
+   Refusing every spelling needs `NoStatus` *and* the strict policy, which is
+   the pairing `kagami-catalog` uses. All four combinations are tested, plus
+   the same rule on a resource that does have a status type, and the rule is
+   documented in [the shared resource envelope](../resource-envelope.md).
+
+### Acceptance verification — 2026-09-07
+
+The remediation was reviewed against the implementation rather than accepted
+from its completion report. The discriminator constructor checks `AsRef<str>`
+before converting with `Into<String>`; the allocation-counting integration
+test proves rejection of oversized borrowed values allocates nothing and that
+valid owned strings are moved without another allocation. The serialized
+envelope tests cover valued and null status fields under both policies,
+including a resource with a real status type.
+
+Focused resource, Orishu wire/client, catalog/fingerprint, and Clippy checks
+pass. The deliberately deferred identity and workload-admission items above
+remain downstream work and do not keep S-RESOURCE open.

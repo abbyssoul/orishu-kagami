@@ -1,0 +1,15 @@
+apiVersion: orishu.dev/v1
+kind: Workload
+metadata:
+  name: test-workload
+spec:
+  domainType: hydrodynamics
+  domain:
+    dimensions: 2
+    bounds: 1m
+    discretization:
+      space: 0.001m
+      time: 0.015s
+  model:
+    image:
+      uri: oci://registry.example.com/sim/hydro:v1

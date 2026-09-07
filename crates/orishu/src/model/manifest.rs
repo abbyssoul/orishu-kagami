@@ -1,10 +1,48 @@
-use std::{collections::HashMap, str::FromStr};
+//! Orishu's specialisation of the shared resource envelope.
+//!
+//! The structural shape — `apiVersion`, `kind`, `metadata`, `spec`, optional
+//! `status` — lives in [`orishu_resource`], which Kagami's object-template
+//! catalog shares. What stays here is what is Orishu's: the `orishu.dev/v1`
+//! version, the [`ObjectMeta`] schema, and the [`ParseError`] a codec and a
+//! workload-domain validation can produce.
+//!
+//! [`Name`] and [`ID`] are Orishu's descriptive resource label and its
+//! system-assigned identifier. They are deliberately *not* a universal
+//! identity: [`orishu_identity::FormationId`], [`orishu_identity::NodeId`],
+//! and whatever canonical workload identity is chosen remain separate types
+//! with their own authority and scope, and a value of one is never silently
+//! reinterpreted as another.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+/// The shared structural envelope, specialised to Orishu metadata below.
+///
+/// Re-exported so that a consumer migrating from the previous
+/// `orishu::model::manifest` definitions has one import to change rather than
+/// several.
+pub use orishu_resource::{
+    AllowUnknown, ApiVersion, DenyUnknown, Kind, NoStatus, Resource, ResourceError, ResourceHeader,
+    UnexpectedDiscriminator,
+};
+
+/// The only resource format version Orishu currently reads or writes.
 pub const MANIFEST_API_VERSION: &str = "orishu.dev/v1";
 
+/// [`MANIFEST_API_VERSION`] as the validated type the envelope carries.
+///
+/// # Panics
+///
+/// Never: the constant is checked by a unit test in this module.
+pub fn api_version() -> ApiVersion {
+    ApiVersion::from_static(MANIFEST_API_VERSION)
+}
+
 /// Manifested resource name.
+///
+/// A reusable human-readable label, not identity. Uniqueness, where it applies
+/// at all, depends on the resource kind.
 ///
 /// See <https://kubernetes.io/docs/concepts/overview/working-with-objects/names/>.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -43,7 +81,16 @@ impl std::str::FromStr for ID {
     }
 }
 
-/// Descriptive metadata for identifying and organizing workloads.
+/// Descriptive metadata for identifying and organizing Orishu resources.
+///
+/// Orishu's own metadata schema, not a universal one: Kagami's catalog
+/// metadata names a catalog and a template instead, and neither is a
+/// generalisation of the other.
+///
+/// Labels are descriptive. They are not membership identity, they do not
+/// participate in formation identity, and they are not part of a workload
+/// digest.
+///
 /// Based on Kubernetes ObjectMeta:
 /// <https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/object-meta/>.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +100,10 @@ pub struct ObjectMeta {
     pub name: Name,
 
     /// System generated resource name.
+    ///
+    /// Serialized as `id`. The client protocol document spells this field
+    /// `uid`; reconciling the two is O-API-SHAPE's decision, and the current
+    /// wire spelling is preserved until it is made.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<ID>,
 
@@ -68,64 +119,68 @@ pub struct ObjectMeta {
 }
 
 impl ObjectMeta {
-    fn new(name: &str) -> Result<Self, std::convert::Infallible> {
-        Ok(Self {
-            name: Name::from_str(name)?,
+    /// Metadata carrying only a human-readable name.
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: Name(name.to_owned()),
             id: None,
             namespace: None,
             labels: HashMap::default(),
-        })
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Manifest<T, S> {
-    /// Must be `"orishu.dev/v1"` for this version of the schema.
-    pub api_version: String,
-    /// Describes the type of the manifest and determines the type of Spec and Status field.
-    /// This field is used to implement spec polymorphism.
-    pub kind: String,
+/// An Orishu resource: the shared envelope over [`ObjectMeta`].
+///
+/// A type alias, not a new definition — the structural type is
+/// [`orishu_resource::Resource`], which `kagami-catalog` also uses. Each
+/// resource module supplies its own `kind` and its own constructor, so a
+/// resource cannot be built without naming what it is.
+pub type Manifest<T, S> = Resource<ObjectMeta, T, S>;
 
-    /// Generic resource metadata, common to all resources
-    pub metadata: ObjectMeta,
-
-    /// Spec provides a description of the resource's desired state.
-    pub spec: T,
-
-    /// Runtime Status of the resource.
-    /// It describes the current state of the object, usually estimated by the system.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<S>,
-}
-
-impl<T, S> Manifest<T, S> {
-    pub fn new(name: &str, spec: T) -> Result<Self, std::convert::Infallible> {
-        Ok(Self {
-            api_version: MANIFEST_API_VERSION.into(),
-            kind: "()".into(),
-            metadata: ObjectMeta::new(name)?,
-            spec,
-            status: None,
-        })
-    }
+/// Build an Orishu resource of the given kind.
+///
+/// Every caller is a resource module in this crate, which supplies its own
+/// kind constant; this exists so the `orishu.dev/v1` version is written once.
+pub(crate) fn resource<T, S>(kind: &'static str, name: &str, spec: T) -> Manifest<T, S> {
+    Manifest::new(
+        api_version(),
+        Kind::from_static(kind),
+        ObjectMeta::new(name),
+        spec,
+    )
 }
 
 /// Errors that can occur when parsing a `Manifest`.
 #[derive(Debug)]
 pub enum ParseError {
+    /// The input is not well-formed JSON.
     Json(serde_json::Error),
+    /// The input is not well-formed YAML.
     Yaml(serde_yaml::Error),
     /// Input bytes are not valid UTF-8.
     InvalidUtf8(std::str::Utf8Error),
-    /// The document parsed successfully but `apiVersion` or `kind` are wrong.
-    InvalidResource {
-        api_version: String,
-        kind: String,
-    },
+    /// The document parsed successfully but is not the resource the caller
+    /// asked for.
+    ///
+    /// The expected discriminator comes from the caller, so this reports the
+    /// resource that was actually wanted rather than a hard-coded one.
+    InvalidResource(UnexpectedDiscriminator),
+    /// The resource decoded, but its spec fails domain validation.
+    ///
+    /// Owned here rather than by the shared envelope: what makes a workload
+    /// domain inconsistent is Orishu's rule, and flattening it into a generic
+    /// structural error would lose it.
     InvalidSpec {
+        /// Human-readable description of the domain rule that was violated.
         details: String,
     },
+}
+
+impl From<UnexpectedDiscriminator> for ParseError {
+    fn from(error: UnexpectedDiscriminator) -> Self {
+        ParseError::InvalidResource(error)
+    }
 }
 
 impl std::fmt::Display for ParseError {
@@ -134,13 +189,7 @@ impl std::fmt::Display for ParseError {
             ParseError::Json(e) => write!(f, "JSON parse error: {e}"),
             ParseError::Yaml(e) => write!(f, "YAML parse error: {e}"),
             ParseError::InvalidUtf8(e) => write!(f, "invalid UTF-8: {e}"),
-            ParseError::InvalidResource { api_version, kind } => {
-                write!(
-                    f,
-                    "expected apiVersion=\"orishu.dev/v1\" kind=\"Workload\", \
-                     got apiVersion=\"{api_version}\" kind=\"{kind}\""
-                )
-            }
+            ParseError::InvalidResource(e) => e.fmt(f),
             ParseError::InvalidSpec { details } => write!(f, "invalid spec: {details}"),
         }
     }
@@ -152,7 +201,34 @@ impl std::error::Error for ParseError {
             ParseError::Json(e) => Some(e),
             ParseError::Yaml(e) => Some(e),
             ParseError::InvalidUtf8(e) => Some(e),
-            ParseError::InvalidResource { .. } | ParseError::InvalidSpec { .. } => None,
+            ParseError::InvalidResource(e) => Some(e),
+            ParseError::InvalidSpec { .. } => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_orishu_api_version_constant_is_a_valid_discriminator() {
+        // `api_version` panics on an invalid constant, so this is the test
+        // that keeps that panic unreachable.
+        assert_eq!(api_version().as_str(), MANIFEST_API_VERSION);
+    }
+
+    #[test]
+    fn a_mismatch_reports_the_resource_the_caller_asked_for() {
+        let error = UnexpectedDiscriminator {
+            expected_api_version: api_version(),
+            expected_kind: Kind::from_static("Cluster"),
+            found_api_version: api_version(),
+            found_kind: Kind::from_static("Workload"),
+        };
+        assert_eq!(
+            ParseError::InvalidResource(error).to_string(),
+            r#"expected apiVersion="orishu.dev/v1" kind="Cluster", got apiVersion="orishu.dev/v1" kind="Workload""#
+        );
     }
 }

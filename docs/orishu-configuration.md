@@ -76,19 +76,21 @@ document defines the cross-application rules, including precedence and trust.
 
 ## Planned worker observability configuration
 
-### Implemented tracing budget configuration; exporter unavailable
+<a id="implemented-tracing-budget-configuration-exporter-unavailable"></a>
 
-The worker accepts and validates these staged settings through file < environment
-< CLI precedence. `tracing.enabled=true` currently exits with a capability error
-before state/listener creation in every build. The `otlp-tracing` Cargo feature
-currently compiles bounded sampling/queue primitives and the protobuf codec,
-not an active exporter;
-there is no collector activity yet. Disabled tracing is the default; omitted
-values use the defaults below when validating relationships.
+### Implemented local tracing configuration
+
+The worker accepts these settings through file < environment < CLI precedence.
+With `otlp-tracing`, `tracing.enabled=true` enables sampled local client-service
+spans at the explicit endpoint. Without that feature, enabling export fails
+startup. Disabled tracing is the default and performs no credential-file or
+collector IO. Invalid credentials fail before state/listener creation. HTTPS
+uses the explicit CA file when configured, otherwise the supported system
+bundle described below. Other trust-store layouts need an explicit CA file.
 
 | YAML field under `spec.tracing` | Environment | CLI | Default and allowed range |
 | --- | --- | --- | --- |
-| `enabled` | `ORISHU_TRACING_ENABLED` | `--tracing.enabled` | false; true is currently unavailable |
+| `enabled` | `ORISHU_TRACING_ENABLED` | `--tracing.enabled` | false; true requires the `otlp-tracing` build capability and explicit endpoint |
 | `endpoint` | `ORISHU_TRACING_ENDPOINT` | `--tracing.endpoint` | unset; explicit OTLP/HTTP trace URL including its path |
 | `caFile` | `ORISHU_TRACING_CA_FILE` | `--tracing.ca-file` | unset; explicit PEM collector trust-root file |
 | `clientCertFile` | `ORISHU_TRACING_CLIENT_CERT_FILE` | `--tracing.client-cert-file` | unset; PEM collector-client chain, paired with client key |
@@ -104,26 +106,25 @@ values use the defaults below when validating relationships.
 | `exportTimeoutMs` | `ORISHU_TRACING_EXPORT_TIMEOUT_MS` | `--tracing.export-timeout-ms` | 2000 ms; 100–10,000 |
 | `shutdownTimeoutMs` | `ORISHU_TRACING_SHUTDOWN_TIMEOUT_MS` | `--tracing.shutdown-timeout-ms` | 3000 ms; 100–10,000 |
 
-Invalid limits and unknown nested keys are rejected even when tracing is
-disabled. Zero sampling is valid but does not implicitly enable or disable
-exporter startup. These are resource-policy bounds, not measured overhead or
-delivery guarantees. Queue capacity will bound waiting completed spans; an
-in-flight batch and active sampled spans have independent budgets. These
-additional values are validated configuration, not implemented exporter limits:
-activation remains unavailable. The exporter must reserve an active slot before
-retaining sampled-span state, bound encoding before growing an export buffer,
-and stop consuming collector response bytes at the configured limit. Batch
-count and request-byte limits apply together; reaching either flushes a bounded
-batch, and a single span that cannot fit must be shed without blocking domain
-work. Per-span attribute/link/event size/count limits are still required before
-the exporter is activated; a count cap alone does not bound retained memory.
-Response limits must cover consumed/decompressed bytes, not merely a peer's
-claimed `Content-Length`. Shutdown's
-whole flush deadline must cap export attempts even when shorter than an
-individual export timeout. Future full-queue and outage handling must shed
-telemetry without blocking domain work or extending shutdown.
+Invalid limits and unknown nested keys are rejected even when disabled.
+Zero sampling is valid and produces no spans. Active spans, queued records,
+the reusable batch buffer and encoded request have separate bounds. Records
+retain fixed-size identities and finite operation/outcome vocabulary, with
+no arbitrary attributes, events, links, headers or payloads. The codec checks
+size before output allocation. Collector bodies are bounded while streaming;
+decompression is disabled rather than trusting compressed Content-Length.
+Shutdown's single drain deadline caps attempts even when shorter than an
+individual export timeout. Full queues and exporter failures shed telemetry.
+These are resource limits, not measured performance or delivery guarantees.
+Graceful shutdown reports fixed aggregate delivery and queue sampling/drop
+counts. Queue acceptance is not collector delivery; interrupted exports may
+already have reached the collector. With both capabilities and runtime metrics
+and tracing enabled, twelve live trace counters extend `/metrics` to 52 series;
+allow a 16 KiB scrape response budget. Tracing disabled or omitted leaves the
+base 40-series catalogue and its 8 KiB bound unchanged. See the
+[counter semantics and troubleshooting](orishu-observability.md#live-trace-delivery-and-loss-counters).
 
-The staged destination contract targets OTLP/HTTP binary Protobuf, using an
+The destination contract targets OTLP/HTTP binary Protobuf, using an
 explicit complete trace URL (for example `https://collector.example/v1/traces`).
 There is no implicit collector address, path suffix, DNS lookup or outbound
 connection during validation. HTTPS is required except for HTTP to a literal
@@ -141,9 +142,9 @@ is allowed. This does not provision TLS trust or credentials. The exporter must
 require a destination when activated, verify server identity, reject redirects
 and isolate ambient SDK/proxy configuration. OTLP/HTTP's trace message and path
 conventions are defined by the [OTLP specification](https://opentelemetry.io/docs/specs/otlp/);
-these application settings are not a claim of implemented OTLP delivery.
+the local delivery evidence does not establish cross-peer trace propagation.
 
-Collector file settings are also staged, not loaded credentials. Every supplied
+Collector files are loaded only when tracing is enabled. Every supplied
 path must be nonempty and at most 4096 encoded bytes. Client certificate and
 key must be configured together. Any trust/credential file requires an explicit
 HTTPS endpoint, even while disabled; loopback HTTP is credential-free. The
@@ -154,19 +155,57 @@ Relative paths refer to the worker's working directory; changing directories
 must not silently select a different secret in a deployment recipe.
 
 Disabled tracing does not open, create or validate contents of these files.
-Before exporter activation, implement bounded safe file loading, private-key
-and token permission checks, PEM/chain/key consistency and header-safe token
-validation. An explicit CA bundle must define the exporter's trust rather than
-silently augmenting ambient SDK settings; absence of a bundle requires an
-explicitly implemented and tested platform-root policy. No insecure TLS or
+The Unix `CollectorFiles` adapter implements bounded file loading,
+private-key/token permission checks, PEM decoding, certificate/key matching
+and header-safe token validation during enabled worker startup.
+Its current file contract is:
+
+- CA and client-chain PEM files: at most 65,536 bytes, containing at most 64
+  roots or eight chain certificates respectively. The chain is leaf-first;
+  ordinary TLS verification at the collector still decides client trust.
+- Key PEM: at most 16,384 bytes and exactly one supported private key.
+  Token: at most 4096 header-safe characters, optionally followed by one LF or
+  CRLF (4098 file bytes maximum); arbitrary surrounding whitespace is refused.
+- Files are single-link regular files owned by the worker user or root. Keys
+  and tokens have no group/other permissions; public CA/chain files may be
+  readable but cannot be group/other writable.
+- Paths are walked using directory descriptors without following symlinks;
+  parent traversal and more than 128 components are refused. Traversed
+  directories are root/worker-owned and not group/other writable, except
+  root/worker-owned sticky directories such as `/tmp`. Relative paths start
+  at the worker's working directory. Symlink-based mounted secret recipes
+  are not supported by this loader; do not assume a Kubernetes recipe works.
+- Files are read without creating or modifying them. Non-regular files,
+  including FIFOs, are refused without waiting for a writer. Growth after
+  metadata inspection is checked with one extra byte in a fixed-size buffer.
+
+An explicit CA bundle replaces default trust; invalid explicit input never
+falls back to another source. On Linux, an omitted CA file loads only
+`/etc/ssl/certs/ca-certificates.crt`, the OS-managed bundle used by the
+[Debian ca-certificates tooling](https://manpages.debian.org/bookworm/ca-certificates/update-ca-certificates.8.en.html).
+This supported Debian/Ubuntu layout has a 1 MiB file limit and 1024-certificate
+limit, with root-owned directories/file and the same non-symlink, regular-file,
+single-link and write-permission checks. Empty, malformed, missing, unsafe or
+oversized bundles fail startup; partial trust is not silently accepted.
+`SSL_CERT_FILE`, `SSL_CERT_DIR`, SDK settings and directory enumeration cannot
+select or augment this source. System trust is loaded once at startup; restart
+after an OS trust update. Other Linux layouts and non-Linux platforms require
+an explicit CA file supported by the credential loader. This does not provide
+Windows/macOS native trust integration. The feature-enabled Linux default-store
+integration test requires an installed, valid `ca-certificates` bundle; it does
+not modify host trust to install fixture certificates. No insecure TLS or
 server-name bypass option is introduced. File-content, trust and private-key
 errors must fail startup without exposing contents; collector network outage
 after valid setup must remain non-fatal to domain work.
 
-Actual credential loading/TLS enforcement, span/attribute limits,
-dependency selection, SDK environment isolation and real delivery tests are
-still required before enabling the exporter. They are not implied by accepting
-these settings. Peer propagation additionally awaits
+The delivery primitive has real HTTP/HTTPS tests with explicitly supplied TLS
+configuration and synthetic span records, including a successful mTLS exchange
+using loaded credential files. Startup credential loading and trust
+selection, local client-service instrumentation, configured budgets and bounded
+exporter shutdown are connected, with real-worker loopback receipt evidence.
+Live drop counters have scoped scrape/parser evidence. Remaining
+process/deployment coverage and log correlation still need acceptance evidence;
+other native trust-store layouts are outside the tested Linux support. Peer propagation awaits
 [ADR 0025](adr/0025-version-peer-trace-context-propagation.md) review; local
 exporter work does not require changing the current peer profile.
 
@@ -174,7 +213,8 @@ exporter work does not require changing the current peer profile.
 
 [ADR 0017](adr/0017-worker-operational-observability.md) adds optional build
 features `observability` (Prometheus and probe HTTP listener) and `otlp-tracing`
-(trace exporter). These features and settings are planned, not current options.
+(trace exporter). Both capabilities now exist; the items below retain the full
+configuration contract, not a claim that every deployment setting is available.
 Official operator builds will include both; Cargo default/minimal builds omit
 them. All runtime exposure/export is disabled by default.
 
@@ -194,6 +234,7 @@ telemetry without making the worker unready. Enabling diagnostics defaults to
 loopback; it never implicitly opens a wildcard interface. Client/peer/work
 admission flags do not silently enable or disable diagnostics.
 
-Exact flags, environment variables, port and numeric limits land with the
-task and the [worker manual](../apps/orishu-worker/README.md); examples must not
-claim those switches already exist.
+Use the implemented settings above and the
+[worker manual](../apps/orishu-worker/README.md) for available flags, environment
+variables, ports and limits. Future deployment/security settings must remain
+explicitly planned until their owning implementation and tests land.

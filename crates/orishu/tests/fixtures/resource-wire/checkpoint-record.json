@@ -1,0 +1,10 @@
+{
+  "id": "chk-0001",
+  "workloadName": "em-cavity-resonance",
+  "workloadId": "wl-7f3a",
+  "workloadEpoch": 3,
+  "recordedAt": "2026-01-02T03:04:05Z",
+  "simulationTime": 1.5,
+  "graceful": true,
+  "resumable": true
+}

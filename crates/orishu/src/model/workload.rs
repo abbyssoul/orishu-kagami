@@ -7,7 +7,7 @@ use uom::si::length::meter;
 use uom::si::time::second;
 
 use crate::model::checkpoint::CheckpointId;
-use crate::model::manifest::{self, MANIFEST_API_VERSION, Manifest as DefManifest, ObjectMeta};
+use crate::model::manifest::{self, Manifest as DefManifest, ObjectMeta};
 use crate::model::{QuerySet, quantity};
 
 /// Workload manifest kind
@@ -576,43 +576,55 @@ pub enum WorkloadStatus {
 /// ```
 pub type Manifest = DefManifest<WorkloadSpec, WorkloadStatus>;
 
-impl Manifest {
-    /// Parse a manifest from a reader. Accepts both JSON and YAML.
-    ///
-    /// Uses YAML parsing, which is a superset of JSON, so both formats are
-    /// handled in a single streaming pass without buffering the entire input.
-    /// After successful deserialization, `apiVersion` and `kind` are validated.
-    pub fn from_reader<R: std::io::Read>(reader: R) -> Result<Self, manifest::ParseError> {
-        let manifest: Self = serde_yaml::from_reader(reader).map_err(manifest::ParseError::Yaml)?;
-        Self::validate(manifest)
-    }
+/// The workload resource discriminator, as the envelope carries it.
+pub fn manifest_kind() -> manifest::Kind {
+    manifest::Kind::from_static(WORKLOAD_MANIFEST_KIND)
+}
 
-    /// Parse a manifest from a string. Accepts both JSON and YAML.
-    pub fn parse(input: &str) -> Result<Self, manifest::ParseError> {
-        let manifest: Self = serde_json::from_str(input)
-            .map_err(manifest::ParseError::Json)
-            .or_else(|_| serde_yaml::from_str(input).map_err(manifest::ParseError::Yaml))?;
-        Self::validate(manifest)
-    }
+/// Build a workload resource with the correct discriminator.
+pub fn manifest(name: &str, spec: WorkloadSpec) -> Manifest {
+    manifest::resource(WORKLOAD_MANIFEST_KIND, name, spec)
+}
 
-    /// Convenience: parse from a byte slice (UTF-8).
-    pub fn parse_bytes(input: &[u8]) -> Result<Self, manifest::ParseError> {
-        let s = std::str::from_utf8(input).map_err(manifest::ParseError::InvalidUtf8)?;
-        Self::parse(s)
-    }
+/// Parse a manifest from a reader. Accepts both JSON and YAML.
+///
+/// Uses YAML parsing, which is a superset of JSON, so both formats are
+/// handled in a single streaming pass without buffering the entire input.
+/// After successful deserialization, `apiVersion` and `kind` are validated.
+///
+/// The reader is not bounded here. This is an operator-supplied local file
+/// today; a network-facing caller must impose its own byte and nesting limits
+/// before reaching this function.
+pub fn from_reader<R: std::io::Read>(reader: R) -> Result<Manifest, manifest::ParseError> {
+    let manifest: Manifest = serde_yaml::from_reader(reader).map_err(manifest::ParseError::Yaml)?;
+    validate(manifest)
+}
 
-    fn validate(manifest: Self) -> Result<Self, manifest::ParseError> {
-        if manifest.api_version != MANIFEST_API_VERSION || manifest.kind != WORKLOAD_MANIFEST_KIND {
-            return Err(manifest::ParseError::InvalidResource {
-                api_version: manifest.api_version,
-                kind: manifest.kind,
-            });
-        }
-        if let Err(derr) = manifest.spec.domain.validate() {
-            return Err(manifest::ParseError::InvalidSpec { details: derr });
-        }
-        Ok(manifest)
+/// Parse a manifest from a string. Accepts both JSON and YAML.
+pub fn parse(input: &str) -> Result<Manifest, manifest::ParseError> {
+    let manifest: Manifest = serde_json::from_str(input)
+        .map_err(manifest::ParseError::Json)
+        .or_else(|_| serde_yaml::from_str(input).map_err(manifest::ParseError::Yaml))?;
+    validate(manifest)
+}
+
+/// Convenience: parse from a byte slice (UTF-8).
+pub fn parse_bytes(input: &[u8]) -> Result<Manifest, manifest::ParseError> {
+    let s = std::str::from_utf8(input).map_err(manifest::ParseError::InvalidUtf8)?;
+    parse(s)
+}
+
+/// Check the discriminator, then the workload domain rules.
+///
+/// The two are separate on purpose: an unsupported resource is a structural
+/// refusal reported by the shared envelope, while an inconsistent domain is a
+/// workload rule owned here.
+fn validate(manifest: Manifest) -> Result<Manifest, manifest::ParseError> {
+    manifest.expect(&manifest::api_version(), &manifest_kind())?;
+    if let Err(derr) = manifest.spec.domain.validate() {
+        return Err(manifest::ParseError::InvalidSpec { details: derr });
     }
+    Ok(manifest)
 }
 
 // ---------------------------------------------------------------------------
@@ -855,7 +867,7 @@ spec:
 
     #[test]
     fn parse_minimal_json() {
-        let r = Manifest::parse(MINIMAL_JSON);
+        let r = parse(MINIMAL_JSON);
         assert!(
             r.is_ok(),
             "failed to parse json: {} Error: {}",
@@ -864,8 +876,8 @@ spec:
         );
 
         let m = r.unwrap();
-        assert_eq!(m.api_version, MANIFEST_API_VERSION);
-        assert_eq!(m.kind, WORKLOAD_MANIFEST_KIND);
+        assert_eq!(m.api_version().as_str(), manifest::MANIFEST_API_VERSION);
+        assert_eq!(m.kind().as_str(), WORKLOAD_MANIFEST_KIND);
         assert_eq!(
             m.metadata.name,
             manifest::Name::from_str("test-workload").unwrap()
@@ -887,7 +899,7 @@ spec:
 
     #[test]
     fn parse_minimal_yaml() {
-        let m = Manifest::parse(MINIMAL_YAML).unwrap();
+        let m = parse(MINIMAL_YAML).unwrap();
         assert_eq!(
             m.metadata.name,
             manifest::Name::from_str("test-workload").unwrap()
@@ -903,7 +915,7 @@ spec:
 
     #[test]
     fn parse_full_yaml() {
-        let m = Manifest::parse(FULL_YAML).unwrap();
+        let m = parse(FULL_YAML).unwrap();
         assert_eq!(
             m.metadata.name,
             manifest::Name::from_str("em-cavity-resonance").unwrap()
@@ -956,11 +968,19 @@ spec:
     #[test]
     fn parse_wrong_api_version() {
         let input = MINIMAL_JSON.replace("orishu.dev/v1", "orishu.dev/v99");
-        let err = Manifest::parse(&input).unwrap_err();
+        let err = parse(&input).unwrap_err();
         match err {
-            manifest::ParseError::InvalidResource { api_version, kind } => {
-                assert_eq!(api_version, "orishu.dev/v99");
-                assert_eq!(kind, WORKLOAD_MANIFEST_KIND);
+            manifest::ParseError::InvalidResource(mismatch) => {
+                assert!(mismatch.is_version_mismatch());
+                assert_eq!(mismatch.found_api_version.as_str(), "orishu.dev/v99");
+                assert_eq!(mismatch.found_kind.as_str(), WORKLOAD_MANIFEST_KIND);
+                // The expected half comes from this caller, not from a
+                // hard-coded string inside the shared envelope.
+                assert_eq!(
+                    mismatch.expected_api_version.as_str(),
+                    manifest::MANIFEST_API_VERSION
+                );
+                assert_eq!(mismatch.expected_kind.as_str(), WORKLOAD_MANIFEST_KIND);
             }
             other => panic!("expected InvalidResource, got: {other}"),
         }
@@ -969,10 +989,11 @@ spec:
     #[test]
     fn parse_wrong_kind() {
         let input = MINIMAL_JSON.replace("Workload", "SomethingElse");
-        let err = Manifest::parse(&input).unwrap_err();
+        let err = parse(&input).unwrap_err();
         match err {
-            manifest::ParseError::InvalidResource { kind, .. } => {
-                assert_eq!(kind, "SomethingElse");
+            manifest::ParseError::InvalidResource(mismatch) => {
+                assert_eq!(mismatch.found_kind.as_str(), "SomethingElse");
+                assert!(!mismatch.is_version_mismatch());
             }
             other => panic!("expected InvalidResource, got: {other}"),
         }
@@ -983,7 +1004,7 @@ spec:
         // Trailing comma is invalid JSON but the content is not valid YAML either
         // if structured as JSON. This test verifies the fallback path runs.
         // We use valid YAML to confirm it succeeds via the fallback.
-        let m = Manifest::parse(MINIMAL_YAML).unwrap();
+        let m = parse(MINIMAL_YAML).unwrap();
         assert_eq!(
             m.metadata.name,
             manifest::Name::from_str("test-workload").unwrap()
@@ -992,7 +1013,7 @@ spec:
 
     #[test]
     fn parse_garbage_returns_error() {
-        let err = Manifest::parse("not a manifest at all {{{").unwrap_err();
+        let err = parse("not a manifest at all {{{").unwrap_err();
         assert!(matches!(err, manifest::ParseError::Yaml(_)));
     }
 
@@ -1007,7 +1028,7 @@ spec:
             }
         }"#;
         // Missing domain and model — should fail deserialization.
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("domain") || msg.contains("model"),
@@ -1035,7 +1056,7 @@ spec:
             }
         }"#;
         // Missing model.url — should fail deserialization.
-        let parser_result = Manifest::parse(input);
+        let parser_result = parse(input);
         assert!(
             parser_result.is_err(),
             "was expecting error parsing manifest, go OK"
@@ -1074,7 +1095,7 @@ spec:
           uri: "https://example.com/mesh.3mf"
 "#;
 
-        let parser_result = Manifest::parse(input);
+        let parser_result = parse(input);
         assert!(
             parser_result.is_err(),
             "was expecting error parsing manifest, go OK!"
@@ -1090,7 +1111,7 @@ spec:
 
     #[test]
     fn parse_bytes_valid_utf8() {
-        let m = Manifest::parse_bytes(MINIMAL_JSON.as_bytes()).unwrap();
+        let m = parse_bytes(MINIMAL_JSON.as_bytes()).unwrap();
         assert_eq!(
             m.metadata.name,
             manifest::Name::from_str("test-workload").unwrap()
@@ -1100,16 +1121,16 @@ spec:
     #[test]
     fn parse_bytes_invalid_utf8() {
         let bad = &[0xff, 0xfe, 0xfd];
-        let err = Manifest::parse_bytes(bad).unwrap_err();
+        let err = parse_bytes(bad).unwrap_err();
         assert!(matches!(err, manifest::ParseError::InvalidUtf8(_)));
     }
 
     #[test]
     fn json_round_trip() {
-        let original = Manifest::parse(MINIMAL_JSON).unwrap();
+        let original = parse(MINIMAL_JSON).unwrap();
         let serialized = serde_json::to_string_pretty(&original).unwrap();
 
-        let parser_result = Manifest::parse(&serialized);
+        let parser_result = parse(&serialized);
         assert!(
             parser_result.is_ok(),
             "failed to parse serialized data back: {}\nerror: {}",
@@ -1126,7 +1147,7 @@ spec:
 
     #[test]
     fn optional_fields_default_when_absent() {
-        let m = Manifest::parse(MINIMAL_JSON).unwrap();
+        let m = parse(MINIMAL_JSON).unwrap();
         assert_eq!(m.spec.inputs, None);
         assert_eq!(m.spec.requirements, None);
     }
@@ -1165,7 +1186,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let parser_result = Manifest::parse(input);
+        let parser_result = parse(input);
         assert!(
             parser_result.is_ok(),
             "was expecting to parsing input manifest, go Err: {}",
@@ -1275,7 +1296,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("too many dimensions 3 / 1 discretization configured"),
@@ -1309,7 +1330,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("too few dimensions 3 / 4 discretization configured"),
@@ -1351,7 +1372,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("space-segment length 0.09 m is less than the step size 12.1 m"),
@@ -1385,7 +1406,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let parser_result = Manifest::parse(input);
+        let parser_result = parse(input);
         assert!(
             parser_result.is_ok(),
             "was expecting to parsing input manifest, go Err: {}",
@@ -1469,7 +1490,7 @@ spec:
     image:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("time-segment duration 16.1 s is less than the step size 80.7 s"),
@@ -1498,7 +1519,7 @@ spec:
       space: 1mm
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("Hyperrectangle only defines 2 / 3 dimensions"),
@@ -1529,7 +1550,7 @@ spec:
       space: 1mm
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("Hyperrectangle defines 4 / 1 too many dimensions"),
@@ -1558,7 +1579,7 @@ spec:
       space: 1mm
       time: 15ms
 "#;
-        let result = Manifest::parse(input);
+        let result = parse(input);
         assert!(
             result.is_ok(),
             "expected valid manifest, got error: {}",
@@ -1634,7 +1655,7 @@ spec:
       space: 1mm
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("0 is invalid number for spatial dimensions"),
@@ -1661,7 +1682,7 @@ spec:
       space: []
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("too few dimensions 0 / 1 discretization configured"),
@@ -1688,7 +1709,7 @@ spec:
       space: [[]]
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("space-step has no segments for dimension 0"),
@@ -1715,7 +1736,7 @@ spec:
       space: 2m
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("uniform space-step exceeds domain bounds"),
@@ -1744,7 +1765,7 @@ spec:
       space: 1cm
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("uniform space-step exceeds domain bounds for dimension 1"),
@@ -1773,7 +1794,7 @@ spec:
       - 50cm
       time: 15ms
 "#;
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("space-step exceeds domain bounds for dimension 1"),
@@ -1800,7 +1821,7 @@ spec:
       space: 1mm
       time: 15ms
 "#;
-        let result = Manifest::parse(input);
+        let result = parse(input);
         assert!(
             result.is_ok(),
             "expected valid manifest, got error: {}",
@@ -1828,7 +1849,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("domain side length must be positive"),
@@ -1859,7 +1880,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("Hyperrectangle space domain bounds for dimension 1 is negative"),
@@ -1889,7 +1910,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("space-step for dimension 2 must be positive"),
@@ -1917,7 +1938,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("uniform time-step must be positive"),
@@ -1951,7 +1972,7 @@ spec:
       uri: "oci://registry.example.com/sim/hydro:v1"
 "#;
 
-        let err = Manifest::parse(input).unwrap_err();
+        let err = parse(input).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("time-segment step -0.0807"),

@@ -15,6 +15,9 @@ description = "Kagami's editable object-template catalog: format, bounded loadin
 # confined to `load` and `write`; every decision above them is a pure function
 # over values.
 #
+# - orishu-resource:      the resource envelope shared with Orishu's resources.
+#                         Structural only: it owns no metadata schema, no
+#                         validation, no IO, and no catalog vocabulary.
 # - orishu-variables:     the one shared expression parser and evaluator.
 # - serde/serde_yaml:     the hand-authored document format.
 # - serde_path_to_error:  field-located diagnostics for a malformed document.
@@ -22,6 +25,7 @@ description = "Kagami's editable object-template catalog: format, bounded loadin
 # - thiserror:            structured error types.
 [dependencies]
 dhat = { workspace = true, optional = true }
+orishu-resource = { workspace = true }
 orishu-variables = { workspace = true }
 serde = { workspace = true }
 serde_path_to_error = { workspace = true }

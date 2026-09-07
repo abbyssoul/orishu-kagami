@@ -1,0 +1,19 @@
+{
+  "apiVersion": "orishu.dev/v1",
+  "kind": "Cluster",
+  "metadata": {
+    "name": "shared label"
+  },
+  "spec": {
+    "membershipLocked": false,
+    "workload": null
+  },
+  "status": {
+    "version": {
+      "epoch": 7,
+      "counter": 42
+    },
+    "nodeCount": 3,
+    "simulationStatus": "stopped"
+  }
+}

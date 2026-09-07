@@ -14,7 +14,7 @@ Start here:
 - [Orishu configuration](orishu-configuration.md) — shared configuration,
   precedence, startup, and trust rules.
 - [Orishu operational observability](orishu-observability.md) — implemented local
-  metrics/probes, planned OTLP traces and remaining operator delivery gates.
+  metrics/probes and local OTLP traces, with remaining operator delivery gates.
 - [Interrupted admission recovery](cluster-admission-recovery.md) — bounded
   operator inspection, existing-attempt recovery and mandatory stop conditions.
 - [Implementation roadmap](roadmap/README.md) — milestone gates, workstreams,
@@ -25,11 +25,16 @@ Start here:
   lifecycle implemented by client-supplied simulation packages.
 - [What is an Orishu workload?](workloads.md) — the user-facing definition,
   contents, lifecycle, identity, and recommended delivery model.
+- [The shared resource envelope](resource-envelope.md) — the one structural
+  shape Orishu resources and Kagami object templates share, and the authority,
+  identity, and validation each keeps.
 - [Installation](install.md) — source workflows available today, packaging
   scaffolds, planned release channels, and their support status.
 - [Development](development.md) — toolchain, commands, and validation.
 - [Worker Prometheus acceptance](testing-worker-prometheus.md) — pinned parser,
   local scrape example and real source-build ingestion checks.
+- [Worker Collector walkthrough](testing-worker-otelcol.md) — pinned local
+  OTLP receiver, inspectable spans and real collector outage/recovery checks.
 - [Releasing](releasing.md) — continuous integration and delivery behaviour.
 - [Coding style](Coding%20style.md) — application-neutral Rust design guidance.
 - [High-performance Rust](high-performance-rust.md) — measurement and hot-path guidance.

@@ -1,0 +1,52 @@
+{
+  "apiVersion": "orishu.dev/v1",
+  "kind": "Node",
+  "metadata": {
+    "name": "worker-a"
+  },
+  "spec": {
+    "accepts": {
+      "clients": true,
+      "peers": true,
+      "work": false
+    },
+    "limits": {
+      "peers": 64,
+      "clients": null
+    },
+    "listen": {
+      "peers": [
+        "node-a.example.com:6681"
+      ],
+      "clients": [
+        "node-a.example.com:6680"
+      ]
+    }
+  },
+  "status": {
+    "version": "0.1.0",
+    "certFingerprint": [
+      222,
+      173,
+      190,
+      239
+    ],
+    "connected": {
+      "peers": 2,
+      "clients": 1
+    },
+    "capabilities": {
+      "cpuCores": 8,
+      "memoryBytes": 17179869184,
+      "architecture": "x86_64",
+      "storage": {
+        "driver": "Local",
+        "replicas": 2
+      },
+      "accelerators": [
+        "NVIDIA A100"
+      ]
+    },
+    "member": "alive"
+  }
+}

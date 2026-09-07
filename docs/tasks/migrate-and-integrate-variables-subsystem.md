@@ -1,6 +1,10 @@
 # Migrate and integrate the shared variables subsystem
 
-Status: **ready**  
+Status: **partial**; the generic engine, dimension/unit evaluation, and the
+experiment integration in [K2](kagami/integrate-document-variables.md) have
+landed. Slice 1's declared shared-engine resource bounds and slice 4's workload
+integration remain
+
 Decisions: [ADR 0004](../adr/0004-separate-authoring-commands-from-run-observations.md),
 [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md)
@@ -35,7 +39,7 @@ application-global mutable registry.
 
 ## Implementation slices
 
-### 1. Migrate the generic engine
+### 1. Migrate the generic engine — **core implemented; declared resource bounds remain**
 
 - Add the workspace library crate `crates/orishu-variables`, published as
   `orishu-variables`, for use by Kagami and Orishu resource handling.
@@ -52,7 +56,7 @@ application-global mutable registry.
   one evaluation path—without adopting id Tech's global mutable configuration
   semantics or stringly typed values.
 
-### 2. Add shared dimension and unit semantics
+### 2. Add shared dimension and unit semantics — **implemented**
 
 - Build one dimension-aware value layer over the migrated expression grammar
   and name resolver. Do not fork the parser into dimensionless and unit-aware
@@ -71,7 +75,7 @@ application-global mutable registry.
   zero, non-finite result, and resource-limit errors with stable source spans
   where the failure belongs to source text.
 
-### 3. Integrate with the experiment authority
+### 3. Integrate with the experiment authority — **implemented** as [K2](kagami/integrate-document-variables.md)
 
 - Model variable definitions as persisted experiment intent with stable
   document-local identity, editable name, namespace/scope, expression source,
@@ -144,6 +148,35 @@ application-global mutable registry.
   quantities, and workload stepping does not invoke the evaluator.
 - `make fmt-check`, `make lint`, `make test`, `make docs`, and
   `make docs-check` pass.
+
+## Implementation record for slice 2
+
+Landed in `crates/orishu-variables` as the `quantity` module plus a
+quantity-valued evaluator, with 12 acceptance tests in `tests/quantities.rs`.
+`Dimension`, `Unit` and the unit table moved here from `kagami-catalog`, which
+now re-exports them: the table that says what a gram is has to be the one the
+evaluator reads, or the two drift.
+
+Four decisions are worth carrying forward:
+
+- **Units are ordinary symbols, not grammar.** `kg` resolves from the shared
+  unit table when no variable defines it, so one parser carries units and
+  `2.7 g / cm^3` derives a density from the arithmetic. The only syntax added
+  is that a magnitude may be juxtaposed with a symbol (`1e32 kg`), parsed at
+  the exponent's binding power so `2 m^2` is `2 * (m^2)`. Two adjacent names
+  remain a syntax error — far more likely a typo than an intended product.
+- **Only a *root* name may not shadow a unit.** A root variable `m` would
+  silently retune every expression using metres, so it is refused. A
+  *namespaced* one cannot be confused with a unit, because reaching it means
+  writing `electricity.K` — so Coulomb's constant keeps its natural name.
+- **`is_const` counts units as constants.** A unit is part of the language,
+  not a value someone else supplies, so `2.7 g` folds like `2.7`. Without
+  this, every unit-bearing literal would look like a computed expression to
+  the catalog.
+- **Stating a unit twice is refused, not resolved.** Now that an expression
+  can carry its own units, `{expression: "2.7 g", unit: kg}` would scale the
+  magnitude twice. Both the catalog and the document refuse it rather than
+  pick a precedence rule nobody would remember.
 
 ## Non-goals
 

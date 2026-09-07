@@ -1,7 +1,9 @@
 # Embed an MCP server in Kagami
 
-Status: **ready** (slices 1–7); slices 8–9 are gated on authorities that do
-not exist yet  
+Status: **ready** (slices 1–7 and the landed-authority portions of slice 8);
+the rest of slice 8 follows its plugin, observation, viewport, and catalog
+gates, while slice 9 remains gated on run authorities
+
 Decisions: [ADR 0004](../adr/0004-separate-authoring-commands-from-run-observations.md),
 [ADR 0006](../adr/0006-mcp-ui-equivalence.md),
 [ADR 0012](../adr/0012-start-with-file-sharing-and-preserve-collaborative-authoring.md),
@@ -187,10 +189,11 @@ persistence ownership, or a remote document protocol.
 - Do not document unimplemented tools; the tool surface documentation grows
   with slices 8–9.
 
-### 8. Authoring, inspection, and document-lifecycle parity (gated)
+### 8. Authoring, inspection, and document-lifecycle parity (partially gated)
 
-Gated on the document authority: the experiment model with typed commands,
-validation, revisions, identity, and undo. That authority is decided by
+The experiment model with typed commands, validation, revisions, identity,
+undo, variable expressions, persistence, and lifecycle has landed. It is
+decided by
 [ADR 0019](../adr/0019-kagami-experiment-document-model.md) and built by the
 [Kagami capability programme](./kagami/README.md) — specifically
 [K3](./kagami/implement-document-authority.md) for the command envelope,
@@ -199,10 +202,13 @@ guards, bounded replay, shared undo, and preflight validation;
 has landed the serializable adapter values (`kagami_session::wire`) and
 actor/payload-bound replay this slice converts through; and
 [K4](./kagami/persist-experiment-documents.md) for the new/open/save lifecycle
-this slice must expose. Variable and expression commands arrive with
-[K2](./kagami/integrate-document-variables.md), which lands
+this slice must expose. Variable and expression commands have arrived with
+[K2](./kagami/integrate-document-variables.md), which landed
 [the shared variables subsystem](./migrate-and-integrate-variables-subsystem.md)'s
-experiment integration.
+experiment integration. Full slice-8 parity remains incrementally gated on the
+X-PLUGIN schemas, K8 observation instruments, K11 workspace/default-view
+behavior, and the catalog UI/MCP integration named below; those absent
+capabilities must not be stubbed.
 
 - Expose the authoring surface through tools: create, modify, and delete
   world objects and their physical properties; computational domain and

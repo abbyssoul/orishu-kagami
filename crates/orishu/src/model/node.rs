@@ -249,4 +249,13 @@ pub struct NodeStatus {
 }
 
 /// A single cluster member as known to the rest of the cluster.
+///
+/// A cluster-owned membership projection. `metadata.name` is a reusable
+/// worker label and `metadata.labels` are descriptive; neither is membership
+/// identity, which is [`orishu_identity::NodeId`] under ADR 0013.
 pub type Manifest = DefManifest<NodeSpec, NodeStatus>;
+
+/// Project a cluster member as a resource.
+pub fn manifest(name: &str, spec: NodeSpec) -> Manifest {
+    crate::model::manifest::resource(NODE_MANIFEST_KIND, name, spec)
+}

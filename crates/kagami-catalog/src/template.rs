@@ -223,7 +223,7 @@ impl Template {
     /// a [`crate::source::ContentFingerprint`] is taken over and the bytes
     /// the writer emits.
     pub fn to_document(&self) -> TemplateDocument {
-        TemplateDocument::new(
+        crate::document::new(
             MetadataDocument {
                 catalog: self.identity.catalog.clone(),
                 name: self.identity.template.clone(),

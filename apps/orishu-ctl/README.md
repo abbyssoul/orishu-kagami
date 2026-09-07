@@ -257,5 +257,17 @@ timeouts; it does not promise a ten-second cluster convergence SLO.
 Restart reuses one bounded log tail per logical worker. The harness refuses to
 replace a still-running child or switch its state directory through that path.
 
+## Inspecting local worker traces
+
+The [pinned Collector walkthrough](../../docs/testing-worker-otelcol.md) uses
+ordinary `orishuctl` summary and authenticated lock/unlock commands to verify
+local worker span receipt and collector-outage independence. Tracing is enabled
+on the worker, not by granting the collector CLI credentials. The walkthrough
+also verifies that an unauthenticated lock is refused without changing policy.
+Current spans describe local client-service outcomes, not command acceptance,
+cluster convergence or correlated peer activity. Use identified command
+receipts and the original operation's inspection/recovery path for authority;
+never resubmit a mutation just to recover missing telemetry.
+
 See the [project architecture](../../docs/architecture.md) and root
 [README](../../README.md).

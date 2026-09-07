@@ -1,0 +1,39 @@
+apiVersion: orishu.dev/v1
+kind: Workload
+metadata:
+  name: em-cavity-resonance
+  namespace: cluster_xyz
+  labels:
+    domain: electrodynamics
+spec:
+  domainType: electromagnetic
+  domain:
+    dimensions: 3
+    bounds:
+    - 1m
+    - 0.2m
+    - 0.3m
+    discretization:
+      space: 0.001m
+      time: 0.015s
+  model:
+    image:
+      uri: oci://registry.example.com/sim/em:v1
+  inputs:
+    geometry:
+      mesh:
+        uri: https://example.com/air-tunnel.3mf
+    initialConditions:
+      image:
+        uri: https://example.com/snapshot.orishu
+  requirements:
+    hardware:
+      minCpuCores: 4
+      minMemoryBytes: 8589934592
+      architecture: x86_64
+      accelerators:
+      - NVIDIA A100
+      minOpenclVersion: '3.0'
+    runtimeAbiVersion: 1.2.0
+    executionProfile:
+      numericMode: deterministic

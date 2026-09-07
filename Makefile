@@ -5,6 +5,8 @@ DOCKER ?= podman
 ARGS ?=
 PROMTOOL ?= promtool
 PROMETHEUS ?= prometheus
+OTELCOL ?= otelcol
+WORKER_OTELCOL_TARGET_DIR ?= target/worker-otelcol
 
 .PHONY: test-formation-release-guard
 test-formation-release-guard:
@@ -32,6 +34,19 @@ test-docs:
 test-worker-prometheus:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability
 	python3 scripts/check-worker-prometheus.py --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+
+.PHONY: test-worker-trace-prometheus
+test-worker-trace-prometheus:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing
+	python3 scripts/test_worker_trace_collector.py
+	python3 scripts/check-worker-prometheus.py --trace-metrics --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+
+# Official pinned Collector; local receipt/outage recipe, no download or service install.
+.PHONY: test-worker-otelcol
+test-worker-otelcol:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_OTELCOL_TARGET_DIR)"
+	python3 scripts/test_worker_otelcol.py
+	python3 scripts/check-worker-otelcol.py --otelcol "$(OTELCOL)" --worker "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishuctl"
 
 # Local mTLS proxy/worker/Prometheus journey; requires pinned external tools.
 .PHONY: test-worker-monitoring-proxy

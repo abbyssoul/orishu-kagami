@@ -1,7 +1,9 @@
 # Kagami capability programme
 
-Status: **K1, K3 and the boundary follow-up implemented**; K2, K4–K13
-specified  
+Status: **K1, K3, the boundary follow-up, and K4's experiment persistence are
+implemented**; K2, K5, and K6 have implemented slices with named gates; K7 is
+partial; K8–K13 are specified
+
 Work packages: **K-DOCUMENT, X-COMPOSITION, K-OBSERVATION, K-VIEW,
 X-EMITTER, and X-FIELDS** in the [implementation roadmap](../../roadmap/README.md)  
 Decision: [ADR 0019](../../adr/0019-kagami-experiment-document-model.md)
@@ -53,10 +55,12 @@ crates/kagami-document  -- pure sans-IO model, commands, transition, history
 | K13 | [Define fields and computational-model selection](define-fields-and-model-selection.md) | Specified; cross-lane | K-DOCUMENT, X-PLUGIN, S-WORKLOAD, S-OBSERVE |
 
 K7's remaining documentation work can proceed alongside any code task. K1, K3,
-the [boundary follow-up](harden-document-boundaries.md) their first downstream
-consumers exposed, S-VARIABLES slice 2, and K2's document work have all landed,
-so **K4 and K5 may now proceed independently**. K6 integrates both into the app
-after the simulation-plugin schema-inventory contract is stable.
+the [boundary follow-up](harden-document-boundaries.md), S-VARIABLES' dimension
+layer, K2's document graph, and K4's experiment persistence have landed. K5's
+catalog-instantiation command and bridge and K6's non-gesture app adoption have
+also landed. Their remaining slices are explicit: plugin/catalog symbol sources
+for K2/K5, K11's default-view and gesture work for K4/K6, and a real X-PLUGIN
+schema inventory for the app.
 
 K9–K13 preserve the Field CAD capabilities that cross the document boundary:
 component-composed execution, compiled observation instruments, explicit
@@ -65,10 +69,12 @@ explicit field-family/model selection. They
 do not block K4's basic persistence mechanics, except that K4 must include the
 separately owned default-view envelope required by K11.
 
-The MCP server's slice 8 now has both a landed authority core and the
-serializable representation and replay binding an adapter converts through
-(`kagami_document::wire`, `kagami_session::wire`). Its expression tools still
-need K2 and its document-lifecycle tools still need K4.
+The MCP server's slice 8 now has a landed authority core, expression-capable
+document commands, document lifecycle, and the serializable representation and
+replay binding an adapter converts through (`kagami_document::wire`,
+`kagami_session::wire`). The MCP adapter and tools remain implementation work;
+they are no longer blocked on K2's core document graph or K4's experiment
+persistence.
 
 ## What this programme unblocks
 

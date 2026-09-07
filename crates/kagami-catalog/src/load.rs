@@ -15,8 +15,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use orishu_resource::ResourceHeader;
+
 use crate::diagnostic::{Diagnostic, InvalidReason};
-use crate::document::{API_VERSION, Envelope, KIND, TemplateDocument};
+use crate::document::{self, API_VERSION, KIND, TemplateDocument};
 use crate::entry::{CatalogFileError, CatalogSet};
 use crate::limits::Limits;
 use crate::resolve::{ParsedDocument, resolve};
@@ -245,10 +247,15 @@ pub fn parse_value(
 /// document is trusted, so a document from another format version is refused
 /// for its version rather than for whichever unrecognised field is read
 /// first.
+///
+/// The header type is the shared [`ResourceHeader`], which permits unknown
+/// fields for exactly that reason and bounds both discriminators before
+/// copying them.
+///
 /// `Box`ed because `Diagnostic` is far larger than the `()` success case,
 /// and this returns `Ok` for every well-formed document.
 fn check_envelope(value: &serde_yaml::Value) -> Result<(), Box<Diagnostic>> {
-    let envelope: Envelope = serde_path_to_error::deserialize(value).map_err(|error| {
+    let header: ResourceHeader = serde_path_to_error::deserialize(value).map_err(|error| {
         Box::new(Diagnostic {
             field_path: Some(error.path().to_string()),
             span: None,
@@ -257,20 +264,23 @@ fn check_envelope(value: &serde_yaml::Value) -> Result<(), Box<Diagnostic>> {
             },
         })
     })?;
-    if envelope.api_version != API_VERSION {
+    // Reported per field rather than as one combined mismatch: a catalog
+    // browser distinguishes "written for a newer Kagami" from "not a template
+    // at all", and they are different things for a user to do something about.
+    if header.api_version() != &document::api_version() {
         return Err(Box::new(Diagnostic::at(
             "apiVersion",
             InvalidReason::UnsupportedApiVersion {
-                found: envelope.api_version,
+                found: header.api_version().to_string(),
                 expected: API_VERSION.to_owned(),
             },
         )));
     }
-    if envelope.kind != KIND {
+    if header.kind() != &document::kind() {
         return Err(Box::new(Diagnostic::at(
             "kind",
             InvalidReason::UnsupportedKind {
-                found: envelope.kind,
+                found: header.kind().to_string(),
                 expected: KIND.to_owned(),
             },
         )));

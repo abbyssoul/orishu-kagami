@@ -86,6 +86,12 @@ As an administrator, I want to get detailed information about a specific node in
 
 ### Correlate cluster metrics and traces
 
+**Current evidence:** the [local Collector walkthrough](../../testing-worker-otelcol.md)
+receives worker client-service spans and checks authenticated control through
+collector shutdown/recovery. It does not establish this story's cross-peer
+correlation or fleet dashboard outcome; those remain gated on the documented
+propagation and operator-handoff work.
+
 Status: **planned — ADR 0017**
 
 As an administrator, I want per-worker dashboards and sampled traces across

@@ -1,0 +1,28 @@
+[package]
+name = "orishu-resource"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The shared typed resource envelope (apiVersion/kind/metadata/spec/status) used by Orishu resources and Kagami object templates"
+
+# Dependency budget is part of this crate's contract.
+#
+# This crate is depended on by both an Orishu domain crate and a Kagami
+# authoring crate, so anything it acquires is acquired by both. It must stay a
+# pure value-and-parsing library: no codec, no async runtime, no transport, no
+# filesystem, no UI, and no Orishu or Kagami domain type.
+# `tests/dependencies.rs` asserts that against the resolved dependency graph,
+# and asserts that `serde` remains the only direct runtime dependency, because
+# choosing JSON or YAML is the consuming domain's decision, not this crate's.
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+# Only the tests and doc examples pick a codec. Both are exercised because the
+# envelope's field order and absent-versus-null status are asserted against
+# real serialized bytes, not against a Rust value.
+cargo_metadata = "0.23"
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }

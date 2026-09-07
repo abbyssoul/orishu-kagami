@@ -1,0 +1,15 @@
+id: res-0001
+workloadId: wl-7f3a
+workloadName: em-cavity-resonance
+workloadEpoch: 3
+startedAt: 2026-01-02T03:00:00Z
+recordedAt: 2026-01-02T03:04:05Z
+simulationTimeRange:
+- 0.0
+- 1.5
+totalSizeBytes: 4096
+graceful: true
+storageBackend: Local
+chunks:
+  p0: node-a
+missingChunks: []

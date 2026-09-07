@@ -29,6 +29,12 @@ is not the results produced by that run.
 | Other inputs | Immutable emitter spawn blueprints, geometry, meshes, material tables, accelerator data, schemas, or other artifacts required by this workload profile. |
 | Requirements | The runtime lifecycle, numerical/determinism profile, hardware needs, resource limits, and compatibility rules workers must satisfy. |
 
+The manifest is written in the
+[shared resource envelope](resource-envelope.md) — `apiVersion: orishu.dev/v1`,
+`kind: Workload` — which makes it familiar to read and inspect alongside every
+other resource. Workload identity, however, is not generic resource metadata;
+see [Identity and provenance](#identity-and-provenance).
+
 The manifest is declarative. It says which component instances must run, how
 their typed phases compose, and with which inputs. The components supply the
 scientific state transitions. Orishu supplies

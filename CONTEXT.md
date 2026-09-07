@@ -20,6 +20,7 @@ independent platforms.
 | **Document authority** | The owner that serializes proposed authoring commands and atomically accepts or rejects experiment revisions. It initially runs inside each Kagami process and may later be hosted by a headless collaboration service. |
 | **Variable** | A named, dimensioned value in expression-capable experiment or workload intent, defined by an authored expression and available through an explicit namespace or scope. |
 | **Expression** | Retained authored source for a schema-declared numeric value; it may contain literals, units, arithmetic, variables, supported constants, and references to other expression-capable fields. |
+| **Resource envelope** | The structural `apiVersion`/`kind`/`metadata`/`spec`/optional-`status` shape shared by Orishu resources and Kagami object templates. It carries no authority, lifecycle, identity, or metadata schema; each resource domain keeps its own. |
 | **Object catalog** | Kagami's client-owned, editable collection of versioned object-template files. It is authoring vocabulary, not experiment or workload state. |
 | **Object template** | A named, reusable composition of components, parameters, and authored properties that can be instantiated as a self-contained experiment object. |
 | **Simulation plugin** | An installable, versioned capability containing declarative Kagami authoring schemas and digest-pinned sandboxed workload code for one or more physical models. It is not a native host plugin. |
@@ -175,6 +176,10 @@ independent platforms.
   general scheduler or job queue.
 - Cluster and node names are labels, not identity. Formation and membership
   identities follow ADR 0013.
+- Sharing the resource envelope confers no authority. A synthetic projection
+  does not become durable operator-authored configuration by carrying the same
+  five fields, and metadata schemas, identities, and validation stay owned by
+  each resource domain rather than generalised into the shared shape.
 - Artifact records, local inventory, availability views, and purge tombstones
   retain their separate authority levels as defined by the storage spec.
 - Worker operational metrics, traces and process probes are bounded diagnostic

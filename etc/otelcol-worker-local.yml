@@ -1,0 +1,43 @@
+# Pinned example: official otelcol 0.160.0. Local inspection only, not a backend.
+# Set ORISHU_OTEL_TRACE_FILE to a file in a new, private directory (umask 077).
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+        max_request_body_size: 1048576
+        compression_algorithms: [""]
+        include_metadata: false
+        read_header_timeout: 2s
+        read_timeout: 3s
+        write_timeout: 3s
+        keepalive:
+          idle_timeout: 5s
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+
+exporters:
+  file:
+    path: ${env:ORISHU_OTEL_TRACE_FILE}
+    format: json
+    rotation:
+      max_megabytes: 1
+      max_backups: 2
+      max_days: 1
+
+service:
+  # No extra metrics, health, debug, gRPC or remote-export listeners/pipelines.
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [file]

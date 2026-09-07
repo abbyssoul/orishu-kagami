@@ -530,3 +530,67 @@ fn an_adjacent_malformed_file_never_hides_a_valid_one() {
         "{diagnostics:?}"
     );
 }
+
+// ── canonical bytes ─────────────────────────────────────────────────────────
+
+/// Every shipped template's identity and canonical content fingerprint.
+///
+/// A fingerprint is SHA-256 over the exact YAML bytes the writer would emit
+/// for a template, so this file pins the *whole* canonical encoding: envelope
+/// field order, the metadata and spec spellings, the quantity shorthand, and
+/// which optional fields are skipped. Any change to how a document
+/// re-serialises shows up here as a diff, which is what keeps a structural
+/// refactor from silently invalidating a fingerprint a Kagami document
+/// already recorded as provenance.
+///
+/// Regenerate deliberately, never to make a red test green:
+///
+/// ```sh
+/// BLESS_CATALOG_FINGERPRINTS=1 cargo test -p kagami-catalog --test example_catalogs
+/// ```
+const FINGERPRINT_FIXTURE: &str = "tests/fixtures/shipped_fingerprints.txt";
+
+fn shipped_fingerprints() -> String {
+    let set = shipped(&full_registry());
+    let mut lines: Vec<String> = set
+        .entries()
+        .iter()
+        .map(|entry| {
+            let identity = entry
+                .identity
+                .as_ref()
+                .expect("every shipped entry names itself");
+            let fingerprint = entry
+                .fingerprint
+                .expect("every shipped entry re-encodes canonically");
+            format!("{identity} {fingerprint}")
+        })
+        .collect();
+    lines.sort();
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+#[test]
+fn every_shipped_template_keeps_its_canonical_fingerprint() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(FINGERPRINT_FIXTURE);
+    let actual = shipped_fingerprints();
+
+    if std::env::var_os("BLESS_CATALOG_FINGERPRINTS").is_some() {
+        fs::create_dir_all(path.parent().expect("fixture directory")).unwrap();
+        fs::write(&path, &actual).unwrap();
+        return;
+    }
+
+    let expected = fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!(
+            "missing {}: {error}\ncapture it with BLESS_CATALOG_FINGERPRINTS=1 and review the diff",
+            path.display()
+        )
+    });
+    assert_eq!(
+        actual, expected,
+        "a shipped template's canonical bytes changed; that invalidates every fingerprint \
+         recorded against it, so it is a format change rather than a refactor"
+    );
+}

@@ -1,0 +1,27 @@
+# Optional local-tracing warning examples, not measured SLOs or restart policy.
+# Apply rate before aggregation so each process counter reset is handled first.
+groups:
+  - name: orishu-worker-trace-v1
+    interval: 1m
+    rules:
+      - alert: OrishuWorkerTraceLocalDrops
+        expr: (sum by (job, instance) (rate({job="orishu-worker",__name__=~"orishu_worker_trace_(active_full|queue_full|encoding_dropped|invalid_source)_total"}[5m])) > 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker recently shed sampled traces locally
+      - alert: OrishuWorkerTraceDeliveryFailures
+        expr: (rate(orishu_worker_trace_failed_total{job="orishu-worker"}[5m]) > 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Trace delivery attempts failed; collector acceptance may be unknown
+      - alert: OrishuWorkerTraceCollectorRejections
+        expr: (rate(orishu_worker_trace_rejected_total{job="orishu-worker"}[5m]) > 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Collector reported rejected worker spans

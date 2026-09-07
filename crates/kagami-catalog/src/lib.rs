@@ -12,6 +12,7 @@
 //! | Module | Responsibility |
 //! | --- | --- |
 //! | [`document`] | the hand-authored YAML format |
+//! | [`mod@name`] | catalog identifier new-types |
 //! | [`template`] | structural validation into typed template content |
 //! | [`binding`] | the projection of template values into the shared variable environment |
 //! | [`mod@resolve`] | the pure decision core: available, unavailable, or invalid |
@@ -120,6 +121,14 @@ pub use name::{
     CatalogName, ComponentName, ComponentTypeId, HelperName, NameError, ParameterName, PluginId,
     PropertyName, TemplateName,
 };
+/// The structural resource envelope a template document is an instance of.
+///
+/// Re-exported from `orishu-resource`, which owns it: Orishu's workload,
+/// cluster, and node resources use the same `apiVersion`/`kind`/`metadata`/
+/// `spec` shape, and maintaining a second definition of it here is what this
+/// re-export replaced. Only the *shape* is shared — catalog metadata,
+/// validation, canonical bytes, and write authority stay in this crate.
+pub use orishu_resource::{ApiVersion, Kind, Resource, ResourceHeader, UnexpectedDiscriminator};
 /// Physical dimensions, units, and the values evaluation produces.
 ///
 /// Re-exported from `orishu-variables`, which owns them: dimensions are

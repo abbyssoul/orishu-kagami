@@ -150,20 +150,20 @@ slices and acceptance criteria before implementation begins.
 
 | ID | Work package | Lane | State | Depends on |
 | --- | --- | --- | --- | --- |
-| S-RESOURCE | [Shared Kubernetes-style resource envelope](../tasks/extract-shared-resource-envelope.md) | S | Ready; Orishu and Kagami slices are unblocked | M0; coordinate identity fields with S-IDENTITY/O-API-SHAPE |
+| S-RESOURCE | [Shared Kubernetes-style resource envelope](../tasks/extract-shared-resource-envelope.md) | S | **Implemented and accepted**; both consumers migrated, wire compatibility pinned, and verification findings resolved | M0 complete; `metadata.id` vs `metadata.uid` remains downstream O-API-SHAPE work |
 | S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Ready; foundational | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
-| S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Slices 1–3 implemented: one grammar, dimensioned values, shared unit table, and experiment integration through [K2](../tasks/kagami/integrate-document-variables.md); slice 4 remains | S-WORKLOAD for slice 4 |
+| S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Partial: generic and dimensioned evaluation plus experiment integration through [K2](../tasks/kagami/integrate-document-variables.md) have landed; shared-engine resource bounds and slice 4 remain | S-WORKLOAD for slice 4 |
 | S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types landed in `orishu-identity`; cluster projection and run identity still require specification/reconciliation | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
-| K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1–K5 implemented and K6's app adoption landed (K2, K5 and K6 have slices gated on X-PLUGIN and K11); K7 core stories captured; K8 remains | K6's gestures wait on K11's viewport; schema and observation-channel identities from X-PLUGIN |
+| K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1, K3, the boundary follow-up, and K4 experiment persistence implemented; K2's core graph, K5's command/bridge, and K6's non-gesture app adoption landed; K7 core stories captured; remaining slices are explicitly gated | K2/K5 live symbol sources and K6's real registry wait on X-PLUGIN; K4 default view and K6 gestures wait on K11; K8 needs X-PLUGIN observation identities |
 | X-PLUGIN | Simulation-plugin manifest, declarative schemas, inventory and safe management | X/K | **Task specification required** | S-WORKLOAD identity model; S-VARIABLES dimensions |
 | X-COMPOSITION | [Composed object execution](../tasks/kagami/define-composed-object-execution.md) | X/S/O | Specified; host-orchestrated component graph accepted | X-PLUGIN; S-WORKLOAD; O-WASM; X-FIELDS |
 | X-FIELDS | [Field families and computational-model selection](../tasks/kagami/define-fields-and-model-selection.md) | X/K/S/V | Specified; required before executable model composition | K-DOCUMENT; X-PLUGIN; S-WORKLOAD; S-OBSERVE |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | **Task specification required** | X-COMPOSITION; O-WASM host contract |
 | X-DIST-PROFILE | Concrete first distributed scientific schema, fixtures, limits and validation plan for proposed ADR 0016 or an explicit replacement | X/O/N | **Decision and task specification required**; proposal only until M5 evidence | S-WORKLOAD; X-PLUGIN; O-WASM lifecycle |
-| K-CATALOG | [Kagami object catalog](../tasks/implement-kagami-object-catalog.md) and [catalog-variable workload capture](../tasks/capture-catalog-values-in-expressions.md) | K/S | Catalog crate, authority, and materialization core implemented and accepted, including the [authority-boundary correction](../tasks/fix-kagami-catalog-authority-boundaries.md); document/workload/UI/MCP integration gated; catalog-variable capture additionally awaits proposed ADR 0018 | S-VARIABLES slice 2 and K2 for copied definitions/dimension inference; [K5](../tasks/kagami/instantiate-catalog-templates.md) for instantiation; accepted ADR 0018 and S-WORKLOAD for expression capture |
-| K-MCP | [Embedded Kagami MCP server](../tasks/kagami-mcp-server.md) | K | Slices 1–7 ready; slice 8 has a landed authority core and its serializable adapter boundary, and now awaits K2 expressions and K4 lifecycle; slice 9 gated | K2 and [K4](../tasks/kagami/persist-experiment-documents.md) for authoring/document lifecycle; K-OBSERVATION for sensor reads; O-CLIENT/K-RUN for run parity |
+| K-CATALOG | [Kagami object catalog](../tasks/implement-kagami-object-catalog.md) and [catalog-variable workload capture](../tasks/capture-catalog-values-in-expressions.md) | K/S | Catalog crate, authority, shared-dimension variable projection, and materialization core implemented and accepted, including the [authority-boundary correction](../tasks/fix-kagami-catalog-authority-boundaries.md); [K5](../tasks/kagami/instantiate-catalog-templates.md)'s document command and bridge have landed; workload/UI/MCP integration remains gated | X-PLUGIN/K2/K5 for remaining live symbol sources; accepted ADR 0018 and S-WORKLOAD for expression capture |
+| K-MCP | [Embedded Kagami MCP server](../tasks/kagami-mcp-server.md) | K | Slices 1–7 ready; slice 8's core authoring, expression, lifecycle, and serializable-authority prerequisites have landed, while full parity remains incrementally gated; slice 9 gated | X-PLUGIN/K8/K11 and catalog integration for the remaining slice-8 surface; K-OBSERVATION for sensor reads; O-CLIENT/K-RUN for run parity |
 | K-OBSERVATION | [Compile and query observation instruments](../tasks/kagami/compile-and-query-observation-instruments.md) | K/S/V | Specified | K-DOCUMENT K8; S-WORKLOAD; S-OBSERVE; K-RUN/K-PREVIEW |
 | K-VIEW | [Kagami viewport workflows](../tasks/kagami/implement-kagami-viewport-workflows.md) | K/V | Specified; minimal field visualization in M3, richer replay in M6 | K-DOCUMENT K4/K6 for mode/projection; K-RUN/S-OBSERVE/X-FIELDS for follow/fields; V-LIVE for best-effort trails; V-REPLAY/K-OBSERVATION for exact trajectories |
 | X-EMITTER | [Particle emitters](../tasks/kagami/implement-particle-emitters.md) | X/K/O/N | Specified | K-CATALOG/K5; X-COMPOSITION; S-WORKLOAD; O-RUNTIME; N-CLUSTER for distributed proof |
@@ -184,8 +184,8 @@ slices and acceptance criteria before implementation begins.
 | N-ARTIFACT | [Availability, replication, re-replication, repair](../storage-spec.md) and committed-artifact discovery | N/O | **Task specification required** | O-STORAGE; N-CLUSTER; N-TRANSFER; N-PURGE |
 | P-SCALE | Reproducible [1/3/5/12/32-worker](../orishu-scaling-objectives.md#staged-evidence) compute, capacity, storage, retrieval and churn evidence | P/N/O | **Task specification required**; implement harness incrementally | O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
 | P-INSTALL | [Installable archives, native packages, Cargo applications, containers, Kagami installers, and first-run journeys](../tasks/publish-installable-artifacts.md) | P | In progress: candidate archives, Debian builds, Cargo-path installs, checksums/provenance, and Homebrew handoff; supported publication gated by M8 | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
-| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Local probes and health/owner/lane/client-service metrics verified; broader instrumentation, remote security, traces and full acceptance pending | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
-| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Local and mTLS-proxy source-build scrape recipes verified; remaining handoff ships alongside each observability slice | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
+| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Local probes, metrics, OTLP receipt and live trace counters have scoped evidence; broader instrumentation, cross-peer traces and full security/operator acceptance pending | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
+| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Local/mTLS-proxy scrape and pinned local Collector receipt recipes verified; remaining handoff ships alongside each observability slice | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
 | P-MONITOR | [`orishu-monitor` admin TUI shell](../tasks/implement-orishu-monitor-admin-tui.md), followed by [operator API integration and parity](../tasks/integrate-orishu-monitor-operator-api.md); raw formation-admission secrets remain CLI-only | P | Shell task implemented; integration task recorded in backlog | No API gate for the shell; N-FORMATION membership projection for first live views; O-CLIENT and owning mutation contracts for later parity |
 
 ## Dependency graph
@@ -254,7 +254,7 @@ flowchart TD
     PO --> PS
     PD --> PR
     SI --> SO
-    SV -->|dimension layer then K2| KD
+    SV -->|dimensions + document graph| KD
     SW --> XP
     SV --> XP
     XP --> XC
@@ -446,9 +446,10 @@ to build independently.
   checks, and golden fixtures. Full expression, profile and component-policy
   validation completes in M2 with the relevant validators; a structural
   closure check alone cannot authorize execution.
-- **S-VARIABLES slices 1–2:** verify the present generic namespaced engine
-  against slice 1, then complete dimension/unit semantics, limits, and
-  source-located errors.
+- **S-VARIABLES:** the generic namespaced engine and dimension/unit semantics
+  have landed. Add the declared source/node/dependency/evaluation bounds at the
+  shared public engine boundary; integrate workload resources after S-WORKLOAD
+  fixes their expression-capable fields.
 - **S-IDENTITY:** explicit `FormationId`, formation-assigned `NodeId`, cluster
   projection, membership-tombstone, run-identity, and label types with
   JSON/CBOR fixtures. Reconcile the generic optional manifest IDs now used by
@@ -470,24 +471,22 @@ to build independently.
 - **X-DIST-PROFILE:** define a candidate Maxwell/Yee schema, limits, canonical
   state encoding, golden/hostile fixtures, and validation plan for ADR 0016.
   This authorizes an experiment, not premature acceptance of the ADR.
-- K-DOCUMENT's core commands, revision contract and persistence format are
-  specified in the [Kagami capability programme](../tasks/kagami/README.md) and
-  decided by [ADR 0019](../adr/0019-kagami-experiment-document-model.md). Its
-  in-memory literal-value skeleton (K1) may proceed before variable
-  integration, but it cannot declare its persisted format complete yet. K1 and
-  K3 have now landed; their first downstream review found a bounded authority
-  follow-up that can proceed alongside S-VARIABLES slice 2 and must close
-  before persistence or real adapters.
+- K-DOCUMENT's K1 model, K3 authority, landed-boundary follow-up, K2 core
+  variable graph, K4 experiment persistence, K5 instantiation bridge, and K6
+  non-gesture app adoption have landed. Remaining slices consume X-PLUGIN's
+  symbol/schema inventory and K11's default-view/viewport behavior; do not
+  describe those gated slices as implemented.
 - Specify X-PLUGIN's manifest and declarative authoring-schema boundary, with
   one gravity fixture and one deliberately incompatible fixture.
 
 ### Parallel execution
 
-- S-VARIABLES dimension work can continue in its own crate independently of
-  runtime identity and API-shape work.
-- The K1/K3 boundary follow-up, S-VARIABLES slice 2 and K2 have all landed, so
-  K4 and K5 are unblocked and independent; K7 remains an independent
-  documentation task.
+- S-VARIABLES shared-engine limit hardening can continue in its own crate
+  independently of runtime identity and API-shape work; workload integration
+  waits on S-WORKLOAD.
+- K-DOCUMENT's implemented slices may be consumed now. Its remaining
+  plugin-symbol and viewport/default-view slices wait on their explicit gates;
+  K7 remains an independent documentation task.
 - N-MEMBERSHIP can proceed behind reviewed S-IDENTITY fixtures while the
   workload, observation, and authoring lanes continue independently. Its owner
   must not introduce membership-private identity or wire types.
@@ -541,7 +540,8 @@ workload it would submit, before attempting distributed execution.
   replay is bound to actor and payload, save completion is qualified by the
   revision actually written, and adapters have an explicit serializable
   boundary.
-- Complete S-VARIABLES experiment integration and workload-resource validation.
+- Complete S-VARIABLES shared-engine limit hardening and workload-resource
+  validation; its experiment integration has landed.
 - Implement X-PLUGIN inventory/install/remove/compatibility behavior and expose
   the same public path for bundled and third-party plugins.
 - Stabilize X-COMPOSITION's schema/workload/lifecycle contract: intrinsic pose
@@ -560,9 +560,9 @@ workload it would submit, before attempting distributed execution.
   spawn blueprints, then revalidate/copy them during compilation without a live
   catalog dependency. Runtime emission remains gated on O-RUNTIME, with distributed
   ownership evidence in Milestone 5.
-- Commit materialized candidates from the accepted `kagami-catalog`
-  core/load/authority, variable-projection, and materialization slices through
-  K-DOCUMENT when it and component schemas are ready.
+- Preserve the landed K5 command and bridge that commit materialized candidates
+  from `kagami-catalog` through K-DOCUMENT. Complete its live plugin/catalog
+  symbol-source half after those schemas are ready.
 - Implement S-WORKLOAD Kagami compilation and Orishu admission slices. Prove a
   deterministic closure with golden fixtures and a thin in-memory/file
   admission round trip; the researcher-facing portable export workflow remains
@@ -590,10 +590,11 @@ workload it would submit, before attempting distributed execution.
   agents after Milestone 1 fixtures land.
 - S-VARIABLES integration touches both K-DOCUMENT and workload admission; its
   owner should publish its API before the two adapters integrate it.
-- Within K-DOCUMENT, S-VARIABLES slice 2 and K2 have landed, so the immediate
-  path is K4 and K5 in parallel, followed by K6. K7's remaining stories can run throughout; K8's probe story
-  is satisfied, so it waits only for persistence and the X-PLUGIN
-  observation-channel identity.
+- Within K-DOCUMENT, K4 experiment persistence, K5's catalog command/bridge,
+  and K6's non-gesture app adoption have landed. Remaining symbol-source,
+  default-view, and gesture work follows X-PLUGIN and K11. K7's remaining
+  stories can run throughout; K8's probe story is satisfied and now waits on
+  the X-PLUGIN observation-channel identity.
 - X-COMPOSITION can implement against X-PLUGIN/S-WORKLOAD/O-WASM fixtures while
   K4–K8 proceed. Emitter authoring and blueprint compilation follow K5 and that
   contract without blocking ordinary-object persistence.
@@ -723,15 +724,25 @@ formation/recovery/pressure evidence, final process reruns and non-matrix gates
 are recorded in the [acceptance ledger](../tasks/cluster-formation-conformance.md#final-formation-acceptance-disposition--2026-09-07).
 Its [remaining increments](../tasks/implement-cluster-formation-poc.md#remaining-reviewable-increments)
 now concern the M4 telemetry/operator handoff, not another formation fault audit.
+Use the [open M4 work table](../tasks/implement-cluster-formation-poc.md#open-m4-work-selection)
+to distinguish independent work from the pending logging-output and peer-profile
+decisions. Formation-stage overhead belongs to this handoff, not later
+scientific runtime instrumentation.
 A lost-ACK refusal or unresolved status alone is not a recovery procedure.
 Track N-FORMATION, P-OBSERVABILITY and P-OBS-DOCS separately:
 formation acceptance does not close M4 without its monitoring/operator handoff.
 
 ### Focus areas
 
-- Complete [N-FORMATION](../tasks/implement-cluster-formation-poc.md): settle
+The formation bullets below retain the accepted delivery scope, not a new
+implementation backlog. Remaining work is the companion observability/operator
+handoff; use the task's current evidence and remaining increments before
+selecting implementation.
+
+- Preserve [N-FORMATION](../tasks/implement-cluster-formation-poc.md): its
+  accepted scope covers
   join trust bootstrap and the membership subset of the client resource
-  surface, then implement the mTLS/QUIC adapter, bounded CBOR codec, timers,
+  surface, the mTLS/QUIC adapter, bounded CBOR codec, timers,
   entropy/ID generation, credential verification, serialized membership
   driver, and worker lifecycle around the N-MEMBERSHIP core.
 - Split cluster-wide, versioned membership lock from node-local admission

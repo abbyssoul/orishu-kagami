@@ -20,6 +20,13 @@ behaviour.
 One file holds one or more `---`-separated documents. One catalog identity does
 not imply one file, and one file may publish into several catalogs.
 
+Each document uses the
+[shared resource envelope](../../docs/resource-envelope.md), the same
+`apiVersion`/`kind`/`metadata`/`spec` shape Orishu's resources use. Only the
+shape is shared: catalog metadata names a catalog and a template rather than a
+namespace and an ID, a template has no `status`, and the validation, canonical
+bytes, and write authority below stay here.
+
 ```yaml
 apiVersion: kagami.catalog/v1
 kind: ObjectTemplate

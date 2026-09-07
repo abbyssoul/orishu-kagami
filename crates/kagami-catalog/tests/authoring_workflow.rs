@@ -42,7 +42,7 @@ fn authority(root: &Path) -> CatalogAuthority {
 
 /// A template document as an adapter would build it from user input.
 fn moon_document(mass: &str) -> TemplateDocument {
-    TemplateDocument::new(
+    kagami_catalog::document::new(
         MetadataDocument {
             description: Some("A newly authored body".to_owned()),
             ..MetadataDocument::new(
@@ -223,7 +223,7 @@ fn a_rejected_command_leaves_the_revision_the_projection_and_the_files_untouched
             "researcher",
             CatalogCommand::Create {
                 file: PathBuf::from("planets.yaml"),
-                document: Box::new(TemplateDocument::new(
+                document: Box::new(kagami_catalog::document::new(
                     MetadataDocument::new(
                         "planets".try_into().unwrap(),
                         "earth".try_into().unwrap(),
@@ -259,7 +259,7 @@ fn renaming_a_shipped_template_onto_a_sibling_identity_is_refused_before_the_fil
             "researcher",
             CatalogCommand::Update {
                 target: WriteTarget::new(&source, earth),
-                document: Box::new(TemplateDocument::new(
+                document: Box::new(kagami_catalog::document::new(
                     MetadataDocument::new(
                         "planets".try_into().unwrap(),
                         "mars".try_into().unwrap(),
@@ -296,7 +296,7 @@ fn a_rename_publishes_the_retired_identity_so_a_cached_listing_converges() {
             "researcher",
             CatalogCommand::Update {
                 target: WriteTarget::new(&source, earth.clone()),
-                document: Box::new(TemplateDocument::new(
+                document: Box::new(kagami_catalog::document::new(
                     MetadataDocument::new(
                         "planets".try_into().unwrap(),
                         "terra".try_into().unwrap(),

@@ -1727,14 +1727,13 @@ mod tests {
 
     #[test]
     fn test_expect_no_data_rejects_unexpected_data() {
-        let manifest = cluster::Manifest::new(
+        let manifest = cluster::manifest(
             "test",
             ClusterSpec {
                 membership_locked: false,
                 workload: None,
             },
-        )
-        .unwrap();
+        );
         let resp = ApiResponse::Ok {
             data: Some(ResponseData::ClusterManifest(manifest)),
         };
@@ -1764,14 +1763,13 @@ mod tests {
 
     #[test]
     fn test_expect_data_extracts_cluster_manifest() {
-        let manifest = cluster::Manifest::new(
+        let manifest = cluster::manifest(
             "my-cluster",
             ClusterSpec {
                 membership_locked: false,
                 workload: None,
             },
-        )
-        .unwrap();
+        );
         let resp = ApiResponse::Ok {
             data: Some(ResponseData::ClusterManifest(manifest)),
         };
@@ -1785,14 +1783,13 @@ mod tests {
 
     #[test]
     fn test_expect_data_rejects_wrong_variant() {
-        let manifest = cluster::Manifest::new(
+        let manifest = cluster::manifest(
             "test",
             ClusterSpec {
                 membership_locked: false,
                 workload: None,
             },
-        )
-        .unwrap();
+        );
         let resp = ApiResponse::Ok {
             data: Some(ResponseData::ClusterManifest(manifest)),
         };

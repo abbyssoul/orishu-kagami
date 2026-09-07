@@ -52,6 +52,12 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   (`FormationId`, `NodeId`, labels, certificate fingerprints, version
   ordering, membership tombstones). Deliberately dependency-poor so that both
   the networking client and the sans-IO membership core can depend on it.
+- `crates/orishu-resource`: the shared typed resource envelope — the
+  `apiVersion`/`kind`/`metadata`/`spec`/optional-`status` shape and its
+  bounded discriminator, used by both Orishu's resources and Kagami's object
+  templates. Structural only: it owns no metadata schema, identity,
+  validation, codec, or IO, and depends on `serde` alone; a test enforces that
+  against the resolved dependency graph. See `docs/resource-envelope.md`.
 - `crates/orishu-membership`: sans-IO functional core for cluster membership —
   admission, SWIM, gossip merge, and anti-entropy. It must never acquire a
   networking, async-runtime, clock, filesystem, TLS, or RNG dependency; a test

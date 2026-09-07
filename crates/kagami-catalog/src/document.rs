@@ -18,6 +18,7 @@
 
 use std::collections::BTreeMap;
 
+use orishu_resource::{ApiVersion, DenyUnknown, Kind, NoStatus, Resource};
 use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -31,47 +32,40 @@ pub const API_VERSION: &str = "kagami.catalog/v1";
 /// The only document kind this crate reads or writes.
 pub const KIND: &str = "ObjectTemplate";
 
-/// The `apiVersion`/`kind` discriminator, decoded on its own before any other
-/// field of a document is trusted.
+/// [`API_VERSION`] as the validated type the envelope carries.
 ///
-/// Unknown fields are permitted here (unlike [`TemplateDocument`]) precisely
-/// so that a document from a *future* format version is rejected for its
-/// version rather than for whichever unrecognised field happens to be read
-/// first.
-#[derive(Clone, Debug, Deserialize)]
-pub struct Envelope {
-    /// The document format version.
-    #[serde(rename = "apiVersion")]
-    pub api_version: String,
-    /// The document kind.
-    pub kind: String,
+/// # Panics
+///
+/// Never: the constant is checked by a unit test in this module.
+pub fn api_version() -> ApiVersion {
+    ApiVersion::from_static(API_VERSION)
+}
+
+/// [`KIND`] as the validated type the envelope carries.
+///
+/// # Panics
+///
+/// Never: the constant is checked by a unit test in this module.
+pub fn kind() -> Kind {
+    Kind::from_static(KIND)
 }
 
 /// One object-template document.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TemplateDocument {
-    /// The document format version. Always [`API_VERSION`] once validated.
-    #[serde(rename = "apiVersion")]
-    pub api_version: String,
-    /// The document kind. Always [`KIND`] once validated.
-    pub kind: String,
-    /// Identity and human-facing description.
-    pub metadata: MetadataDocument,
-    /// The reusable content: parameters, helpers, and component composition.
-    pub spec: SpecDocument,
-}
+///
+/// The `apiVersion`/`kind`/`metadata`/`spec` shape is
+/// [`orishu_resource::Resource`], shared with Orishu's resources. Only the
+/// shape is shared: [`MetadataDocument`] names a catalog and a template rather
+/// than a namespace and an ID, catalog validation stays in
+/// [`crate::template`], and the write authority stays in [`crate::write`].
+///
+/// A template has no `status` — it is authored data, not observed state — and
+/// unknown fields are refused, so a misspelled key in a file a user edited is
+/// reported rather than silently dropped.
+pub type TemplateDocument = Resource<MetadataDocument, SpecDocument, NoStatus, DenyUnknown>;
 
-impl TemplateDocument {
-    /// Build a document with this crate's format version and kind.
-    pub fn new(metadata: MetadataDocument, spec: SpecDocument) -> Self {
-        Self {
-            api_version: API_VERSION.to_owned(),
-            kind: KIND.to_owned(),
-            metadata,
-            spec,
-        }
-    }
+/// Build a document with this crate's format version and kind.
+pub fn new(metadata: MetadataDocument, spec: SpecDocument) -> TemplateDocument {
+    TemplateDocument::new(api_version(), kind(), metadata, spec)
 }
 
 /// A template's identity and human-facing metadata.
@@ -429,8 +423,8 @@ spec:
     #[test]
     fn parses_a_complete_template_document() {
         let document = parse(EXAMPLE);
-        assert_eq!(document.api_version, API_VERSION);
-        assert_eq!(document.kind, KIND);
+        assert_eq!(document.api_version().as_str(), API_VERSION);
+        assert_eq!(document.kind().as_str(), KIND);
         assert_eq!(document.metadata.catalog.as_str(), "planets");
         assert_eq!(document.metadata.name.as_str(), "sun");
         assert_eq!(document.metadata.description.as_deref(), Some("Sol"));
@@ -511,10 +505,37 @@ spec:
 
     #[test]
     fn envelope_decodes_from_a_document_whose_body_is_unrecognisable() {
-        let envelope: Envelope =
+        let header: orishu_resource::ResourceHeader =
             serde_yaml::from_str("apiVersion: kagami.catalog/v2\nkind: Nonsense\nwat: [1, 2]")
                 .unwrap();
-        assert_eq!(envelope.api_version, "kagami.catalog/v2");
-        assert_eq!(envelope.kind, "Nonsense");
+        assert_eq!(header.api_version().as_str(), "kagami.catalog/v2");
+        assert_eq!(header.kind().as_str(), "Nonsense");
+    }
+
+    #[test]
+    fn this_crates_constants_are_valid_discriminators() {
+        // `api_version` and `kind` panic on an invalid constant, so this is
+        // the test that keeps those panics unreachable.
+        assert_eq!(api_version().as_str(), API_VERSION);
+        assert_eq!(kind().as_str(), KIND);
+    }
+
+    #[test]
+    fn a_template_document_has_no_status() {
+        // A template is authored data, not observed state. Sharing the
+        // envelope with resources that do have a status must not quietly give
+        // one to a catalog document.
+        let with_status = EXAMPLE.replace("spec:", "status: {phase: Ready}\nspec:");
+        assert!(serde_yaml::from_str::<TemplateDocument>(&with_status).is_err());
+
+        let bare_status = EXAMPLE.replace("spec:", "status:\nspec:");
+        assert!(serde_yaml::from_str::<TemplateDocument>(&bare_status).is_err());
+    }
+
+    #[test]
+    fn an_unknown_top_level_field_is_refused() {
+        let extra = format!("{EXAMPLE}unexpected: 1\n");
+        let error = serde_yaml::from_str::<TemplateDocument>(&extra).unwrap_err();
+        assert!(error.to_string().contains("unexpected"), "{error}");
     }
 }

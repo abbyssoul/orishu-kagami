@@ -442,3 +442,93 @@ restoration. If the environment cannot provide a TTY, say so explicitly and
 rely on the required headless tests. At handoff, list files changed, dependency
 choices, checks run, manual verification, and any failure that predates this
 task.
+
+---
+
+# Task handover — implement S-RESOURCE
+
+Implement the complete bounded S-RESOURCE task specified in
+@docs/tasks/extract-shared-resource-envelope.md.
+
+## Why this task is next
+
+S-RESOURCE is the ready, dependency-light prerequisite for S-WORKLOAD. It
+extracts the common typed `apiVersion` / `kind` / `metadata` / `spec` /
+optional `status` shape used independently by Orishu resources and Kagami
+object templates. This is a structural refactor only: each domain continues to
+own identity, metadata, validation, authority, lifecycle, persistence, status,
+and canonicalisation.
+
+Read @AGENTS.md, @README.md, @CONTEXT.md, @docs/architecture.md,
+@docs/Coding style.md, and the linked task before editing. Inspect the current
+types, callers, fixtures, and tests rather than assuming the task's current-state
+description is exact. Check `git status` first and preserve all concurrent
+changes.
+
+## Required scope and order
+
+1. Complete slice 1 first: inventory every use of
+   `manifest::{Manifest, ObjectMeta, Name, ID, ParseError}` and the parallel
+   Kagami catalog envelope; freeze or identify compatibility fixtures before
+   moving public types.
+2. Add the dependency-light `crates/orishu-resource` crate with the generic
+   typed envelope, bounded discriminator/header handling, constructors,
+   accessors, serde behavior, structured generic errors, rustdoc examples, and
+   dependency-boundary tests required by slice 2.
+3. Migrate Orishu workload, cluster, and node resources without changing
+   supported wire semantics. Keep domain validation and resource-specific
+   constants in `orishu`; preserve compatibility re-exports where justified.
+   Audit checkpoint/result uses of the old generic `Name` and `ID` rather than
+   silently treating them as formation, node, workload, run, or artifact
+   identity.
+4. Adopt the shared structural envelope in `kagami-catalog` while preserving
+   its metadata, bounded YAML-stream loading, per-document recovery,
+   diagnostics, canonical fingerprints, shipped-catalog behavior, and all
+   filesystem-containment protections.
+5. Reconcile affected CLI output, protocol examples, repository maps, and task
+   status only where implementation evidence warrants it. Update @AGENTS.md's
+   repository map after the crate exists.
+
+Implement the task as a sequence of small, reviewable changes. Establish
+before/after fixtures around the public representation; do not combine the
+extraction with S-WORKLOAD's new manifest, artifact, graph, digest, or
+canonical-identity design.
+
+## Hard boundaries
+
+- Do not introduce generic CRUD, Kubernetes authority/controller semantics, a
+  universal metadata type, or a universal string identity.
+- Do not resolve `metadata.id` versus `metadata.uid`; O-API-SHAPE owns that
+  decision. Preserve current wire behavior.
+- Do not make JSON or YAML bytes the workload identity codec, and do not alter
+  catalog fingerprint semantics.
+- Do not move workload, cluster, node, or catalog validation into the shared
+  crate. Do not move catalog IO, authority, materialization, or filesystem code.
+- Keep `orishu-resource` independent of `orishu`, Kagami crates, applications,
+  async runtimes, networking, filesystems, UI, and execution code. Prefer only
+  `serde` unless a concrete need and dependency cost are demonstrated.
+- Do not modify @apps/orishu-worker or @crates/orishu-membership. Another agent
+  is actively changing formation code.
+
+`Cargo.toml` and `Cargo.lock` are shared integration choke points. Re-read
+their current contents immediately before editing and do not overwrite or
+regenerate away concurrent formation changes. Coordinate any unavoidable
+public `crates/orishu` edit with current work; if its target has changed under
+you, stop and reconcile rather than replacing it wholesale.
+
+## Verification and handoff
+
+Use package-scoped checks while iterating, then run the acceptance checks from
+the task, including focused `orishu-resource`, Orishu model/client, catalog,
+protocol-fixture, shipped-catalog, formatting, clippy, workspace-test, and docs
+checks. Exercise the real serialized JSON/YAML paths, not only direct Rust
+construction. If concurrent changes or unavailable dependencies prevent a
+workspace-wide check, run every unaffected focused check and report the exact
+external blocker without weakening or deleting tests.
+
+At handoff, lead with whether S-RESOURCE's acceptance criteria are satisfied.
+List files and public compatibility aliases changed, fixtures compared, checks
+run, failures or skipped checks, and any remaining coordination needed before
+S-WORKLOAD can consume the new envelope. Do not mark the task accepted merely
+because the new crate exists: both Orishu and Kagami must have stopped owning
+parallel structural envelopes, with their domain semantics preserved.

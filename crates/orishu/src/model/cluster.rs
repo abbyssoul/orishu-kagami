@@ -207,7 +207,27 @@ pub struct ClusterStatus {
     pub simulation_status: Option<SimulationState>,
 }
 
+/// Cluster manifest kind.
+pub const CLUSTER_MANIFEST_KIND: &str = "Cluster";
+
+/// A synthetic runtime projection of current formation state.
+///
+/// It shares the resource envelope with every other Orishu resource, and that
+/// is all it shares. It is not a durable operator-authored `cluster.yaml`: it
+/// has no create, update, or delete lifecycle, no parsing entry point, and no
+/// authored form a client could submit. `metadata.name` is a reusable human
+/// label; formation identity is [`orishu_identity::FormationId`] under ADR
+/// 0013, never this resource's metadata.
 pub type Manifest = DefManifest<ClusterSpec, ClusterStatus>;
+
+/// Project current cluster state as a resource.
+///
+/// Deliberately the only constructor: there is no `parse` counterpart, so a
+/// cluster resource can be rendered for a client but never read back in as
+/// configuration.
+pub fn manifest(name: &str, spec: ClusterSpec) -> Manifest {
+    crate::model::manifest::resource(CLUSTER_MANIFEST_KIND, name, spec)
+}
 
 /// A structured cluster event: node joins/leaves, workload lifecycle transitions,
 /// administrative actions. See `AuditEvent` for privileged-operation records.

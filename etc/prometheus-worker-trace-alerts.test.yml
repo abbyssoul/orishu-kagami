@@ -1,0 +1,111 @@
+rule_files:
+  - prometheus-worker-trace-alerts.yml
+evaluation_interval: 1m
+tests:
+  - name: loss-categories-pending-delay-and-recovery
+    interval: 1m
+    input_series:
+      - series: up{job="orishu-worker",instance="queue"}
+        values: 1x10
+      - series: orishu_worker_trace_queue_full_total{job="orishu-worker",instance="queue"}
+        values: 0+1x4 4x6
+      - series: up{job="orishu-worker",instance="active"}
+        values: 1x10
+      - series: orishu_worker_trace_active_full_total{job="orishu-worker",instance="active"}
+        values: 0+1x4 4x6
+      - series: up{job="orishu-worker",instance="encoding"}
+        values: 1x10
+      - series: orishu_worker_trace_encoding_dropped_total{job="orishu-worker",instance="encoding"}
+        values: 0+1x4 4x6
+      - series: up{job="orishu-worker",instance="invalid"}
+        values: 1x10
+      - series: orishu_worker_trace_invalid_source_total{job="orishu-worker",instance="invalid"}
+        values: 0+1x4 4x6
+      - series: up{job="orishu-worker",instance="failed"}
+        values: 1x10
+      - series: orishu_worker_trace_failed_total{job="orishu-worker",instance="failed"}
+        values: 0+1x4 4x6
+      - series: up{job="orishu-worker",instance="rejected"}
+        values: 1x10
+      - series: orishu_worker_trace_rejected_total{job="orishu-worker",instance="rejected"}
+        values: 0+1x4 4x6
+    alert_rule_test:
+      - {eval_time: 2m, alertname: OrishuWorkerTraceLocalDrops, exp_alerts: []}
+      - {eval_time: 2m, alertname: OrishuWorkerTraceDeliveryFailures, exp_alerts: []}
+      - {eval_time: 2m, alertname: OrishuWorkerTraceCollectorRejections, exp_alerts: []}
+      - eval_time: 3m
+        alertname: OrishuWorkerTraceLocalDrops
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: queue, severity: warning}
+            exp_annotations: {summary: Worker recently shed sampled traces locally}
+          - exp_labels: {job: orishu-worker, instance: active, severity: warning}
+            exp_annotations: {summary: Worker recently shed sampled traces locally}
+          - exp_labels: {job: orishu-worker, instance: encoding, severity: warning}
+            exp_annotations: {summary: Worker recently shed sampled traces locally}
+          - exp_labels: {job: orishu-worker, instance: invalid, severity: warning}
+            exp_annotations: {summary: Worker recently shed sampled traces locally}
+      - eval_time: 3m
+        alertname: OrishuWorkerTraceDeliveryFailures
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: failed, severity: warning}
+            exp_annotations: {summary: 'Trace delivery attempts failed; collector acceptance may be unknown'}
+      - eval_time: 3m
+        alertname: OrishuWorkerTraceCollectorRejections
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: rejected, severity: warning}
+            exp_annotations: {summary: Collector reported rejected worker spans}
+      - {eval_time: 10m, alertname: OrishuWorkerTraceLocalDrops, exp_alerts: []}
+      - {eval_time: 10m, alertname: OrishuWorkerTraceDeliveryFailures, exp_alerts: []}
+      - {eval_time: 10m, alertname: OrishuWorkerTraceCollectorRejections, exp_alerts: []}
+  - name: idle-sampling-shutdown-absent-reset-and-unreachable-are-not-loss-evidence
+    interval: 1m
+    input_series:
+      - series: up{job="orishu-worker",instance="idle"}
+        values: 1x8
+      - series: orishu_worker_trace_failed_total{job="orishu-worker",instance="idle"}
+        values: 0x8
+      - series: orishu_worker_trace_rejected_total{job="orishu-worker",instance="idle"}
+        values: 0x8
+      - series: orishu_worker_trace_queue_full_total{job="orishu-worker",instance="idle"}
+        values: 0x8
+      - series: orishu_worker_trace_sampled_out_total{job="orishu-worker",instance="idle"}
+        values: 0+10x8
+      - series: orishu_worker_trace_closed_total{job="orishu-worker",instance="idle"}
+        values: 0+1x8
+      - series: orishu_worker_trace_shutdown_dropped_total{job="orishu-worker",instance="idle"}
+        values: 0+1x8
+      - series: orishu_worker_trace_warnings_total{job="orishu-worker",instance="idle"}
+        values: 0+1x8
+      - series: up{job="orishu-worker",instance="disabled"}
+        values: 1x8
+      - series: up{job="orishu-worker",instance="reset"}
+        values: 1x8
+      - series: orishu_worker_trace_failed_total{job="orishu-worker",instance="reset"}
+        values: 9x2 0x5
+      - series: orishu_worker_trace_rejected_total{job="orishu-worker",instance="reset"}
+        values: 9x2 0x5
+      - series: orishu_worker_trace_queue_full_total{job="orishu-worker",instance="reset"}
+        values: 9x2 0x5
+      - series: up{job="orishu-worker",instance="down"}
+        values: 0x8
+      - series: up{job="orishu-worker",instance="deleted-target"}
+        values: 1x2 stale
+      - series: orishu_worker_trace_failed_total{job="orishu-worker",instance="deleted-target"}
+        values: 0+1x2 stale
+      - series: orishu_worker_trace_rejected_total{job="orishu-worker",instance="deleted-target"}
+        values: 0+1x2 stale
+      - series: orishu_worker_trace_queue_full_total{job="orishu-worker",instance="deleted-target"}
+        values: 0+1x2 stale
+      - series: orishu_worker_trace_failed_total{job="orishu-worker",instance="down"}
+        values: 0+1x8
+      - series: orishu_worker_trace_rejected_total{job="orishu-worker",instance="down"}
+        values: 0+1x8
+      - series: orishu_worker_trace_queue_full_total{job="orishu-worker",instance="down"}
+        values: 0+1x8
+    alert_rule_test:
+      - {eval_time: 3m, alertname: OrishuWorkerTraceLocalDrops, exp_alerts: []}
+      - {eval_time: 3m, alertname: OrishuWorkerTraceDeliveryFailures, exp_alerts: []}
+      - {eval_time: 3m, alertname: OrishuWorkerTraceCollectorRejections, exp_alerts: []}
+      - {eval_time: 8m, alertname: OrishuWorkerTraceLocalDrops, exp_alerts: []}
+      - {eval_time: 8m, alertname: OrishuWorkerTraceDeliveryFailures, exp_alerts: []}
+      - {eval_time: 8m, alertname: OrishuWorkerTraceCollectorRejections, exp_alerts: []}

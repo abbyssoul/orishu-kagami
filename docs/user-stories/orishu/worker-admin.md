@@ -239,8 +239,18 @@ Owner counters include admission insertion, refusal and assignment replay.
 The [mTLS proxy recipe](../../testing-worker-monitoring-proxy.md) now provides
 tested source-build secure scraping/probes with monitoring-only certificates.
 Native remote diagnostics, the full probe/security matrix, remaining formation
-metrics, traces and release/service/container deployment remain work, so this
+metrics, cross-peer traces and release/service/container deployment remain work, so this
 story is not complete.
+
+Local sampled export now has live delivery/loss counters when metrics and
+tracing are both enabled. The [catalogue](../../orishu-observability.md#live-trace-delivery-and-loss-counters)
+explains sampling, queue pressure, collector failure and absent instruments;
+these signals do not establish operation acceptance or justify worker restart.
+The [pinned local Collector walkthrough](../../testing-worker-otelcol.md) adds
+real span receipt and inspection, disabled/zero-sampling checks and collector
+shutdown/recovery while authenticated control remains usable. This is local
+client-service telemetry only; cross-peer/log correlation, remote collector
+security and durable backend operation are not established by that recipe.
 
 As an administrator, I want to enable a Prometheus scrape endpoint and
 startup/liveness/readiness probes so that I can monitor a worker and configure
@@ -268,6 +278,9 @@ process responsiveness and readiness for its configured roles.
   published probe matrix.
 - Slow scrapes and unavailable collectors cannot stop cluster work. Metrics
   have documented units, bounded labels and no credentials or authored data.
+- I can distinguish intentionally unsampled operations, locally shed spans
+  and collector-reported outcomes while the worker is running. Missing
+  instruments are not presented as measured zero or proof of domain failure.
 - The manual provides tested Prometheus, service/container probe and optional
   OTLP collector examples, explains remote access, and distinguishes readiness
   from workload admission and scientific validity.

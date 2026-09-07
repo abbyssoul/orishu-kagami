@@ -787,7 +787,7 @@ spec:
     }
 
     fn document(name: &str, mass: &str) -> TemplateDocument {
-        TemplateDocument::new(
+        crate::document::new(
             MetadataDocument::new("planets".try_into().unwrap(), name.try_into().unwrap()),
             SpecDocument {
                 components: vec![ComponentDocument {

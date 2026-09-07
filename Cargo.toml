@@ -26,6 +26,7 @@ kagami-session = { path = "crates/kagami-session" }
 orishu = { path = "crates/orishu" }
 orishu-identity = { path = "crates/orishu-identity" }
 orishu-membership = { path = "crates/orishu-membership" }
+orishu-resource = { path = "crates/orishu-resource" }
 orishu-variables = { path = "crates/orishu-variables" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1", features = ["derive", "rc"] }
