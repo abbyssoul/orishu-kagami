@@ -26,8 +26,8 @@ impl std::str::FromStr for ResultId {
 #[serde(rename_all = "camelCase")]
 pub struct Record {
     pub id: ResultId,
-    /// The ID of the `workload::Manifest` this result was produced from.
-    pub workload_id: manifest::ID,
+    /// The `metadata.uid` of the `workload::Manifest` this result was produced from.
+    pub workload_id: manifest::ResourceUid,
     /// The name of the `workload::Manifest` this result was produced from.
     pub workload_name: manifest::Name,
     /// The epoch of the `workload` this result was produced from.

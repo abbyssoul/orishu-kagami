@@ -1,0 +1,160 @@
+# The shape ADR 0024 describes: a field-model component and a Dynamics
+# component joined by typed channels under a deterministic step plan, with
+# pinned initial conditions.
+#
+# The field model owns its field. A projection phase samples that field and
+# emits force contributions. Dynamics alone reduces those contributions and
+# writes candidate particle kinematics. No component can reach another's state
+# except through a declared channel.
+#
+# `project-forces` reads `particle-kinematics` while `integrate` writes it.
+# That is not a cycle: a channel read is the previous committed boundary, and
+# the plan's edges are the declared `dependsOn` dependencies.
+apiVersion: orishu.dev/v2
+kind: Workload
+metadata:
+  name: em cavity with charged particles
+  labels:
+    domain: electrodynamics
+    regime: relativistic
+spec:
+  compute:
+    workloadGraphProfile: orishu.workload-graph/v1
+    components:
+      - instanceId: field
+        artifact:
+          role: component
+          digest: sha256:827eae725093d19641dbf9f8b5b24636daac6204d0bd22a9c71ed1b8f867e04d
+          sizeBytes: 20
+          mediaType: application/wasm
+          schema:
+            schemaId: dev.orishu.em.field/v1
+            version: 1
+        pluginId: dev.orishu.electromagnetism
+        modelId: dev.orishu.electromagnetism.yee/v1
+        schemaId: dev.orishu.em.field/v1
+        engine: wasm-component
+        lifecycle: orishu.component/v1
+        roles: [field-model, coupling]
+        stateOwnership: [e-field]
+        config:
+          permittivity: 8.8541878128e-12
+          haloDepth: 1
+        limits:
+          maxMemoryBytes: 1073741824
+
+      - instanceId: dynamics
+        artifact:
+          role: component
+          digest: sha256:0bb3a959e631f596fbd57a8bedae58825836ec8382b1d7545c9cc01b3d5eacce
+          sizeBytes: 23
+          mediaType: application/wasm
+          schema:
+            schemaId: dev.orishu.mechanics.kinematics/v1
+            version: 2
+        pluginId: dev.orishu.mechanics
+        modelId: dev.orishu.mechanics.velocity-verlet/v1
+        schemaId: dev.orishu.mechanics.kinematics/v1
+        engine: wasm-component
+        lifecycle: orishu.component/v1
+        roles: [dynamics]
+        stateOwnership: [particle-kinematics]
+        limits:
+          maxMemoryBytes: 536870912
+
+    channels:
+      # Authoritative field state: one owner, one writer.
+      - channelId: e-field
+        schema:
+          schemaId: dev.orishu.em.field/v1
+          version: 1
+        shape: [3]
+        owner: field
+        reduction: single
+
+      # A contribution channel: no owner, several producers admitted, combined
+      # by a declared reduction rather than by completion order.
+      - channelId: lorentz-force
+        schema:
+          schemaId: dev.orishu.mechanics.force/v1
+          version: 1
+        shape: [3]
+        reduction: sum
+
+      # Authoritative particle state: Dynamics alone writes it.
+      - channelId: particle-kinematics
+        schema:
+          schemaId: dev.orishu.mechanics.kinematics/v1
+          version: 2
+        shape: [6]
+        owner: dynamics
+        reduction: single
+
+    stepPlan:
+      profile: orishu.workload-graph/v1
+      invocations:
+        - invocationId: advance-field
+          instance: field
+          phaseId: update-field
+          outputs: [e-field]
+
+        - invocationId: project-forces
+          instance: field
+          phaseId: project-lorentz
+          inputs: [e-field, particle-kinematics]
+          outputs: [lorentz-force]
+          dependsOn: [advance-field]
+
+        - invocationId: integrate
+          instance: dynamics
+          phaseId: integrate
+          inputs: [lorentz-force]
+          outputs: [particle-kinematics]
+          dependsOn: [project-forces]
+
+    placementConstraints:
+      - constraint: co-locate
+        instances: [field, dynamics]
+
+  domain:
+    dimensions: 3
+    bounds:
+      shape: box
+      sideMetres: [1.0, 0.2, 0.3]
+    discretization:
+      spaceMetres: 0.001
+      timeSeconds: 1.5e-11
+      integration:
+        scheme: velocity-verlet
+        parameters:
+          substeps: 2
+
+  inputs:
+    geometry:
+      role: geometry
+      digest: sha256:ea09ae2cec29b14ee5e767a15a370d9aeafc4b76d7668ce4ae7f9ab962e5ea9c
+      sizeBytes: 11
+      mediaType: model/3mf
+    initialConditions:
+      - role: initial-conditions
+        digest: sha256:b989863610542dcdd20b0d64f06aa51384a4a7ada5456167063d65ba8570377c
+        sizeBytes: 19
+        mediaType: application/vnd.orishu.field-state
+        schema:
+          schemaId: dev.orishu.em.field/v1
+          version: 1
+      - role: initial-conditions
+        digest: sha256:2a4b3a690d1da73fa1ecb16798922f3fb1a35beab98bb9fa96be38ba53e92530
+        sizeBytes: 22
+        mediaType: application/vnd.orishu.particle-state
+        schema:
+          schemaId: dev.orishu.mechanics.kinematics/v1
+          version: 2
+
+  requirements:
+    hardware:
+      minCpuCores: 4
+      minMemoryBytes: 8589934592
+    executionProfile:
+      numericMode: deterministic
+      reductionOrder: stable

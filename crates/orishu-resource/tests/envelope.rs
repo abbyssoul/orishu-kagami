@@ -14,13 +14,13 @@ use serde::{Deserialize, Serialize};
 
 // ── two resource shapes, standing in for the two real consumers ─────────────
 
-/// Orishu-shaped: a human name plus an optional system-assigned ID.
+/// Orishu-shaped: a human name plus an optional system-assigned UID.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ObjectMeta {
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
+    uid: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -68,7 +68,7 @@ fn permissive() -> Permissive {
         kind(),
         ObjectMeta {
             name: "one".to_owned(),
-            id: None,
+            uid: None,
         },
         Spec {
             domain_type: "electromagnetic".to_owned(),
@@ -434,7 +434,7 @@ fn the_envelope_encodes_exactly_as_the_orishu_manifest_derive_did() {
         kind: "Widget".to_owned(),
         metadata: ObjectMeta {
             name: "one".to_owned(),
-            id: Some("abc".to_owned()),
+            uid: Some("abc".to_owned()),
         },
         spec: Spec {
             domain_type: "electromagnetic".to_owned(),
@@ -446,7 +446,7 @@ fn the_envelope_encodes_exactly_as_the_orishu_manifest_derive_did() {
         kind(),
         ObjectMeta {
             name: "one".to_owned(),
-            id: Some("abc".to_owned()),
+            uid: Some("abc".to_owned()),
         },
         Spec {
             domain_type: "electromagnetic".to_owned(),
@@ -470,7 +470,7 @@ fn the_envelope_encodes_a_status_exactly_as_the_derive_did() {
         kind: "Widget".to_owned(),
         metadata: ObjectMeta {
             name: "one".to_owned(),
-            id: None,
+            uid: None,
         },
         spec: Spec {
             domain_type: "em".to_owned(),
@@ -482,7 +482,7 @@ fn the_envelope_encodes_a_status_exactly_as_the_derive_did() {
         kind(),
         ObjectMeta {
             name: "one".to_owned(),
-            id: None,
+            uid: None,
         },
         Spec {
             domain_type: "em".to_owned(),

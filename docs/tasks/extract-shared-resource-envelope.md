@@ -268,6 +268,8 @@ Do not revive the historical field spellings where current ADR 0013 and
   manifest type. Avoid landing simultaneous incompatible public-model edits.
 - O-API-SHAPE owns any change from `metadata.id` to `metadata.uid` and the
   generic client resource surface; this task preserves current wire behavior.
+  (The spelling was subsequently settled in favour of `uid`; see "Still open,
+  deliberately".)
 
 ## Non-goals
 
@@ -292,9 +294,10 @@ Do not revive the historical field spellings where current ADR 0013 and
 `ResourceHeader`, the bounded `ApiVersion`/`Kind` new-types, and structural
 errors only. It depends on `serde` and nothing else.
 
-- `crates/orishu/src/model/manifest.rs` keeps `ObjectMeta`, `Name`, `ID`,
-  `MANIFEST_API_VERSION`, and `ParseError`; `Manifest<T, S>` is now a type
-  alias for the shared envelope over `ObjectMeta`.
+- `crates/orishu/src/model/manifest.rs` keeps `ObjectMeta`, `Name`, `ID` (since
+  renamed to `ResourceUid`), `MANIFEST_API_VERSION`, and `ParseError`;
+  `Manifest<T, S>` is now a type alias for the shared envelope over
+  `ObjectMeta`.
 - `crates/kagami-catalog/src/document.rs` keeps `MetadataDocument`,
   `SpecDocument`, and every value type; `TemplateDocument` is a type alias for
   the shared envelope with `NoStatus` and `DenyUnknown`. `Envelope` is replaced
@@ -349,13 +352,14 @@ illegal (E0116), so the following became free functions in their owning module:
 
 ### Still open, deliberately
 
-- **`metadata.id` versus `metadata.uid`.** The implementation serializes `id`;
-  `docs/protocol-client.md` documents `uid`. Current wire behaviour is
-  preserved and the divergence is now noted in the protocol document.
-  O-API-SHAPE owns the reconciliation.
+- ~~**`metadata.id` versus `metadata.uid`.**~~ **Resolved 2026-09-07**, after
+  this task, by the O-API-SHAPE follow-up: `uid` is canonical, `ID` is now
+  `ResourceUid`, the node resource projects its `NodeId` into `metadata.uid`,
+  and the `id` spelling is neither written nor read. The divergence note is
+  removed from `docs/protocol-client.md`.
 - **Canonical workload identity.** `checkpoint::Record` and `result::Record`
-  still carry workload provenance as `manifest::Name` / `manifest::ID` under
-  the `workloadName` / `workloadId` spellings. They were audited as workload
+  still carry workload provenance as `manifest::Name` / `manifest::ResourceUid`
+  under the `workloadName` / `workloadId` spellings. They were audited as workload
   provenance — not formation, node, run, or artifact identity — and pinned by
   fixture. S-WORKLOAD owns replacing them with a canonical workload identity.
 - **Bounded Orishu parsing.** `workload::from_reader` is still unbounded, as
@@ -389,7 +393,9 @@ After these are addressed, rerun the focused resource, Orishu wire/client,
 catalog fingerprint, clippy, doc-test, and documentation checks recorded by
 the task. The deliberately deferred `metadata.id`/`metadata.uid`, canonical
 workload identity, and bounded workload-admission parser remain owned by their
-named downstream work packages and do not block S-RESOURCE acceptance.
+named downstream work packages and do not block S-RESOURCE acceptance. (The
+`metadata.id`/`metadata.uid` item has since been resolved — see "Still open,
+deliberately" above.)
 
 ### Review resolution — 2026-09-07
 

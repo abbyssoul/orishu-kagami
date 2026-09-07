@@ -25,10 +25,10 @@ use chrono::{DateTime, Utc};
 use orishu::model::{
     checkpoint::{self, CheckpointId},
     cluster::{self, ClusterSpec, ClusterStatus, Version},
-    manifest::{ID, Name},
+    manifest::{Name, ResourceUid},
     node::{
-        self, ConnectionStats, MemberState, NodeAccepts, NodeCapabilities, NodeLimits, NodeListen,
-        NodeSpec, NodeStatus, NodeStorage,
+        self, ConnectionStats, MemberState, NodeAccepts, NodeCapabilities, NodeId, NodeLimits,
+        NodeListen, NodeSpec, NodeStatus, NodeStorage,
     },
     result::{self, ResultId},
     storage::StorageBackend,
@@ -111,7 +111,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds: 1m
@@ -132,7 +132,7 @@ spec:
   domainType: electromagnetic
   model:
     image:
-      uri: "oci://registry.example.com/sim/em:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 3
     bounds:
@@ -145,10 +145,10 @@ spec:
   inputs:
     geometry:
       mesh:
-        uri: "https://example.com/air-tunnel.3mf"
+        uri: "urn:orishu:superseded-prototype-geometry"
     initialConditions:
       image:
-        uri: "https://example.com/snapshot.orishu"
+        uri: "urn:orishu:superseded-prototype-initial-state"
   requirements:
     hardware:
       minCpuCores: 4
@@ -208,6 +208,7 @@ fn the_synthetic_cluster_projection_keeps_its_wire_form() {
 #[test]
 fn a_node_manifest_keeps_its_wire_form() {
     let mut manifest = node::manifest(
+        &NodeId::new("node-7f3a").expect("a valid node ID"),
         "worker-a",
         NodeSpec {
             accepts: NodeAccepts {
@@ -249,18 +250,18 @@ fn a_node_manifest_keeps_its_wire_form() {
 
 // ── provenance records that borrow the envelope's identity newtypes ──────────
 //
-// These do not use the envelope, but they do use `manifest::{Name, ID}` for
-// workload provenance. S-WORKLOAD owns what a canonical workload identity
-// becomes; until then the `workloadName`/`workloadId` spellings must not
-// drift, and they must never be reinterpreted as formation, node, run, or
-// artifact identity.
+// These do not use the envelope, but they do use `manifest::{Name,
+// ResourceUid}` for workload provenance. S-WORKLOAD owns what a canonical
+// workload identity becomes; until then the `workloadName`/`workloadId`
+// spellings must not drift, and they must never be reinterpreted as formation,
+// node, run, or artifact identity.
 
 #[test]
 fn checkpoint_provenance_keeps_its_workload_identity_spellings() {
     let record = checkpoint::Record {
         id: CheckpointId("chk-0001".to_owned()),
         workload_name: Name("em-cavity-resonance".to_owned()),
-        workload_id: ID("wl-7f3a".to_owned()),
+        workload_id: ResourceUid("wl-7f3a".to_owned()),
         workload_epoch: 3,
         recorded_at: timestamp("2026-01-02T03:04:05Z"),
         simulation_time: 1.5,
@@ -274,7 +275,7 @@ fn checkpoint_provenance_keeps_its_workload_identity_spellings() {
 fn result_provenance_keeps_its_workload_identity_spellings() {
     let record = result::Record {
         id: ResultId::from_str("res-0001").expect("infallible"),
-        workload_id: ID("wl-7f3a".to_owned()),
+        workload_id: ResourceUid("wl-7f3a".to_owned()),
         workload_name: Name("em-cavity-resonance".to_owned()),
         workload_epoch: 3,
         started_at: timestamp("2026-01-02T03:00:00Z"),

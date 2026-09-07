@@ -31,8 +31,8 @@ and viewport/app adoption.
 | [Implement the sans-IO cluster membership core](implement-membership-model.md) | Implemented and accepted |
 | [Fix membership liveness propagation through full-record merge](fix-membership-liveness-gossip-merge.md) | Implemented and accepted |
 | [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | N-FORMATION accepted for source-built Linux; combined M4 telemetry/operator handoff remains open |
-| [Implement worker operational observability](implement-worker-observability.md) | Local probes/metrics, OTLP receipt and live trace counters have scoped evidence; log correlation, cross-peer tracing and full probe/security/operator M4 acceptance remain open |
-| [Document and verify operator observability workflows](document-worker-observability.md) | Local/mTLS-proxy scrape and pinned local Collector receipt recipes verified; remaining deployment/security/correlation/alert handoff pending |
+| [Implement worker operational observability](implement-worker-observability.md) | Local probes/metrics, membership deadlines, inbound/outbound/reliable/datagram and pre-pool instruments, OTLP receipt and live trace counters have scoped evidence; broader instrumentation, log correlation, cross-peer tracing and full probe/security/operator M4 acceptance remain open |
+| [Document and verify operator observability workflows](document-worker-observability.md) | Local/mTLS-proxy scrape and pinned HTTP/mTLS Collector recipes verified on loopback; remaining deployment/security/correlation/alert handoff pending |
 | [Implement the `orishu-monitor` TUI shell](implement-orishu-monitor-admin-tui.md) | Implemented; first slice toward full operator parity, with live APIs/actions deferred and raw admission-secret output CLI-only |
 | [Integrate `orishu-monitor` with the operator API](integrate-orishu-monitor-operator-api.md) | Backlog; promote bounded increments as N-FORMATION and O-CLIENT contracts land |
 

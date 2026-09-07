@@ -532,3 +532,69 @@ run, failures or skipped checks, and any remaining coordination needed before
 S-WORKLOAD can consume the new envelope. Do not mark the task accepted merely
 because the new crate exists: both Orishu and Kagami must have stopped owning
 parallel structural envelopes, with their domain semantics preserved.
+
+---
+Followup: metadata.id/uid, canonical workload identity.
+## Context
+There is important wire-contract mismatch in Orishu’s ObjectMeta:
+
+  - The Rust implementation names the field id, so JSON/YAML/CBOR serialize it as metadata.id.
+  - The client protocol specifies metadata.uid, following Kubernetes terminology.
+  - For a node resource, this is intended to carry the stable, cluster-assigned NodeId; metadata.name is only a human-readable
+    label.
+
+  See crates/orishu/src/model/manifest.rs:98 and docs/protocol-client.md:929.
+
+## Decision
+Make uid canonical and migrate the implementation.
+We should also update Rust type to `ResourceUid`, rather than the overly generic ID.
+
+## Outcome — [X] done 2026-09-07 (the `metadata.uid` half)
+
+`manifest::ID` is `manifest::ResourceUid`; `ObjectMeta.id` is `ObjectMeta.uid`
+and serializes as `uid`. `node::manifest` now takes the formation-assigned
+`NodeId` and projects it into `metadata.uid`, so the node contract
+`docs/protocol-client.md` already documented is real rather than aspirational.
+The superseded `id` spelling is neither written nor read; unit tests pin both
+halves and the `node` wire fixtures were re-blessed. The protocol divergence
+note is gone, and `docs/protocol-p2p.md` no longer claims `formationId` comes
+from resource metadata — it is `FormationId` under ADR 0013.
+
+Canonical *workload* identity is still open and still S-WORKLOAD's:
+`checkpoint::Record` / `result::Record` carry `workloadId: ResourceUid` under
+the unchanged `workloadId` spelling.
+
+----
+
+Implement S-WORKLOAD slices 1–2 and the structural portion of slice 3: define the immutable workload model, artifact
+descriptors and identities, canonical encoding/digests, structural closure validation, bounds, and golden fixtures.
+
+Why this is next:
+- S-RESOURCE and canonical metadata.uid are now settled.
+- The current workload still uses unpinned ExternalResource::{Image, Inline} values and mutable URLs.
+- Canonical workload identity remains unresolved; checkpoint/result provenance currently uses the provisional ResourceUid.
+- O-WASM, O-RUNTIME, O-STORAGE, X-PLUGIN, Kagami compilation, and artifact transfer all need this contract.
+
+Keep the increment bounded to:
+- WorkloadManifest and WorkloadDigest
+- Algorithm-tagged ArtifactDigest
+- ArtifactDescriptor, role, size, media/schema information
+- Component-instance, channel, and deterministic step-plan structural types
+- A deterministic canonical codec with golden bytes and digests
+- A transport-neutral in-memory closure validator
+- Manifest, collection, string, artifact-count, and declared-byte bounds
+- Explicit migration behavior for the current orishu.dev/v1 URL/inline format
+
+Explicitly exclude:
+- Worker admission or network APIs
+- Filesystem/cache/storage implementation
+- Kagami experiment compilation
+- Wasmtime or component execution
+- Full expression and dimension validation
+- Full plugin/model policy validation
+- Portable archive and peer-transfer formats
+
+The existing task is docs/tasks/define-and-adopt-shared-workload-format.md:1, but do stop after the
+first independently reviewable domain increment above.
+
+Ask me any questions if you need input.

@@ -1,6 +1,8 @@
 # Define and adopt the shared workload format
 
-Status: **ready; foundational priority**
+Status: **in progress** — slices 1–2 and the structural half of slice 3 are
+implemented and accepted; see [Increment record](#increment-record--2026-09-07).
+Slices 4–7 remain.
 Decisions: [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md),
 [ADR 0009](../adr/0009-execute-workloads-as-sandboxed-portable-programs.md),
@@ -239,3 +241,80 @@ manifest.
 - Completing Kagami's experiment editor, catalog UI, or MCP surface.
 - Treating a distribution archive, location, mutable tag, runtime status, or
   cluster epoch as workload identity.
+
+## Increment record — 2026-09-07
+
+The first independently reviewable domain increment landed: slices 1 and 2, plus
+the structural half of slice 3.
+
+### What exists
+
+`crates/orishu-workload`, a dependency-light crate depending only on
+`orishu-resource`, `serde`, `sha2`, `thiserror`, and the two authoring codecs.
+It is deliberately **not** a module in `crates/orishu`: that crate links
+`reqwest`, `tokio`, `http` and `chrono`, and Kagami's library crates must be
+able to compile an experiment into a workload without acquiring any of them.
+`tests/dependencies.rs` enforces the budget against the resolved graph.
+
+- `WorkloadManifest` = the shared envelope over `WorkloadMeta` and
+  `WorkloadSpec`, with `NoStatus` and `DenyUnknown`. Runtime status is
+  structurally unrepresentable rather than skipped, and `WorkloadMeta` has no
+  `uid` or `namespace`, so the cluster-assigned identifier cannot reach the
+  digest.
+- `ArtifactDigest` (algorithm-tagged) and a distinct `WorkloadDigest`, with no
+  conversion between them.
+- `ArtifactDescriptor` with role, digest, exact size, media type and schema
+  compatibility, and no location field of any kind.
+- `ComponentInstance`, `StateChannel`, `StepInvocation`, `StepPlan`,
+  `PlacementConstraint`, and their validated id types, following the field
+  spellings `docs/protocol-client.md` had already committed to.
+- A hand-written deterministic CBOR codec (RFC 8949 §4.2) with golden bytes and
+  digests under `tests/fixtures/`, blessed with `BLESS_WORKLOAD_FIXTURES=1`.
+- A transport-neutral `validate_closure` over a `BlobSource` addressed by digest
+  alone, reporting every defect rather than the first.
+- `Limits`, with manifest bytes checked before parsing and aggregate declared
+  bytes before any blob is requested.
+
+### Decisions taken
+
+- **Deterministic CBOR, not JCS or a bespoke format.** CBOR is already the
+  canonical client payload format, so this adds no second codec. The encoder is
+  hand-written over an explicit value tree rather than serde-derived, so a
+  serialization attribute cannot silently change what a workload commits to.
+- **`orishu.dev/v2` during the transition.** The superseded prototype still
+  answers to `orishu.dev/v1`, so exactly one parser claims each discriminator.
+  This becomes the group's `v1` workload version when slice 5 lands and the
+  prototype is deleted; the golden digests will be re-blessed then.
+- **No migration.** Nothing has been submitted against the prototype, so there
+  is no compatibility obligation and no legacy parser was written.
+- **Non-finite floats are rejected at construction**, via `FiniteF64`, rather
+  than at encoding time. Canonical encoding is therefore total over the typed
+  model: a manifest that exists can always be identified.
+- **Role is not part of descriptor conflict detection.** One blob may serve two
+  roles and is stored once; size, media type and schema are claims about the
+  bytes and may not contradict.
+
+### Deferred, and by whom
+
+- **Within slice 3:** expression resolution, physical dimension compatibility,
+  finite-value numerical rules beyond `FiniteF64`, model-family exclusivity,
+  per-model policy, hardware-requirement matching, and placement feasibility
+  against a real cluster. A successful `validate_closure` is a structural
+  statement, not a claim that the physics is admissible.
+- **Domain schema:** anisotropic and segmented discretisation, and unit-typed
+  rather than canonical-SI quantities. `uom` is deliberately excluded from the
+  shared crate; porting the prototype's rules is its own change.
+- **Expression-bearing fields:** owned by the variables integration. A manifest
+  carries resolved scalars until it lands.
+- **Slices 4–7** are untouched: Kagami compilation, Orishu admission, the
+  distribution seams, and the protocol/CLI migration.
+
+### Cleanup done here
+
+The prototype's mutable-URL examples were purged: `oci://` and `https://`
+placeholders in `crates/orishu/src/model/workload.rs`, `tests/resource_wire.rs`,
+the `workload-*` wire fixtures, and `docs/protocol-client.md` are now
+unresolvable `urn:orishu:superseded-prototype-*` values, so nothing in the
+repository advertises a mutable reference as if it were a workload dependency.
+`ExternalResource` and its holders survive until slice 5, marked superseded in
+rustdoc.

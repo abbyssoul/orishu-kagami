@@ -42,24 +42,28 @@ same typed resource. Its version-1 fields are:
 | `workload` | `"none"` in this no-compute PoC |
 | `view` | `"localAtRequest"`; a current local read, not proof of global convergence |
 
-Startup currently yields `standalone`, one alive member and
-`introducerReady: false`: the standalone owner runs, but peer session/effect
-integration is still pending. Reads use its published local projection; a
-stopped owner yields `503`/`OwnerUnavailable`, never a cached success described
-as fresh. Listing lifecycle variants does not claim those transitions
-are implemented. Other membership mutations
-remain in the formation task. Unmatched routes do not
-report successful placeholder operations.
+Config-free startup yields `standalone`, one alive member and
+`introducerReady: false`, because peer introduction is not enabled by default.
+Explicitly configured peer admission uses the production QUIC adapter and
+membership owner; readiness depends on the configured role and validated
+admission state, not merely a bound listener. Reads use the owner's published
+local projection; a stopped owner yields `503`/`OwnerUnavailable`, never a
+cached success described as fresh. Identified join/status, issuer inspection,
+lock/unlock and voluntary leave are implemented as specified below. Other
+imported operations are not implied to be supported, and unmatched routes do
+not report successful placeholder operations.
 
 `joinUnresolved` means an emitted admission attempt exhausted its core retries
 without validated local adoption. Remote insertion may already have happened;
 the remaining source formation does not prove otherwise. The owner refuses a
 new begin-join, drops transient secret/send state and does not invent rollback
 or success. If no JoinReq was ever submitted to transport, exhaustion can
-return to `standalone`. This conservative distinction precedes the still-pending
-identified operation-status/recovery API; operators must not infer that an
-unresolved target membership entry can safely be erased or that restarting is
-outcome recovery. Clients must recognize the new lifecycle enum value.
+return to `standalone`. The identified operation-status and issuer-inspection
+APIs preserve this distinction; follow the
+[bounded admission recovery procedure](cluster-admission-recovery.md).
+Operators must not infer that an unresolved target membership entry can safely
+be erased or that restarting is outcome recovery. Clients must recognize the
+`joinUnresolved` lifecycle value.
 
 ### Formation client ingress limits
 
@@ -82,13 +86,53 @@ connection. This is a write-stall deadline, not a total response deadline or
 minimum-throughput guarantee for a reader that continues making progress.
 The shared Unix/TLS client listener also closes a connection after ten seconds
 without a successful transport read or write, for both HTTP/1.1 and HTTP/2.
-This reclaims silent incomplete frames/header blocks and silent window-blocked
+Client TLS handshakes have an explicit ten-second fallback deadline. In the
+current pinned server, the five-second initial HTTP protocol-detection read
+wraps the lazy TLS handshake, so silent or unfinished TLS input expires under
+that earlier deadline. Ciphertext trickling does not restart detection. The
+deadline starts when the accepted connection begins protocol detection, not
+when the remote TCP connect call returns or while it waits in the OS backlog.
+This precedes HTTP authentication and the plaintext assembly budgets below.
+Neither deadline is a guaranteed minimum time before malformed TLS is refused.
+The connection-inactivity bound reclaims silent incomplete frames/header blocks and silent window-blocked
 responses even when no socket write is pending. Idle keep-alive clients must
 reconnect. This is connection inactivity, not a per-stream or absolute header
 deadline: traffic on another stream, PINGs or trickled bytes can keep the
 connection active. Such traffic does not reset the separate five-second
 HTTP/1 header or handler deadlines. Future long-lived delivery must review
 this limit explicitly rather than silently disabling it for formation routes.
+
+HTTP/2 client input additionally has a **five-second absolute assembly budget**
+on the plaintext stream, shared by Unix and TLS/TCP listeners:
+
+- A partially received HTTP/2 connection preface must complete within five
+  seconds of its first plaintext byte. TLS handshake protection remains with
+  the TLS adapter; no assembly time is charged before plaintext is available.
+- Each frame, including its nine-byte header and declared payload, must
+  complete within five seconds of that frame's first byte. Between completed
+  frames there is no frame deadline; the connection-idle limit still applies.
+- A logical header block must complete within five seconds of the first byte
+  of its opening HEADERS frame. Completing that frame or subsequent
+  CONTINUATION frames does not renew the budget. Only fully receiving the
+  final END_HEADERS frame clears it. The earlier pending frame/block deadline
+  wins; initial request headers and trailers use the same rule.
+- Read/write progress, control frames and other streams cannot extend a
+  pending assembly deadline. Expiry aborts the entire offending connection,
+  including other streams on it; an incomplete frame blocks connection-level
+  decoding and is not safely reclaimable as a single handler timeout. Other
+  connections and peer membership remain independent. Already accepted
+  mutations retain their normal operation/recovery semantics.
+
+The observer retains a fixed nine-byte header and counters, skips payloads
+without buffering them, and uses one cancellable deadline watcher per accepted
+connection (bounded by the listener's connection cap). The watcher runs even
+when the decoder is not polling reads; connection drop cancels it. HTTP/1
+continues to use its existing head limits, with no HTTP/2 upgrade support in
+this PoC. This is not a maximum connection age, a request-body completion
+budget. Responses blocked on HTTP/2 credit use the separate delivery budget
+below. The former active partial-frame diagnostic
+is now an expiry regression; dated pre-fix results remain in the ledger.
+
 The existing response codec caps each serialized response at 1 MiB; the HTTP/1
 buffer is separately capped at 8 KiB. Pagination and handler budgets bound
 response construction; pipelining must not queue the entire response batch
@@ -117,11 +161,65 @@ Real-process Unix HTTP/2 tests also verify response DATA obeys zero per-stream
 credit and exhausted connection credit, explicit window updates resume the
 selected responses, cancellation returns stream capacity, and independent
 control and shutdown progress with window-blocked responses. This is response
-flow-control/recovery evidence, not inbound flow-control violation coverage or
+flow-control/recovery evidence, not by itself inbound flow-control violation coverage or
 incomplete HEADERS/CONTINUATION deadline evidence. A stream waiting for
 HTTP/2 window credit need not have a pending socket write, so the five-second
 transport write-stall timeout is not evidence of a per-stream send deadline.
 HTTP/1 header timing and slow-reader tests do not establish those HTTP/2 cases.
+
+The formation delivery contract additionally requires each HTTP/2 response
+to finish within **five seconds from its first outgoing HEADERS-frame byte**
+accepted by the plaintext transport. Completion means the complete END_STREAM
+frame has been accepted by that transport, not that the remote application
+received it. If END_STREAM is on HEADERS followed by CONTINUATION frames,
+completion also waits for the complete final END_HEADERS continuation.
+An inbound or outbound RST_STREAM cancels that response's budget.
+The original deadline is not renewed by DATA progress, PINGs, window updates,
+trailers or other streams. Handler work before response headers retains its
+separate request deadline. TLS buffering/write-stall protection remains with
+the transport; neither deadline establishes delivery of a command receipt.
+Each partially written outgoing frame also has a five-second absolute budget
+from its first accepted byte. This covers fragmented frame headers before
+the observer can identify their stream/type; the earliest input-assembly,
+output-frame or response deadline wins.
+
+Expiry aborts the offending connection and all its streams. This bounded PoC
+policy covers responses waiting for either stream or connection credit and
+slow progressing responses, without introducing a maximum connection age.
+Already accepted mutations are not rolled back: use operation status/replay
+after a missing receipt. Track at most the configured sixteen concurrent
+responses per connection, with fixed metadata and no response-body copies.
+Future streaming/observation routes must explicitly replace this finite
+response contract before they ship. Implementation and evidence are tracked
+in the conformance ledger; existing idle/write tests alone do not prove it.
+
+The pinned HTTP/2 decoder's inbound flow-control refusal contract is separately
+exercised through the production server wrapper with a test handler that does
+not read bodies. This prevents application consumption from renewing credit
+during a boundary assertion:
+
+| Input | Observed refusal |
+| --- | --- |
+| DATA exceeds remaining connection credit by one byte | Connection GOAWAY, `FLOW_CONTROL_ERROR` (3), then transport closure |
+| DATA exceeds remaining stream credit while connection credit remains | Stream RST_STREAM, `FLOW_CONTROL_ERROR` (3); another stream can complete a request |
+| WINDOW_UPDATE would overflow connection/stream credit | Connection GOAWAY / stream RST_STREAM respectively, `FLOW_CONTROL_ERROR` (3) |
+| Zero WINDOW_UPDATE increment, on either scope | Connection GOAWAY, `PROTOCOL_ERROR` (1) |
+| WINDOW_UPDATE payload is three bytes instead of four | Connection GOAWAY, `PROTOCOL_ERROR` (1) |
+
+The last two cases record the pinned decoder's connection-error escalation
+and generic error code, permitted by [RFC 9113 section 5.4](https://www.rfc-editor.org/rfc/rfc9113.html#section-5.4).
+Callers must not assume every invalid stream update preserves its connection.
+The fixtures retain exact-limit and legal-update controls, including reserved
+bit handling and an empty END_STREAM at zero connection credit.
+
+Connection-overrun evidence uses the production 65,535-byte windows across
+two unread streams. To isolate stream overrun from the earlier connection
+check, its fixture alone raises connection credit to 131,070 bytes while
+retaining the production 65,535-byte stream limit. This is a test configuration,
+not a new worker setting. These are Unix wire/server tests of the shared HTTP/2
+decoder, not a TLS-handshake, authenticated operator or multi-process journey.
+The separate delivery tests establish expiry for withheld response credit;
+these inbound violation tests alone do not prove that temporal behavior.
 
 Response-write failure cannot roll back an accepted mutation. A client missing
 a complete validated receipt must use the supported operation/status/replay
@@ -188,8 +286,8 @@ lowering it to the imported token-only `JoinIntent`. The current literal-address
 profile accepts one to eight endpoints of at most 128 bytes each, with unicast
 IPs and nonzero ports; DNS and redirects are not enabled by this input path.
 Readiness is advisory and admission must still re-check gates. The identified
-request executor, operation-status/retry contract and HTTP handler are not yet
-connected; CLI execution explicitly rejects before transmission. The imported
+request executor, operation-status/retry contract and HTTP handler are connected
+through the [identified join routes](#implemented-identified-join-routes). The imported
 `JoinIntent`/`JoinRequestAccepted` client methods are not evidence of support.
 
 The bounded local operation tracker now specifies `JoinOperation` version 2:
@@ -236,8 +334,10 @@ local-at-request facts, not cluster-wide fences; a stale report never authorizes
 admission. Ledger capacity does not prevent lookup of a retained record.
 HTTP authentication/decoding/overload/timeout failures produce no negative
 admission evidence. The [operator recovery procedure](cluster-admission-recovery.md)
-uses bounded polling and mandatory stop conditions; its complete deliberate
-process-fault acceptance remains outstanding. Clients reject non-`wrongIssuer`
+uses bounded polling and mandatory stop conditions; the
+[recovery matrix](tasks/cluster-formation-conformance.md#required-failure-matrix)
+records passing scoped process-fault evidence, separate from final formation
+acceptance. Clients reject non-`wrongIssuer`
 reports whose source formation/node contradict the referenced issuer, as well
 as any report whose echoed request differs from the query.
 
@@ -257,9 +357,9 @@ domain-separated SHA-256 digest of canonical typed request serialization;
 records retain no admission token. Same ID/different request conflicts; exact
 replay is checked before current-source eligibility so adoption cannot hide its
 accepted outcome. New work requires the expected source formation, standalone
-participation and no active join. This tracker and DTO have unit evidence;
-owner execution, cancellation supervision, authenticated status routes and
-client polling are not yet connected. No public `202` route is claimed yet.
+participation and no active join. Owner execution, cancellation supervision,
+authenticated status routes and client polling consume this tracker; pending
+submission uses the public `202` contract below.
 
 Owner integration now reserves a completion slot on the bounded control lane
 before accepting preparation. New work returns a single-use shell job; exact
@@ -272,8 +372,8 @@ adoption records `catchingUp` with the assigned target node ID. Records survive
 adoption and remain replayable. Explicit leave preserves an honest failure or
 uncertain/adopted history while releasing old lifecycle exclusion; it is not
 remote outcome recovery. The real owner/dial test and cancellation tests cover
-this integration. Runtime job deadlines, HTTP routes and client polling still
-remain required before public operation acceptance is enabled.
+this integration. Runtime job deadlines, HTTP routes and client polling are
+specified in the following implemented contracts.
 
 Runtime execution now owns prepared jobs independently of the requesting client
 future. It retains at most four job tasks, reaps completed tasks before adding
@@ -287,7 +387,8 @@ cancelled jobs drop their preparation and record pre-admission failure.
 Shutdown excludes new jobs, aborts/drains owned tasks within a one-second bound,
 then stops the owner and closes the retained endpoint. A runtime test checks
 bad-pin failure, exact replay, unchanged membership and shutdown cleanup.
-Authenticated public submission/status routes and client polling remain unwired.
+Authenticated public submission/status routes and client polling use this
+runtime supervision, as specified below.
 
 ### Implemented identified join routes
 
@@ -380,6 +481,35 @@ readiness; unknown state/role filters fail explicitly. `ls` emits these same
 resources in JSON/YAML. These limits are the current PoC profile, not a fleet
 scalability claim.
 
+### Planned client trace context
+
+Trace extraction/export is not implemented. This bounded propagation contract
+is proposed alongside [ADR 0025](adr/0025-version-peer-trace-context-propagation.md),
+not a new authentication mechanism or a claim of current tracing support.
+
+After normal client authorization, an enabled tracing adapter may extract one
+case-insensitive `traceparent` header. Duplicate values (including a combined
+comma-separated value), values over 128 bytes, invalid IDs/flags or malformed
+syntax discard the remote parent without rejecting an otherwise valid request.
+Existing HTTP header budgets still apply before this optional processing.
+Do not parse or propagate `tracestate` or baggage; do not echo trace metadata
+in API responses or retain raw malformed values in logs/diagnostics.
+
+Version `00` requires exactly 55 ASCII characters:
+`00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>`. Both IDs must be
+nonzero. Version `ff` is invalid. For versions `01` through `fe`, validate the
+same leading IDs/flags and require end-of-value or a dash after flags; ignore
+bounded extension content. Emit version `00` with a new local span ID and only
+the locally chosen sampled bit. Remote flags cannot override local cost limits.
+These rules follow the [W3C format/versioning guidance](https://www.w3.org/TR/trace-context/)
+with Orishu's explicit processing cap and no vendor-state forwarding.
+
+Context is request-local IO metadata, not command acceptance, operation identity
+or persisted run provenance. Authorization failure never adopts a remote parent.
+Independent commands and periodic work must not inherit another request's
+context. Disabled tracing does no extraction/export, and missing/invalid context
+does not require a collector to serve the request.
+
 ### Target transport
 
 The client protocol is **HTTP/3** ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)) over QUIC ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000)).
@@ -434,9 +564,14 @@ assigned `X-Node-Id` during startup. Metrics use
 `text/plain; version=0.0.4; charset=utf-8`; probes use plain text. Responses
 disable caching. Query parameters return 400; unknown routes return 404, and
 no client mutation/token routes are mounted. The current catalogue is three
-health gauges, six process-lifetime owner counters, eight bounded-lane slot
-gauges and six client-service instruments, all unlabelled, with
-constant-size snapshots and less than 6 KiB of text. Client service accounting
+health gauges, thirteen process-lifetime owner counters, ten inbound peer
+handshake counters, eight bounded-lane slot gauges and seven client-service
+instruments, plus reliable peer exchange outcomes, duration, bytes and pool
+gauges and outbound attempt/TLS outcomes, duration and dial pressure.
+Only the five duration histograms have labels: eight fixed `le` bounds
+each. Other series are unlabelled, with constant-size snapshots. Allow 32 KiB
+of text for the 131 base series or 143 with optional trace counters, including
+datagram/pre-pool traffic and membership deadline/abandonment observations. Client service accounting
 is enabled only with runtime metrics; it excludes diagnostics, pre-service
 transport rejection and response delivery. Handler success is not command
 acceptance. See the
@@ -637,13 +772,27 @@ Administrative resources are cluster-scoped, not operator-owned. In the MVP, any
 
 The workload is the immutable root manifest and its complete digest-addressed
 artifact closure; API payload framing and artifact transfer are distribution
-formats, not workload identity. The URI/`image` fields in the legacy examples
-below describe the current prototype implementation and are not the target
-schema accepted by ADR 0010. They will be replaced by identity-only artifact
-descriptors and a separate missing-blob/source mechanism in the
-[shared workload-format task](./tasks/define-and-adopt-shared-workload-format.md).
-Runtime status returned by `GET` is a projection alongside the immutable
-manifest and never participates in its canonical digest.
+formats, not workload identity. Runtime status returned by `GET` is a projection
+alongside the immutable manifest and never participates in its canonical digest.
+
+A workload is `apiVersion: orishu.dev/v2`, `kind: Workload`. Its schema —
+[ArtifactDescriptor](#artifactdescriptor),
+[StateChannelDescriptor](#statechanneldescriptor), [StepPlan](#stepplan),
+[WorkloadMeta](#workloadmeta) — is defined above and implemented by
+`crates/orishu-workload`, together with the canonical encoding that gives a
+workload its digest. See [what a workload is](./workloads.md).
+
+> **Not yet implemented by the worker.** The endpoints below still describe the
+> superseded `orishu.dev/v1` prototype, whose `model.image.uri` and
+> `inputs.*.image.uri` fields name artifacts by mutable location. That schema
+> cannot express a closed pinned closure and has no stable identity; it is not
+> migrated, because nothing has been submitted against it. Moving admission to
+> `v2` — and with it the missing-blob negotiation and bounded upload path this
+> section will need — is the remaining work in the
+> [shared workload-format task](./tasks/define-and-adopt-shared-workload-format.md).
+> The `urn:orishu:superseded-prototype-*` placeholders in the repository's
+> `v1` examples are deliberately unresolvable, so that nothing advertises a
+> registry tag or an HTTP URL as if it were a workload dependency.
 
 | Method | Path | Tier | Description |
 |---|---|---|---|
@@ -796,7 +945,7 @@ See [Runtime engine](./protocol-workload.md#runtime-engine).
 ```
 
 #### ObjectMeta
-Descriptive metadata for identifying and organizing resources. Based on [Kubernetes ObjectMeta](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/object-meta/).
+Descriptive metadata for identifying and organizing resources. Based on [Kubernetes ObjectMeta](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/object-meta/). It is Orishu's metadata schema, not a universal one; see [the shared resource envelope](resource-envelope.md).
 ```
 {
   "name":      <string>,          -- object name; uniqueness depends on the resource kind.
@@ -806,13 +955,89 @@ Descriptive metadata for identifying and organizing resources. Based on [Kuberne
 }
 ```
 
+`uid` is the only spelling of the system-assigned identifier. An earlier
+implementation serialized it as `id`; that spelling is no longer written, and a
+document supplying it is not read as an identifier.
+
+Labels are descriptive. They are not membership identity, they do not participate in formation identity, and they are not part of a workload digest.
+
+A workload resource does **not** use `ObjectMeta`. Its metadata carries only `name` and `labels`, and both are identity-bearing; there is no `uid` or `namespace`, because a cluster-assigned identifier must not reach the workload digest. See [WorkloadMeta](#workloadmeta).
+
+#### ArtifactDescriptor
+An immutable, location-free reference to one artifact. Defined by [ADR 0010](./adr/0010-content-addressed-workload-closure-and-portable-bundles.md) and implemented by `crates/orishu-workload`.
+```
+{
+  "role":      <string>,          -- "component" | "initial-conditions" | "geometry" | "schema" | ... (open vocabulary)
+  "digest":    <string>,          -- "<algorithm>:<lowercase hex>"; currently "sha256:<64 hex>"
+  "sizeBytes": <uint64>,          -- exact byte length; checked in addition to the digest
+  "mediaType": <string>,          -- lowercase "type/subtype"
+  "schema":    <SchemaCompat | absent>
+}
+```
+```
+SchemaCompat = { "schemaId": <string>, "version": <uint32> }
+```
+
+There is no `uri`, `url`, `path`, `registry`, `tag`, `peer`, `credential`, or inline-data field, and there will not be one. Retrieval location is distribution metadata carried by a submission request, distribution envelope, or availability index; it can change without producing a different workload. A document supplying such a field is **rejected**, not silently stripped.
+
+A candidate blob becomes an artifact only by hashing to `digest` and being exactly `sizeBytes` long. Nothing a provider claims about a blob participates in that decision.
+
+#### StateChannelDescriptor
+One typed channel carrying state or contributions between component instances.
+```
+{
+  "channelId": <string>,
+  "schema":    <SchemaCompat>,
+  "shape":     [<uint32>, ...],       -- component count per axis; structural, not dimensional
+  "owner":     <string | absent>,     -- component instance owning authoritative state;
+                                      -- absent for a contribution channel
+  "reduction": <string>               -- "single" | "sum" | "min" | "max"
+}
+```
+
+A channel with an `owner` is authoritative state and admits exactly one writing invocation, which must run the owning instance. A channel without one is a contribution channel: several invocations may produce it, combined by the declared `reduction`. Plugin order, map order, worker timing, and guest completion order never decide that reduction ([ADR 0024](./adr/0024-orishu-orchestrates-a-workload-component-graph.md)).
+
+#### StepPlan
+The deterministic schedule for advancing one committed boundary.
+```
+{
+  "profile":     <string>,            -- e.g. "orishu.workload-graph/v1"
+  "invocations": [<StepInvocation>, ...]
+}
+```
+```
+StepInvocation = {
+  "invocationId": <string>,
+  "instance":     <string>,           -- a declared component instance
+  "phaseId":      <string>,           -- an admitted phase export, never an arbitrary guest function
+  "inputs":       [<string>, ...],    -- channels read
+  "outputs":      [<string>, ...],    -- channels written
+  "dependsOn":    [<string>, ...]     -- predecessor invocations
+}
+```
+
+`dependsOn` supplies the plan's edges and must be acyclic; list order is not execution order. `phaseId` is spelled distinctly from the runtime `status.phase` because the two must not be confused — this one is identity-bearing, and that one cannot reach identity at all.
+
+Every consumed channel must be produced by some invocation. A channel read by one node and written by another is not a cycle: a read is the previous committed boundary.
+
+#### WorkloadMeta
+Identity-bearing metadata for a workload resource.
+```
+{
+  "name":   <string>,             -- discovery, not an integrity identity
+  "labels": <map | absent>        -- identity-bearing, unlike a server annotation
+}
+```
+
 #### NodeManifest
-Standard representation used for node resources.
+Standard representation used for node resources. Like every other resource it carries the `apiVersion`/`kind` discriminator; a node resource is `apiVersion: orishu.dev/v1`, `kind: Node`.
 
 For node resources, `metadata.name` is a human-readable label and is not required to be unique within a cluster. `metadata.uid` carries the cluster-assigned node ID and is the stable unique identifier.
 
 ```
 {
+  "apiVersion": "orishu.dev/v1",
+  "kind":       "Node",
   "metadata": <ObjectMeta>,
   "spec": {
     "version":           <string>,
@@ -1042,7 +1267,9 @@ If the worker is not currently a member of any cluster (already standalone), the
 }
 ```
 
-The response follows the uniform `Manifest<Spec, Status>` structure used across all resources. `spec` describes the desired/configured state; `status` describes the observed runtime state. `status` may be absent if the node has not yet computed cluster-level status.
+The response follows the uniform [resource envelope](resource-envelope.md) used across all resources. `spec` describes the desired/configured state; `status` describes the observed runtime state. `status` may be absent if the node has not yet computed cluster-level status.
+
+Sharing that envelope does not make the cluster resource durable configuration. It is a synthetic projection of current formation state: there is no endpoint that accepts one, and `metadata.name` is a reusable human label rather than formation identity.
 
 ---
 

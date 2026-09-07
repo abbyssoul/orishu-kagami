@@ -35,6 +35,8 @@ Start here:
   local scrape example and real source-build ingestion checks.
 - [Worker Collector walkthrough](testing-worker-otelcol.md) — pinned local
   OTLP receiver, inspectable spans and real collector outage/recovery checks.
+- [Collector mTLS recipe](testing-worker-otelcol-mtls.md) — dedicated exporter
+  credentials, receiver security and real certificate-refusal checks.
 - [Releasing](releasing.md) — continuous integration and delivery behaviour.
 - [Coding style](Coding%20style.md) — application-neutral Rust design guidance.
 - [High-performance Rust](high-performance-rust.md) — measurement and hot-path guidance.

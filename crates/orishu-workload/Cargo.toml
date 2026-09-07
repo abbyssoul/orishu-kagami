@@ -1,0 +1,35 @@
+[package]
+name = "orishu-workload"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The immutable Orishu workload manifest, its content-addressed artifact closure, and the canonical codec that gives it identity"
+
+# Dependency budget is part of this crate's contract.
+#
+# This crate is the one definition of what a workload *is*. Kagami compiles
+# experiments into it and Orishu admits it, so it sits below both and must not
+# acquire a capability either of them would then inherit: no async runtime, no
+# transport, no filesystem, no UI, no clock. `crates/orishu` is deliberately
+# *not* a dependency — that crate links `reqwest`, `tokio`, and `chrono`, and
+# Kagami's library crates must be able to produce a workload without any of
+# them. `tests/dependencies.rs` asserts this against the resolved graph rather
+# than against the import list.
+[dependencies]
+orishu-resource = { workspace = true }
+serde = { workspace = true }
+# Identity. SHA-256 is the first (and currently only) digest algorithm, and the
+# same implementation `kagami-catalog` already uses for catalog fingerprints,
+# so this adds no new hash implementation to the tree.
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+# Human authoring input only. A workload is *authored* as JSON or YAML and
+# *identified* by canonical CBOR; these two codecs never touch the identity
+# path. See `canonical.rs` for why the identity encoder is hand-written.
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = "0.23"

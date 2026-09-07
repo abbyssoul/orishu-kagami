@@ -13,14 +13,33 @@ use crate::model::{QuerySet, quantity};
 /// Workload manifest kind
 pub const WORKLOAD_MANIFEST_KIND: &str = "Workload";
 
+/// An unpinned reference to an external resource.
+///
+/// **Superseded.** This is the `orishu.dev/v1` prototype, kept only until
+/// worker admission moves to the pinned model. It is not workload identity and
+/// must not be treated as such: a `uri` is a mutable location, so two workers
+/// resolving the same manifest can obtain different bytes, and nothing here
+/// lets either detect that. ADR 0010 replaces it with
+/// [`orishu_workload::ArtifactDescriptor`], which names bytes by content digest
+/// and carries no location at all.
+///
+/// The `urn:orishu:superseded-prototype-*` placeholders throughout this
+/// module's examples and tests are deliberately unresolvable. Nothing in the
+/// repository should show a registry tag or an HTTP URL in this position, since
+/// doing so advertises a mutable reference as if it were a dependency.
+///
+/// [`orishu_workload::ArtifactDescriptor`]: https://docs.rs/orishu-workload
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum ExternalResource {
+    /// A location to fetch from. Mutable, unverifiable, and not identity.
     Image {
         /// If set, defines a URI to external resource
         uri: String,
     },
+    /// Bytes carried in the manifest itself.
     Inline {
+        /// The literal content.
         data: String,
     },
 }
@@ -547,6 +566,13 @@ pub enum WorkloadStatus {
 /// The top-level manifest resource, following Kubernetes CRD conventions.
 /// The workload specification: everything needed to load and run a simulation.
 ///
+/// **Superseded by `orishu.dev/v2`.** This `orishu.dev/v1` prototype references
+/// its code and inputs by mutable location and mixes the immutable submitted
+/// definition with runtime status, so it cannot express ADR 0010's closed,
+/// digest-pinned closure and has no stable identity. The pinned model is
+/// `orishu_workload::WorkloadManifest`; this type remains only until worker
+/// admission moves over, and no new consumer should be written against it.
+///
 /// ```yaml
 /// apiVersion: orishu.dev/v1
 /// kind: Workload
@@ -558,7 +584,7 @@ pub enum WorkloadStatus {
 ///   domainType: electrodynamics
 ///   model:
 ///     image:
-///       uri: "oci://registry.example.com/sim/hydro:v1"
+///       uri: "urn:orishu:superseded-prototype-artifact"
 ///   domain:
 ///     dimensions: 3
 ///     bounds: 1m
@@ -568,10 +594,10 @@ pub enum WorkloadStatus {
 ///   inputs:
 ///     geometry:
 ///       mesh:
-///         uri: "https://github.com/abbyssoul/orishu/blob/main/examples/spaces/air-tunnel.3mf"
+///         uri: "urn:orishu:superseded-prototype-geometry"
 ///     initialConditions:
 ///       image:
-///         uri: "https://github.com/abbyssoul/orishu/blob/main/examples/spaces/snapshot.orishu"
+///         uri: "urn:orishu:superseded-prototype-initial-state"
 ///   ...
 /// ```
 pub type Manifest = DefManifest<WorkloadSpec, WorkloadStatus>;
@@ -787,7 +813,7 @@ mod tests {
         "spec": {
             "domainType": "hydrodynamics",
             "model": {
-                "image": { "uri": "oci://registry.example.com/sim/hydro:v1" }
+                "image": { "uri": "urn:orishu:superseded-prototype-artifact" }
             },
             "domain": {
                 "dimensions": 2,
@@ -809,7 +835,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds: 1m
@@ -831,7 +857,7 @@ spec:
   domainType: electromagnetic
   model:
     image:
-        uri: "oci://registry.example.com/sim/hydro:v1"
+        uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 3
     bounds:
@@ -846,10 +872,10 @@ spec:
   inputs:
     geometry:
       mesh:
-          uri: "https://github.com/abbyssoul/orishu/blob/main/examples/spaces/air-tunnel.3mf"
+          uri: "urn:orishu:superseded-prototype-geometry"
     initialConditions:
       image:
-          uri: "https://github.com/abbyssoul/orishu/blob/main/examples/spaces/snapshot.orishu"
+          uri: "urn:orishu:superseded-prototype-initial-state"
 
   requirements:
     hardware:
@@ -888,7 +914,7 @@ spec:
         assert_eq!(
             m.spec.model.image,
             Some(ExternalResource::Image {
-                uri: "oci://registry.example.com/sim/hydro:v1".to_string()
+                uri: "urn:orishu:superseded-prototype-artifact".to_string()
             })
         );
 
@@ -908,7 +934,7 @@ spec:
         assert_eq!(
             m.spec.model.image,
             Some(ExternalResource::Image {
-                uri: "oci://registry.example.com/sim/hydro:v1".to_string()
+                uri: "urn:orishu:superseded-prototype-artifact".to_string()
             })
         );
     }
@@ -1081,7 +1107,7 @@ spec:
   domainType: electromagnetic
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 3
     bounds: 100cm
@@ -1092,7 +1118,7 @@ spec:
     geometry:
       mesh:
         image:
-          uri: "https://example.com/mesh.3mf"
+          uri: "urn:orishu:superseded-prototype-geometry"
 "#;
 
         let parser_result = parse(input);
@@ -1183,7 +1209,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let parser_result = parse(input);
@@ -1293,7 +1319,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1327,7 +1353,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1369,7 +1395,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1403,7 +1429,7 @@ spec:
         step: 1.75s
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let parser_result = parse(input);
@@ -1488,7 +1514,7 @@ spec:
         step: 1.75s
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
         let err = parse(input).unwrap_err();
         let msg = err.to_string();
@@ -1509,7 +1535,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 3
     bounds:
@@ -1538,7 +1564,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 1
     bounds:
@@ -1569,7 +1595,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds:
@@ -1647,7 +1673,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 0
     bounds: 1m
@@ -1674,7 +1700,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 1
     bounds: 1m
@@ -1701,7 +1727,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 1
     bounds: 1m
@@ -1728,7 +1754,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds: 1m
@@ -1755,7 +1781,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds:
@@ -1784,7 +1810,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds: 10cm
@@ -1813,7 +1839,7 @@ spec:
   domainType: hydrodynamics
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
   domain:
     dimensions: 2
     bounds: 1m
@@ -1846,7 +1872,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1877,7 +1903,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1907,7 +1933,7 @@ spec:
       time: 15ms
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1935,7 +1961,7 @@ spec:
       time: "-15ms"
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();
@@ -1969,7 +1995,7 @@ spec:
         step: 1.75s
   model:
     image:
-      uri: "oci://registry.example.com/sim/hydro:v1"
+      uri: "urn:orishu:superseded-prototype-artifact"
 "#;
 
         let err = parse(input).unwrap_err();

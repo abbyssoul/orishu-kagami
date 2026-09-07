@@ -115,7 +115,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | O-WASM | M2 | Ready after shared graph/ABI | Implement the capability-limited multi-component host and deterministic phase coordinator |
 | O-RUNTIME | M3 | Planned | Specify the single-node component-plan authority and atomic commit loop |
 | O-STORAGE | M3 | Planned | Specify local content-addressed inputs and committed result/checkpoint storage |
-| O-API-SHAPE | M1 | Decision gate | Resolve resource compaction and version the initial client surface |
+| O-API-SHAPE | M1 | Partial decision; broader gate remains | `metadata.uid` is canonical and implemented through `ResourceUid`, with node `NodeId` projection and wire fixtures; resolve the remaining resource compaction findings and version the initial client surface |
 | O-CLIENT | M3 | Planned | Specify after API shape, runtime, storage, and observation contracts |
 | K-RUN | M3 | Planned | Specify Kagami submission, run projection, and renderer handoff |
 | K-PREVIEW | M6 | Planned | Specify local execution through the same Wasm and observation contracts |

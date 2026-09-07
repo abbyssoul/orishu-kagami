@@ -73,7 +73,7 @@
 //!
 //! # An Orishu-style resource
 //!
-//! Orishu metadata carries a human name, an optional system-assigned ID, a
+//! Orishu metadata carries a human name, an optional system-assigned UID, a
 //! namespace, and labels, and its resources have observed state:
 //!
 //! ```
@@ -85,7 +85,7 @@
 //! struct ObjectMeta {
 //!     name: String,
 //!     #[serde(skip_serializing_if = "Option::is_none")]
-//!     id: Option<String>,
+//!     uid: Option<String>,
 //! }
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -100,7 +100,7 @@
 //! let workload = Workload::new(
 //!     ApiVersion::from_static("orishu.dev/v1"),
 //!     Kind::from_static("Workload"),
-//!     ObjectMeta { name: "em-cavity".to_owned(), id: None },
+//!     ObjectMeta { name: "em-cavity".to_owned(), uid: None },
 //!     WorkloadSpec { domain_type: "electromagnetic".to_owned() },
 //! );
 //!
@@ -118,7 +118,7 @@
 //! # A Kagami-style resource
 //!
 //! Catalog metadata is deliberately different — it names a catalog and a
-//! template, not a namespace and an ID — an object template has no status, and
+//! template, not a namespace and a UID — an object template has no status, and
 //! an authored document refuses a key it does not recognise so a typo is
 //! reported rather than silently dropped:
 //!

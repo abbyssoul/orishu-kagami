@@ -28,6 +28,7 @@ orishu-identity = { path = "crates/orishu-identity" }
 orishu-membership = { path = "crates/orishu-membership" }
 orishu-resource = { path = "crates/orishu-resource" }
 orishu-variables = { path = "crates/orishu-variables" }
+orishu-workload = { path = "crates/orishu-workload" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

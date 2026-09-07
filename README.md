@@ -8,7 +8,7 @@
 </p>
 
 [![Crates.io](https://img.shields.io/crates/v/orishu)](https://crates.io/crates/orishu)
-[![Unit Tests](https://github.com/abbyssoul/orishu-kagami/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/abbyssoul/orishu-kagami/actions/workflows/unit-tests.yml)
+[![Unit Tests](https://github.com/abbyssoul/orishu-kagami/actions/workflows/ci.yml/badge.svg)](https://github.com/abbyssoul/orishu-kagami/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
 <br/>

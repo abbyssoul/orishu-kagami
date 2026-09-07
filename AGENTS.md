@@ -58,6 +58,15 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   templates. Structural only: it owns no metadata schema, identity,
   validation, codec, or IO, and depends on `serde` alone; a test enforces that
   against the resolved dependency graph. See `docs/resource-envelope.md`.
+- `crates/orishu-workload`: the immutable workload — its manifest, bounded
+  component graph and step plan, content-addressed artifact descriptors, the
+  deterministic CBOR encoding that gives a workload its digest, and the
+  transport-neutral closure validator. It is the single definition Kagami's
+  compilation and Orishu's admission both consume, so it must not acquire an
+  async runtime, transport, filesystem, UI, clock, or either consuming domain;
+  a test enforces that against the resolved dependency graph. Notably it must
+  never depend on `crates/orishu`, which links `reqwest` and `tokio`. See
+  `docs/workloads.md`.
 - `crates/orishu-membership`: sans-IO functional core for cluster membership —
   admission, SWIM, gossip merge, and anti-entropy. It must never acquire a
   networking, async-runtime, clock, filesystem, TLS, or RNG dependency; a test

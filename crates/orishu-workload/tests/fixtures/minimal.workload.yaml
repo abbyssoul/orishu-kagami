@@ -1,0 +1,49 @@
+# The smallest thing that is still a workload: one component owning one state
+# channel, advanced by one invocation.
+#
+# Authored form. What this workload *is* — its canonical bytes and its root
+# digest — lives beside this file under `canonical/`.
+apiVersion: orishu.dev/v2
+kind: Workload
+metadata:
+  name: minimal cavity
+spec:
+  compute:
+    workloadGraphProfile: orishu.workload-graph/v1
+    components:
+      - instanceId: field
+        artifact:
+          role: component
+          digest: sha256:827eae725093d19641dbf9f8b5b24636daac6204d0bd22a9c71ed1b8f867e04d
+          sizeBytes: 20
+          mediaType: application/wasm
+        pluginId: dev.orishu.electromagnetism
+        modelId: dev.orishu.electromagnetism.yee/v1
+        schemaId: dev.orishu.em.field/v1
+        engine: wasm-component
+        lifecycle: orishu.component/v1
+        roles: [field-model]
+        stateOwnership: [e-field]
+    channels:
+      - channelId: e-field
+        schema:
+          schemaId: dev.orishu.em.field/v1
+          version: 1
+        shape: [3]
+        owner: field
+        reduction: single
+    stepPlan:
+      profile: orishu.workload-graph/v1
+      invocations:
+        - invocationId: advance-field
+          instance: field
+          phaseId: update-field
+          outputs: [e-field]
+  domain:
+    dimensions: 3
+    bounds:
+      shape: cube
+      sideMetres: 1.0
+    discretization:
+      spaceMetres: 0.001
+      timeSeconds: 1.5e-11

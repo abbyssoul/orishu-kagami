@@ -253,9 +253,20 @@ pub struct NodeStatus {
 /// A cluster-owned membership projection. `metadata.name` is a reusable
 /// worker label and `metadata.labels` are descriptive; neither is membership
 /// identity, which is [`orishu_identity::NodeId`] under ADR 0013.
+/// `metadata.uid` carries that node ID, so the resource has a stable
+/// identifier a client can address even when two members share a label.
 pub type Manifest = DefManifest<NodeSpec, NodeStatus>;
 
 /// Project a cluster member as a resource.
-pub fn manifest(name: &str, spec: NodeSpec) -> Manifest {
-    crate::model::manifest::resource(NODE_MANIFEST_KIND, name, spec)
+///
+/// The formation-assigned [`NodeId`] fills `metadata.uid`. The projection is
+/// deliberately one-way: membership code reads the `NodeId` it holds, and never
+/// recovers one by reinterpreting a resource's `uid`.
+pub fn manifest(node_id: &NodeId, name: &str, spec: NodeSpec) -> Manifest {
+    crate::model::manifest::identified_resource(
+        NODE_MANIFEST_KIND,
+        name,
+        crate::model::manifest::ResourceUid(node_id.as_str().to_owned()),
+        spec,
+    )
 }

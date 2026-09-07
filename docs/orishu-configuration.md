@@ -119,9 +119,11 @@ These are resource limits, not measured performance or delivery guarantees.
 Graceful shutdown reports fixed aggregate delivery and queue sampling/drop
 counts. Queue acceptance is not collector delivery; interrupted exports may
 already have reached the collector. With both capabilities and runtime metrics
-and tracing enabled, twelve live trace counters extend `/metrics` to 52 series;
-allow a 16 KiB scrape response budget. Tracing disabled or omitted leaves the
-base 40-series catalogue and its 8 KiB bound unchanged. See the
+and tracing enabled, twelve live trace counters extend `/metrics` to 143 series;
+allow a 32 KiB scrape response budget. Tracing disabled or omitted leaves the
+base 131-series catalogue, including membership deadlines and peer IO metrics, within
+the same 32 KiB bound. Peer counter collection follows metrics enablement,
+not tracing or probe enablement. See the
 [counter semantics and troubleshooting](orishu-observability.md#live-trace-delivery-and-loss-counters).
 
 The destination contract targets OTLP/HTTP binary Protobuf, using an

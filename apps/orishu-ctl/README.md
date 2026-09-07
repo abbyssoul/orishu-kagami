@@ -268,6 +268,10 @@ Current spans describe local client-service outcomes, not command acceptance,
 cluster convergence or correlated peer activity. Use identified command
 receipts and the original operation's inspection/recovery path for authority;
 never resubmit a mutation just to recover missing telemetry.
+The [mTLS Collector recipe](../../docs/testing-worker-otelcol-mtls.md) exercises
+the same operator control path while collector trust or client authentication
+fails. Its exporter certificates grant no CLI authority and do not replace
+the operator-token file.
 
 See the [project architecture](../../docs/architecture.md) and root
 [README](../../README.md).

@@ -30,10 +30,11 @@ is not the results produced by that run.
 | Requirements | The runtime lifecycle, numerical/determinism profile, hardware needs, resource limits, and compatibility rules workers must satisfy. |
 
 The manifest is written in the
-[shared resource envelope](resource-envelope.md) — `apiVersion: orishu.dev/v1`,
+[shared resource envelope](resource-envelope.md) — `apiVersion: orishu.dev/v2`,
 `kind: Workload` — which makes it familiar to read and inspect alongside every
 other resource. Workload identity, however, is not generic resource metadata;
-see [Identity and provenance](#identity-and-provenance).
+see [The schema](#the-schema) and
+[Identity and provenance](#identity-and-provenance).
 
 The manifest is declarative. It says which component instances must run, how
 their typed phases compose, and with which inputs. The components supply the
@@ -161,6 +162,134 @@ underlying kernel blobs while using different graphs or initial conditions.
 Workers that already hold those code blobs transfer only the new manifest and
 missing input blobs.
 
+## The schema
+
+A workload is `apiVersion: orishu.dev/v2`, `kind: Workload`, in the
+[shared resource envelope](resource-envelope.md). It is implemented by
+`crates/orishu-workload`, which is deliberately the only definition: Kagami's
+compilation and Orishu's admission will both consume these exact types, so no
+second schema and no conversion between two models that could disagree ever
+exists. Neither consumer is wired to it yet — that is the remaining
+[shared workload-format work](tasks/define-and-adopt-shared-workload-format.md).
+
+The `orishu.dev/v1` workload in `crates/orishu/src/model/workload.rs` is the
+superseded prototype. It references code and inputs by mutable URI, so it cannot
+express a closed pinned closure and has no stable identity. It is not migrated:
+nothing has been submitted against it, so there is no compatibility obligation.
+It remains readable only until worker admission moves to `v2`.
+
+```yaml
+apiVersion: orishu.dev/v2
+kind: Workload
+metadata:
+  name: em cavity with charged particles   # discovery, not identity
+  labels: {domain: electrodynamics}        # identity-bearing, unlike an annotation
+spec:
+  compute:
+    workloadGraphProfile: orishu.workload-graph/v1
+    components:                            # bounded sandboxed instances
+      - instanceId: field
+        artifact: <ArtifactDescriptor>     # role must be `component`
+        pluginId: dev.orishu.electromagnetism   # provenance; never resolved
+        modelId: dev.orishu.electromagnetism.yee/v1
+        schemaId: dev.orishu.em.field/v1
+        engine: wasm-component
+        lifecycle: orishu.component/v1
+        roles: [field-model]
+        stateOwnership: [e-field]          # channels whose state it owns
+        config: {permittivity: 8.8541878128e-12}   # resolved scalars
+        limits: {maxMemoryBytes: 1073741824}
+    channels:                              # typed state and contributions
+      - channelId: e-field
+        schema: {schemaId: dev.orishu.em.field/v1, version: 1}
+        shape: [3]
+        owner: field                       # absent for a contribution channel
+        reduction: single                  # single | sum | min | max
+    stepPlan:                              # the deterministic schedule
+      profile: orishu.workload-graph/v1
+      invocations:
+        - invocationId: advance-field
+          instance: field
+          phaseId: update-field            # an admitted export, not any function
+          inputs: []
+          outputs: [e-field]
+          dependsOn: []                    # the plan's edges; must be acyclic
+    placementConstraints:                  # what is legal, never where it runs
+      - constraint: co-locate
+        instances: [field, dynamics]
+  domain:
+    dimensions: 3
+    bounds: {shape: cube, sideMetres: 1.0}    # or {shape: box, sideMetres: [...]}
+    discretization:
+      spaceMetres: 0.001
+      timeSeconds: 1.5e-11
+      integration: {scheme: velocity-verlet, parameters: {substeps: 2}}
+  inputs:
+    geometry: <ArtifactDescriptor>
+    initialConditions: [<ArtifactDescriptor>, ...]
+    additional: [<ArtifactDescriptor>, ...]
+  requirements:
+    hardware: {minCpuCores: 4}
+    executionProfile: {numericMode: deterministic}
+```
+
+An `ArtifactDescriptor` is:
+
+```yaml
+role: component            # component | initial-conditions | geometry | schema | ...
+digest: sha256:<64 hex>    # algorithm-tagged; the only thing that names the bytes
+sizeBytes: 20              # exact length, checked in addition to the digest
+mediaType: application/wasm
+schema: {schemaId: <string>, version: <uint>}   # where the role requires one
+```
+
+There is no `uri`, `path`, `registry`, `tag`, `peer`, or `credential` field, and
+no inline-bytes variant. A document supplying one is **rejected**, not silently
+stripped: every type refuses keys it does not recognise, because for an
+identity-bearing document a dropped key would leave the author believing it did
+something the digest says it did not.
+
+Three things are structurally excluded from the manifest rather than merely
+omitted: runtime status (the status slot's type is uninhabited), the
+cluster-assigned resource `uid` and `namespace` (workload metadata has neither),
+and retrieval locations.
+
+Deferred to later work, and not yet in the schema: anisotropic and segmented
+discretisation, unit-typed rather than canonical-SI quantities, and the
+expression-bearing fields described under
+[the client protocol](protocol-client.md). A manifest carries resolved
+magnitudes until the variables integration lands.
+
+## Canonical encoding and identity
+
+A workload's identity is the SHA-256 digest of the **canonical encoding** of its
+root manifest. Because every dependency in that manifest is named by digest,
+that one value commits to the entire closure.
+
+The canonical encoding is **deterministic CBOR** under
+[RFC 8949 §4.2](https://www.rfc-editor.org/rfc/rfc8949#name-deterministically-encoded-c),
+with this profile:
+
+- definite lengths only — no indefinite or chunked arrays, maps, or strings;
+- map keys sorted bytewise by their *encoded* form, with duplicates refused;
+- shortest-form integer arguments;
+- floats always 64 bits (the permitted "no float shrinking" variant), with NaN
+  and infinities refused and `-0.0` normalised to `+0.0`;
+- no tags, and no simple values other than `true` and `false`;
+- an absent optional field is *omitted*, never encoded as null, so "not present"
+  has exactly one encoding. An empty collection and an absent one are the same
+  workload.
+
+CBOR because it is already the canonical client payload format, so this adds no
+second codec to the product. The encoder is written by hand rather than derived
+from `serde`, so that a serialization attribute cannot silently relocate what a
+workload commits to.
+
+JSON and YAML remain how a person writes a workload. They parse into the typed
+model and never define identity: whitespace, key order, comments, and the choice
+of codec cannot change a workload's digest. Golden canonical bytes and digests
+are checked in under `crates/orishu-workload/tests/fixtures/`.
+
 ## Workload and distribution format are separate
 
 The **workload** is the manifest and its complete logical closure. A
@@ -207,10 +336,18 @@ against OCI Image Layout rather than part of workload identity. See
 
 ## Identity and provenance
 
-The root manifest has a canonical content digest. It commits to the artifact
-closure because every dependency is named by digest. Signatures cover that
-root identity and therefore the pinned graph; workers still verify every blob
-individually before use.
+The root manifest has a canonical content digest — see
+[Canonical encoding and identity](#canonical-encoding-and-identity) for how it
+is computed. It commits to the artifact closure because every dependency is
+named by digest. Signatures cover that root identity and therefore the pinned
+graph; workers still verify every blob individually before use.
+
+Verifying a closure is transport-neutral: a validator is handed the manifest and
+something that can produce candidate bytes *by digest*, and it re-hashes
+everything it receives. Nothing a provider says about a blob — its claimed role,
+name, size, or origin — participates in the decision. Thin submission, a local
+directory, a portable bundle, and an authenticated peer fetch are therefore
+different sources for one verifier rather than four trust models.
 
 Run observations, checkpoints, and results record at least the workload/root
 identity, workload epoch, executed component digest, input/state identity,

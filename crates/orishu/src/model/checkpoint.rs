@@ -32,7 +32,7 @@ impl std::str::FromStr for CheckpointId {
 pub struct Record {
     pub id: CheckpointId,
     pub workload_name: manifest::Name,
-    pub workload_id: manifest::ID,
+    pub workload_id: manifest::ResourceUid,
     pub workload_epoch: u64,
     pub recorded_at: DateTime<Utc>,
     pub simulation_time: f64,

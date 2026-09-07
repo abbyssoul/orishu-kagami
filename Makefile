@@ -48,6 +48,13 @@ test-worker-otelcol:
 	python3 scripts/test_worker_otelcol.py
 	python3 scripts/check-worker-otelcol.py --otelcol "$(OTELCOL)" --worker "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishuctl"
 
+# Collector-only mTLS material; requires OpenSSL and uses no peer/operator keys.
+.PHONY: test-worker-otelcol-mtls
+test-worker-otelcol-mtls:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_OTELCOL_TARGET_DIR)"
+	python3 scripts/test_worker_otelcol.py
+	python3 scripts/check-worker-otelcol.py --mtls --otelcol "$(OTELCOL)" --worker "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishuctl"
+
 # Local mTLS proxy/worker/Prometheus journey; requires pinned external tools.
 .PHONY: test-worker-monitoring-proxy
 test-worker-monitoring-proxy:
