@@ -109,6 +109,125 @@ fn a_join_request_carries_no_credential() {
 // ── Adoption ─────────────────────────────────────────────────────────────
 
 #[test]
+fn reconnect_preserves_join_budget_and_fences_old_timer_and_reply() {
+    let mut driver = Driver::new(testing::standalone("node-self"));
+    begin_join(&mut driver);
+    let before = driver.model().join_attempt().unwrap().clone();
+    let request = driver.sent()[0].1.clone();
+    let replacement = SessionId(12);
+    driver.apply(Message::Local(Command::RebindJoin {
+        previous_session: SESSION,
+        session: replacement,
+        target_formation: target_formation(),
+    }));
+    let rebound = driver.model().join_attempt().unwrap().clone();
+    assert_eq!(rebound.attempt, before.attempt + 1);
+    assert_eq!(rebound.session, replacement);
+    assert_eq!(rebound.target_formation, before.target_formation);
+    assert_eq!(rebound.redirects, before.redirects);
+    assert_ne!(rebound.timer, before.timer);
+    assert_eq!(driver.cancelled(), vec![before.timer]);
+    assert_eq!(driver.armed(), vec![rebound.timer]);
+    assert_eq!(
+        driver.sent(),
+        vec![(&Destination::Session(replacement), &request)]
+    );
+
+    driver.apply(Message::Timer(before.timer));
+    assert_eq!(driver.model().join_attempt(), Some(&rebound));
+    assert!(driver.sent().is_empty());
+    let ack = accepted(&driver, "assigned-once", vec![]);
+    reply(&mut driver, ack.clone()); // old session
+    assert_eq!(driver.model().join_attempt(), Some(&rebound));
+    let mut context =
+        testing::applicant_context(&target_formation(), "introducer", replacement, 0x5E);
+    context.sender =
+        orishu_membership::SenderIdentity::Admitted(NodeId::new("node-introducer").unwrap());
+    driver.apply(Message::Peer(PeerInput {
+        context,
+        body: PeerBody::JoinReply(ack),
+    }));
+    assert_eq!(
+        driver.model().local_id(),
+        &NodeId::new("assigned-once").unwrap()
+    );
+    assert!(driver.model().join_attempt().is_none());
+}
+
+#[test]
+fn stale_or_retargeted_reconnect_and_duplicate_begin_do_not_reset_a_join() {
+    let mut driver = Driver::new(testing::standalone("node-self"));
+    begin_join(&mut driver);
+    let before = driver.model().clone();
+    let invalid = [
+        Command::BeginJoin {
+            session: SessionId(12),
+            target_formation: target_formation(),
+        },
+        Command::RebindJoin {
+            previous_session: SessionId(10),
+            session: SessionId(12),
+            target_formation: target_formation(),
+        },
+        Command::RebindJoin {
+            previous_session: SESSION,
+            session: SESSION,
+            target_formation: target_formation(),
+        },
+        Command::RebindJoin {
+            previous_session: SESSION,
+            session: SessionId(12),
+            target_formation: "other-formation".parse().unwrap(),
+        },
+    ];
+    for command in invalid {
+        driver.apply(Message::Local(command));
+        assert_eq!(driver.model(), &before);
+        assert!(driver.effects.is_empty());
+        assert!(!driver.diagnostics.is_empty());
+    }
+}
+
+#[test]
+fn repeated_reconnects_exhaust_the_original_join_budget_without_resurrection() {
+    let mut driver = Driver::new(testing::standalone("node-self"));
+    begin_join(&mut driver);
+    let limit = driver.model().limits().max_join_attempts();
+    let original = driver.model().formation().clone();
+    for ordinal in 1..=limit {
+        let previous = driver.model().join_attempt().unwrap().clone();
+        driver.apply(Message::Local(Command::RebindJoin {
+            previous_session: previous.session,
+            session: SessionId(SESSION.0 + u64::from(ordinal)),
+            target_formation: target_formation(),
+        }));
+        assert_eq!(driver.cancelled(), vec![previous.timer]);
+        if ordinal < limit {
+            assert_eq!(driver.model().join_attempt().unwrap().attempt, ordinal + 1);
+            assert_eq!(driver.sent().len(), 1);
+        } else {
+            assert!(driver.model().join_attempt().is_none());
+            assert!(driver.sent().is_empty());
+            assert!(driver.armed().is_empty());
+            assert!(
+                driver
+                    .diagnostics
+                    .contains(&Diagnostic::JoinAbandoned { attempts: limit })
+            );
+        }
+    }
+    let before = driver.model().clone();
+    driver.apply(Message::Local(Command::RebindJoin {
+        previous_session: SessionId(SESSION.0 + u64::from(limit)),
+        session: SessionId(999),
+        target_formation: target_formation(),
+    }));
+    assert_eq!(driver.model(), &before);
+    assert_eq!(driver.model().formation(), &original);
+    assert!(driver.effects.is_empty());
+}
+
+#[test]
 fn a_valid_acceptance_adopts_the_target_formation_atomically() {
     let mut driver = Driver::new(testing::standalone("node-self"));
     let previous_formation = driver.model().formation().clone();
@@ -366,6 +485,7 @@ fn a_reply_with_no_attempt_in_progress_is_refused() {
 fn a_rejection_backs_off_and_retries() {
     let mut driver = Driver::new(testing::standalone("node-self"));
     begin_join(&mut driver);
+    let previous_timer = driver.model().join_attempt().unwrap().timer;
     reply(
         &mut driver,
         JoinReply::Rejected {
@@ -386,6 +506,11 @@ fn a_rejection_backs_off_and_retries() {
             .any(|(_, body)| matches!(body, OutboundBody::JoinRequest { .. }))
     );
     assert_eq!(driver.join_attempt_number(), Some(2));
+    assert_eq!(driver.cancelled(), vec![previous_timer]);
+    let current = driver.model().join_attempt().unwrap().clone();
+    driver.apply(Message::Timer(previous_timer));
+    assert_eq!(driver.model().join_attempt(), Some(&current));
+    assert!(driver.sent().is_empty());
 }
 
 #[test]

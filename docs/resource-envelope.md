@@ -29,13 +29,16 @@ create/update/delete semantics, or a universal resource authority.
 In particular:
 
 - **There is no universal metadata type.** Orishu's `ObjectMeta` names a
-  resource and optionally carries a system-assigned ID and a namespace.
+  resource and optionally carries a system-assigned `uid` and a namespace.
   Kagami's `MetadataDocument` names a catalog and a template. Neither is a
   generalisation of the other, and `catalog` is not a namespace.
 - **There is no universal identity.** Formation identity is `FormationId`,
   membership identity is `NodeId`, a template is identified by its catalog and
   name, and canonical workload identity is decided by the shared workload
-  format. A generic string identifier never replaces one of these.
+  format. A generic string identifier never replaces one of these. A resource
+  kind may *project* the identity it owns into `metadata.uid` — a node resource
+  projects its `NodeId` — but the projection is one-way: nothing recovers an
+  identity by reinterpreting a `uid`.
 - **Labels and annotations are descriptive** unless a resource-specific
   decision explicitly makes them otherwise. They are not membership identity,
   they do not participate in formation identity, and they are not part of a
@@ -50,7 +53,7 @@ In particular:
 | --- | --- |
 | Workload | Immutable submitted definition plus a separately governed runtime projection. |
 | Cluster | Synthetic runtime projection of current formation state. It is not a durable operator-authored `cluster.yaml`, and it has no create/update/delete lifecycle: `crates/orishu` gives it a constructor and deliberately no parser, so it can be rendered for a client but never read back as configuration. |
-| Node | Cluster-owned membership projection. `metadata.name` is a reusable worker label. |
+| Node | Cluster-owned membership projection. `metadata.name` is a reusable worker label; `metadata.uid` carries the formation-assigned `NodeId`. |
 | Kagami object template | Client-owned editable catalog data. Its metadata, bounded YAML-stream loading, validation, canonical fingerprint, and write authority stay in `crates/kagami-catalog`. |
 | Future experiment/plugin resources | May reuse the envelope only after defining their own authority, identity, versioning, and persistence contracts. |
 

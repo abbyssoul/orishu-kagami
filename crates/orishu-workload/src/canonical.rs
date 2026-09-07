@@ -141,6 +141,48 @@ pub enum CanonicalError {
         /// Why the value was refused.
         reason: String,
     },
+    /// An empty collection was written out where the encoder omits one.
+    ///
+    /// "There are none" has exactly one spelling — absence — so a
+    /// present-but-empty list or map is a second encoding of a value the model
+    /// already has, and accepting it would break the codec's injectivity.
+    #[error("at {path}: an empty collection is written by omitting the field, not by encoding it")]
+    RedundantEmpty {
+        /// Where in the document, as a dotted path.
+        path: String,
+    },
+    /// The document is larger than the reader accepts.
+    #[error("the document is {found} bytes, over the {limit}-byte limit")]
+    TooLarge {
+        /// Length supplied.
+        found: u64,
+        /// Length permitted.
+        limit: u64,
+    },
+    /// Encoding would produce more bytes than a reader accepts.
+    ///
+    /// Distinct from [`Self::TooLarge`], which reports a length that is already
+    /// known because the input was there to measure. Encoding stops at the
+    /// point it would exceed the budget rather than completing and then
+    /// measuring, so the size it *would* have reached is genuinely unknown and
+    /// reporting a number would be inventing one.
+    #[error("the encoded form would exceed the {limit}-byte limit")]
+    EncodedTooLarge {
+        /// Length permitted.
+        limit: usize,
+    },
+    /// The bytes decoded into a manifest, but they are not that manifest's own
+    /// canonical form.
+    ///
+    /// The backstop on injectivity. Every known way for two byte strings to
+    /// decode to one manifest is refused before this by a specific, located
+    /// error; this catches any way that is *not* yet known, so a future field
+    /// whose decoding loses a distinction cannot silently give two workloads
+    /// one digest.
+    #[error(
+        "the document decodes, but re-encoding the result yields different bytes, so it is not a canonical form"
+    )]
+    NotItsOwnCanonicalForm,
 }
 
 /// A value in the canonical data model.
@@ -208,14 +250,7 @@ impl CanonicalMap {
     pub fn new(entries: Vec<(CanonicalValue, CanonicalValue)>) -> Result<Self, CanonicalError> {
         let mut keyed: Vec<(Vec<u8>, (CanonicalValue, CanonicalValue))> = entries
             .into_iter()
-            .map(|entry| {
-                let mut key_bytes = Vec::new();
-                // A key is a text string or an integer in this model, neither
-                // of which nests, so encoding it cannot exceed a depth bound.
-                write_value(&entry.0, &mut key_bytes, 0, usize::MAX)
-                    .expect("a canonical map key never nests");
-                (key_bytes, entry)
-            })
+            .map(|entry| (encode_key(&entry.0), entry))
             .collect();
         keyed.sort_by(|left, right| left.0.cmp(&right.0));
 
@@ -290,33 +325,67 @@ const MAJOR_ARRAY: u8 = 4;
 const MAJOR_MAP: u8 = 5;
 const MAJOR_SIMPLE: u8 = 7;
 
+/// The encoder's output, refusing to grow past the size a reader would accept.
+///
+/// Every append goes through here rather than straight to a `Vec`, so an
+/// oversized document stops being built at the point it exceeds the budget
+/// instead of being completed and then measured. That matters twice: it bounds
+/// what encoding can allocate, and it keeps encoding and decoding agreed about
+/// which documents exist — without it, a manifest could be given a digest over
+/// bytes no reader would ever accept back.
+struct Output {
+    bytes: Vec<u8>,
+    limit: usize,
+}
+
+impl Output {
+    fn room_for(&self, extra: usize) -> Result<(), CanonicalError> {
+        if self.bytes.len().saturating_add(extra) > self.limit {
+            return Err(CanonicalError::EncodedTooLarge { limit: self.limit });
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, byte: u8) -> Result<(), CanonicalError> {
+        self.room_for(1)?;
+        self.bytes.push(byte);
+        Ok(())
+    }
+
+    fn extend(&mut self, bytes: &[u8]) -> Result<(), CanonicalError> {
+        self.room_for(bytes.len())?;
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
+    }
+}
+
 /// Writes a major type and its argument in the shortest form that holds it.
-fn write_head(major: u8, argument: u64, out: &mut Vec<u8>) {
+fn write_head(major: u8, argument: u64, out: &mut Output) -> Result<(), CanonicalError> {
     let major = major << 5;
     match argument {
         0..=23 => out.push(major | argument as u8),
         24..=0xFF => {
-            out.push(major | 24);
-            out.push(argument as u8);
+            out.push(major | 24)?;
+            out.push(argument as u8)
         }
         0x100..=0xFFFF => {
-            out.push(major | 25);
-            out.extend_from_slice(&(argument as u16).to_be_bytes());
+            out.push(major | 25)?;
+            out.extend(&(argument as u16).to_be_bytes())
         }
         0x1_0000..=0xFFFF_FFFF => {
-            out.push(major | 26);
-            out.extend_from_slice(&(argument as u32).to_be_bytes());
+            out.push(major | 26)?;
+            out.extend(&(argument as u32).to_be_bytes())
         }
         _ => {
-            out.push(major | 27);
-            out.extend_from_slice(&argument.to_be_bytes());
+            out.push(major | 27)?;
+            out.extend(&argument.to_be_bytes())
         }
     }
 }
 
 fn write_value(
     value: &CanonicalValue,
-    out: &mut Vec<u8>,
+    out: &mut Output,
     depth: usize,
     max_depth: usize,
 ) -> Result<(), CanonicalError> {
@@ -324,38 +393,38 @@ fn write_value(
         return Err(CanonicalError::TooDeep { limit: max_depth });
     }
     match value {
-        CanonicalValue::Bool(false) => out.push((MAJOR_SIMPLE << 5) | 20),
-        CanonicalValue::Bool(true) => out.push((MAJOR_SIMPLE << 5) | 21),
-        CanonicalValue::UInt(value) => write_head(MAJOR_UINT, *value, out),
+        CanonicalValue::Bool(false) => out.push((MAJOR_SIMPLE << 5) | 20)?,
+        CanonicalValue::Bool(true) => out.push((MAJOR_SIMPLE << 5) | 21)?,
+        CanonicalValue::UInt(value) => write_head(MAJOR_UINT, *value, out)?,
         CanonicalValue::NInt(value) => {
             // CBOR encodes a negative integer as -1 - argument, so the
             // argument for -1 is 0. `unsigned_abs() - 1` is exact for every
             // negative i64 including i64::MIN, where the naive `-1 - value`
             // would overflow.
             debug_assert!(*value < 0, "NInt holds only negative values");
-            write_head(MAJOR_NINT, value.unsigned_abs() - 1, out);
+            write_head(MAJOR_NINT, value.unsigned_abs() - 1, out)?;
         }
         CanonicalValue::F64(value) => {
             // Always 8 bytes: the "no float shrinking" deterministic variant.
-            out.push((MAJOR_SIMPLE << 5) | 27);
-            out.extend_from_slice(&value.get().to_be_bytes());
+            out.push((MAJOR_SIMPLE << 5) | 27)?;
+            out.extend(&value.get().to_be_bytes())?;
         }
         CanonicalValue::Bytes(bytes) => {
-            write_head(MAJOR_BYTES, bytes.len() as u64, out);
-            out.extend_from_slice(bytes);
+            write_head(MAJOR_BYTES, bytes.len() as u64, out)?;
+            out.extend(bytes)?;
         }
         CanonicalValue::Text(text) => {
-            write_head(MAJOR_TEXT, text.len() as u64, out);
-            out.extend_from_slice(text.as_bytes());
+            write_head(MAJOR_TEXT, text.len() as u64, out)?;
+            out.extend(text.as_bytes())?;
         }
         CanonicalValue::Array(items) => {
-            write_head(MAJOR_ARRAY, items.len() as u64, out);
+            write_head(MAJOR_ARRAY, items.len() as u64, out)?;
             for item in items {
                 write_value(item, out, depth + 1, max_depth)?;
             }
         }
         CanonicalValue::Map(map) => {
-            write_head(MAJOR_MAP, map.entries.len() as u64, out);
+            write_head(MAJOR_MAP, map.entries.len() as u64, out)?;
             for (key, value) in &map.entries {
                 write_value(key, out, depth + 1, max_depth)?;
                 write_value(value, out, depth + 1, max_depth)?;
@@ -367,14 +436,26 @@ fn write_value(
 
 /// Encodes a canonical value to bytes under the given bounds.
 ///
+/// Bounded by [`Limits::max_manifest_bytes`], the same limit
+/// [`decode`] applies to its input. Encoding and decoding must agree about
+/// which documents exist: an encoder that could produce bytes its own decoder
+/// refuses would hand a workload an identity that can never be read back.
+///
 /// # Errors
 ///
 /// Returns [`CanonicalError::TooDeep`] when the value nests past
-/// [`Limits::max_nesting_depth`].
+/// [`Limits::max_nesting_depth`], and [`CanonicalError::EncodedTooLarge`] when
+/// the encoding would exceed [`Limits::max_manifest_bytes`].
 pub fn encode(value: &CanonicalValue, limits: &Limits) -> Result<Vec<u8>, CanonicalError> {
-    let mut out = Vec::new();
+    let mut out = Output {
+        bytes: Vec::new(),
+        // The decoder measures a `&[u8]`, so the two bounds are the same number
+        // in the same units. A `usize` here because it is compared against a
+        // buffer length.
+        limit: usize::try_from(limits.max_manifest_bytes).unwrap_or(usize::MAX),
+    };
     write_value(value, &mut out, 0, limits.max_nesting_depth)?;
-    Ok(out)
+    Ok(out.bytes)
 }
 
 /// The canonical bytes of a workload manifest.
@@ -507,7 +588,12 @@ impl Decoder<'_> {
     /// The cheapest defence against a header claiming billions of elements:
     /// every element costs at least one byte, so a length beyond the remaining
     /// input is a lie regardless of what follows.
-    fn count(&mut self, additional: u8, at: usize, per_item: usize) -> Result<usize, CanonicalError> {
+    fn count(
+        &mut self,
+        additional: u8,
+        at: usize,
+        per_item: usize,
+    ) -> Result<usize, CanonicalError> {
         let claimed = self.argument(additional, at)?;
         let remaining = (self.bytes.len() - self.at) as u64;
         if claimed.saturating_mul(per_item as u64) > remaining {
@@ -515,9 +601,7 @@ impl Decoder<'_> {
         }
         let claimed = claimed as usize;
         if claimed > self.budget {
-            return Err(CanonicalError::TooManyValues {
-                limit: self.budget,
-            });
+            return Err(CanonicalError::TooManyValues { limit: self.budget });
         }
         Ok(claimed)
     }
@@ -549,13 +633,16 @@ impl Decoder<'_> {
                 let argument = self.argument(additional, at)?;
                 // -1 - argument. An argument past `i64::MAX` would name a value
                 // this model cannot hold, so it is refused rather than wrapped.
-                let magnitude = argument.checked_add(1).filter(|value| *value <= 1 << 63).ok_or(
-                    CanonicalError::NotCanonical {
+                let magnitude = argument
+                    .checked_add(1)
+                    .filter(|value| *value <= 1 << 63)
+                    .ok_or(CanonicalError::NotCanonical {
                         at,
                         reason: "a negative integer outside the range this model carries",
-                    },
-                )?;
-                Ok(CanonicalValue::NInt((magnitude as i128).wrapping_neg() as i64))
+                    })?;
+                Ok(CanonicalValue::NInt(
+                    (magnitude as i128).wrapping_neg() as i64
+                ))
             }
             MAJOR_BYTES => {
                 let len = self.count(additional, at, 1)?;
@@ -639,12 +726,12 @@ impl Decoder<'_> {
                             reason: "negative zero, which must be normalised to positive zero",
                         });
                     }
-                    FiniteF64::new(value)
-                        .map(CanonicalValue::F64)
-                        .map_err(|_| CanonicalError::NotCanonical {
+                    FiniteF64::new(value).map(CanonicalValue::F64).map_err(|_| {
+                        CanonicalError::NotCanonical {
                             at,
                             reason: "a non-finite float",
-                        })
+                        }
+                    })
                 }
                 _ => Err(CanonicalError::NotCanonical {
                     at,
@@ -659,11 +746,22 @@ impl Decoder<'_> {
     }
 }
 
-/// Encodes a map key for the ordering comparison.
+/// Encodes a map key on its own, for the ordering comparison.
+///
+/// Keys get their own path because the two bounds `write_value` enforces are
+/// about a whole document and neither applies to one key: a key is a text
+/// string or an integer, so it never nests, and its length is already bounded
+/// by the validated name type it came from. Encoding one therefore cannot fail,
+/// which is what lets both callers treat ordering as total rather than
+/// fallible.
 fn encode_key(key: &CanonicalValue) -> Vec<u8> {
-    let mut out = Vec::new();
-    write_value(key, &mut out, 0, usize::MAX).expect("a canonical map key never nests");
-    out
+    let mut out = Output {
+        bytes: Vec::new(),
+        limit: usize::MAX,
+    };
+    write_value(key, &mut out, 0, usize::MAX)
+        .expect("a canonical map key never nests or overflows");
+    out.bytes
 }
 
 /// Decodes one canonical value from `bytes`.
@@ -678,6 +776,16 @@ fn encode_key(key: &CanonicalValue) -> Vec<u8> {
 /// Returns [`CanonicalError`] for a truncated, over-large, over-deep, or
 /// non-canonical document.
 pub fn decode(bytes: &[u8], limits: &Limits) -> Result<CanonicalValue, CanonicalError> {
+    // Before anything is read. A collection header cannot claim more than the
+    // input holds, so bounding the input bounds every allocation below — but
+    // only if the input itself is bounded, which is what this does.
+    let found = bytes.len() as u64;
+    if found > limits.max_manifest_bytes {
+        return Err(CanonicalError::TooLarge {
+            found,
+            limit: limits.max_manifest_bytes,
+        });
+    }
     let mut decoder = Decoder {
         bytes,
         at: 0,
@@ -697,21 +805,44 @@ pub fn decode(bytes: &[u8], limits: &Limits) -> Result<CanonicalValue, Canonical
 ///
 /// The inverse of [`canonical_bytes`]: for any manifest this crate can encode,
 /// decoding its bytes yields an equal manifest and therefore the same
-/// [`workload_digest`]. That round trip is what makes the encoding safe to use
-/// as identity — an encoder that dropped a field would give two workloads one
-/// digest, and this is the check that would notice.
+/// [`workload_digest`].
+///
+/// # One byte string per workload
+///
+/// This function succeeds only when `bytes` are *exactly* what encoding the
+/// recovered manifest produces. Two things enforce that, deliberately in
+/// layers:
+///
+/// - Every known second spelling is refused where it occurs, with an error that
+///   says where and why — a non-shortest integer, an out-of-order key, an
+///   explicitly encoded empty collection.
+/// - The result is then re-encoded and compared against the input, which
+///   catches any second spelling that is *not* on that list. That matters more
+///   than it might seem: it means a future field whose decoding quietly loses a
+///   distinction cannot give two workloads one digest, because the round trip
+///   would stop being an identity and this check would fail.
+///
+/// The comparison costs one encode over a manifest already bounded by
+/// [`Limits::max_manifest_bytes`], which is a small price for making the
+/// injectivity of workload identity a property of the code rather than of
+/// having enumerated every case correctly.
 ///
 /// # Errors
 ///
-/// Returns [`CanonicalError`] when the bytes are not canonical, or when they
-/// decode structurally but do not describe a workload — a missing or
-/// unrecognised field, a value of the wrong shape, or a name, digest, or
-/// number the domain types refuse.
+/// Returns [`CanonicalError`] when the bytes are oversized or not canonical,
+/// when they decode structurally but do not describe a workload — a missing or
+/// unrecognised field, a value of the wrong shape, or a name, digest, or number
+/// the domain types refuse — or when they are not the recovered manifest's own
+/// canonical form.
 pub fn manifest_from_canonical_bytes(
     bytes: &[u8],
     limits: &Limits,
 ) -> Result<WorkloadManifest, CanonicalError> {
-    WorkloadManifest::from_canonical(&decode(bytes, limits)?, &Path::root())
+    let manifest = WorkloadManifest::from_canonical(&decode(bytes, limits)?, &Path::root())?;
+    if canonical_bytes(&manifest, limits)? != bytes {
+        return Err(CanonicalError::NotItsOwnCanonicalForm);
+    }
+    Ok(manifest)
 }
 
 // ── reading a decoded value back into the model ─────────────────────────────
@@ -828,8 +959,14 @@ impl<'v> Fields<'v> {
             .transpose()
     }
 
-    /// A list field. Absent and empty are the same, matching the encoder, which
-    /// omits an empty collection rather than writing one.
+    /// A list field, absent when empty.
+    ///
+    /// An explicitly encoded empty list is **refused**. The encoder omits an
+    /// empty collection, so a present-but-empty one is a second spelling of
+    /// "there are none" — and a second spelling is exactly what breaks the
+    /// codec: two byte strings would decode to one manifest whose re-encoding
+    /// matches only one of them, so the digest over the other would identify a
+    /// workload that cannot be reproduced.
     fn list<T: FromCanonical>(&mut self, field: &'static str) -> Result<Vec<T>, CanonicalError> {
         let Some(value) = self.entries.remove(field) else {
             return Ok(Vec::new());
@@ -838,6 +975,11 @@ impl<'v> Fields<'v> {
         let CanonicalValue::Array(items) = value else {
             return Err(wrong_shape(&path, "a list", value));
         };
+        if items.is_empty() {
+            return Err(CanonicalError::RedundantEmpty {
+                path: path.to_string(),
+            });
+        }
         items
             .iter()
             .enumerate()
@@ -846,6 +988,9 @@ impl<'v> Fields<'v> {
     }
 
     /// A keyed map field, absent when empty.
+    ///
+    /// An explicitly encoded empty map is refused, for the reason given on
+    /// [`Self::list`].
     fn keyed<K, V>(
         &mut self,
         field: &'static str,
@@ -862,16 +1007,23 @@ impl<'v> Fields<'v> {
         let CanonicalValue::Map(map) = value else {
             return Err(wrong_shape(&path, "a map", value));
         };
+        if map.entries().is_empty() {
+            return Err(CanonicalError::RedundantEmpty {
+                path: path.to_string(),
+            });
+        }
         let mut out = std::collections::BTreeMap::new();
         for (key, value) in map.entries() {
             let CanonicalValue::Text(key) = key else {
                 return Err(wrong_shape(&path, "a text map key", key));
             };
             let entry = path.key(key);
-            let key = key.parse::<K>().map_err(|error| CanonicalError::InvalidValue {
-                path: entry.to_string(),
-                reason: error.to_string(),
-            })?;
+            let key = key
+                .parse::<K>()
+                .map_err(|error| CanonicalError::InvalidValue {
+                    path: entry.to_string(),
+                    reason: error.to_string(),
+                })?;
             out.insert(key, V::from_canonical(value, &entry)?);
         }
         Ok(out)
@@ -899,10 +1051,11 @@ where
     let CanonicalValue::Text(text) = value else {
         return Err(wrong_shape(path, "a text string", value));
     };
-    text.parse().map_err(|error: T::Err| CanonicalError::InvalidValue {
-        path: path.to_string(),
-        reason: error.to_string(),
-    })
+    text.parse()
+        .map_err(|error: T::Err| CanonicalError::InvalidValue {
+            path: path.to_string(),
+            reason: error.to_string(),
+        })
 }
 
 /// Declares `FromCanonical` for a type whose canonical form is its textual one.
@@ -989,12 +1142,14 @@ impl FromCanonical for ScalarValue {
     fn from_canonical(value: &CanonicalValue, path: &Path) -> Result<Self, CanonicalError> {
         match value {
             CanonicalValue::Bool(value) => Ok(ScalarValue::Bool(*value)),
-            CanonicalValue::UInt(value) => i64::try_from(*value)
-                .map(ScalarValue::Integer)
-                .map_err(|_| CanonicalError::InvalidValue {
-                    path: path.to_string(),
-                    reason: "the integer does not fit in 64 signed bits".to_owned(),
-                }),
+            CanonicalValue::UInt(value) => {
+                i64::try_from(*value)
+                    .map(ScalarValue::Integer)
+                    .map_err(|_| CanonicalError::InvalidValue {
+                        path: path.to_string(),
+                        reason: "the integer does not fit in 64 signed bits".to_owned(),
+                    })
+            }
             CanonicalValue::NInt(value) => Ok(ScalarValue::Integer(*value)),
             CanonicalValue::F64(value) => Ok(ScalarValue::Real(*value)),
             CanonicalValue::Text(value) => Ok(ScalarValue::Text(value.clone())),
@@ -1063,9 +1218,7 @@ impl FromCanonical for Reduction {
             "max" => Ok(Reduction::Max),
             other => Err(CanonicalError::InvalidValue {
                 path: path.to_string(),
-                reason: format!(
-                    "`{other}` is not a reduction; expected single, sum, min, or max"
-                ),
+                reason: format!("`{other}` is not a reduction; expected single, sum, min, or max"),
             }),
         }
     }
@@ -1146,13 +1299,14 @@ impl FromCanonical for DomainBounds {
     fn from_canonical(value: &CanonicalValue, path: &Path) -> Result<Self, CanonicalError> {
         let mut fields = Fields::of(value, path)?;
         let shape: String = {
-            let value = fields
-                .entries
-                .remove("shape")
-                .ok_or_else(|| CanonicalError::MissingField {
-                    path: path.to_string(),
-                    field: "shape",
-                })?;
+            let value =
+                fields
+                    .entries
+                    .remove("shape")
+                    .ok_or_else(|| CanonicalError::MissingField {
+                        path: path.to_string(),
+                        field: "shape",
+                    })?;
             match value {
                 CanonicalValue::Text(text) => text.clone(),
                 other => return Err(wrong_shape(&path.field("shape"), "a text string", other)),

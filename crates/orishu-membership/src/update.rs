@@ -261,6 +261,7 @@ fn handle_peer(ctx: &mut Context, input: PeerInput) {
     match body {
         PeerBody::Ping { probe, incarnation } => {
             observe_alive(ctx, &sender, incarnation);
+            remind_suspected_subject(ctx, &sender);
             let self_incarnation = ctx.model.incarnation();
             ctx.send_to(
                 sender,
@@ -477,6 +478,7 @@ fn handle_ack(ctx: &mut Context, sender: &NodeId, probe: ProbeId, incarnation: I
     ctx.model.probes_mut().remove(&probe);
     ctx.cancel(pending.timer);
     observe_alive(ctx, sender, incarnation);
+    remind_suspected_subject(ctx, sender);
 
     if let ProbePhase::Relay {
         requester,
@@ -627,6 +629,28 @@ fn handle_ping_reply(
         ctx.cancel(pending.timer);
         suspect(ctx, target.clone(), pending.target_incarnation);
     }
+}
+
+/// Re-notify a directly contacting subject whose earlier challenge may have
+/// been lost. Contact at the old incarnation is not a refutation and never
+/// extends the held suspicion deadline. Unknown ACKs never reach this helper.
+fn remind_suspected_subject(ctx: &mut Context, subject: &NodeId) {
+    let Some(member) = ctx
+        .model
+        .member(subject)
+        .filter(|member| member.liveness == Liveness::Suspected)
+    else {
+        return;
+    };
+    let incarnation = member.incarnation;
+    ctx.send_to(
+        subject.clone(),
+        OutboundBody::Announce {
+            announcement: Announcement::Suspect,
+            target: subject.clone(),
+            incarnation,
+        },
+    );
 }
 
 /// Moves a member into suspicion and arms its refutation deadline.
@@ -801,6 +825,9 @@ fn handle_join_timer(ctx: &mut Context, token: TimerToken) {
 }
 
 fn retry_join(ctx: &mut Context, attempt: JoinAttempt) {
+    // Refusals and connection replacement can retry before the timer fires.
+    // Retire it on every path, including budget exhaustion.
+    ctx.cancel(attempt.timer);
     let next = attempt.attempt.saturating_add(1);
     if next > ctx.model.limits().max_join_attempts() {
         ctx.model.set_join_attempt(None);
@@ -1036,6 +1063,21 @@ fn handle_node_id_allocated(
     // record for.
     if ctx.model.member(&node_id).is_some() || ctx.model.has_tombstone(&node_id) {
         refuse_admission(ctx, session, pending.name, RejectReason::IdentityCollision);
+        return;
+    }
+
+    // ID allocation is another asynchronous shell boundary. A competing
+    // admission, lock or exclusion may have arrived since verification; only
+    // the final insertion turn can decide that these gates still hold.
+    if let Err(reason) = admission::evaluate_local_gates(
+        &ctx.model,
+        true,
+        true,
+        pending.protocol,
+        &pending.name,
+        pending.cert_fingerprint,
+    ) {
+        refuse_admission(ctx, session, pending.name, reason);
         return;
     }
 
@@ -1400,10 +1442,35 @@ fn handle_pull_reply(
 
 fn handle_command(ctx: &mut Context, command: Command) {
     match command {
+        Command::InstallAdmissionBaseline(baseline) => {
+            let snapshot = baseline.snapshot;
+            match crate::baseline::merge(&ctx.model, baseline) {
+                Ok(staged) => {
+                    let self_removed = !staged.members().contains_key(staged.local_id());
+                    ctx.model = staged;
+                    ctx.emit(Effect::Publish(ChangeRecord::AdmissionBaselineApplied {
+                        snapshot,
+                        self_removed,
+                    }));
+                }
+                Err(reason) => {
+                    ctx.note(reason);
+                    ctx.emit(Effect::Publish(ChangeRecord::AdmissionBaselineRejected {
+                        snapshot,
+                    }));
+                }
+            }
+        }
         Command::BeginJoin {
             session,
             target_formation,
         } => {
+            if ctx.model.join_attempt().is_some() {
+                ctx.note(Diagnostic::Unexpected {
+                    what: "begin join while another attempt is pending",
+                });
+                return;
+            }
             let timer = ctx.timer(TimerKind::JoinRetry);
             ctx.model.set_join_attempt(Some(JoinAttempt {
                 session,
@@ -1416,6 +1483,25 @@ fn handle_command(ctx: &mut Context, command: Command) {
             ctx.reply_to(session, body);
             let delay = ctx.model.limits().join_backoff_for(1);
             ctx.arm(timer, delay);
+        }
+
+        Command::RebindJoin {
+            previous_session,
+            session,
+            target_formation,
+        } => {
+            let Some(mut attempt) = ctx.model.join_attempt().cloned().filter(|attempt| {
+                attempt.session == previous_session
+                    && session != previous_session
+                    && attempt.target_formation == target_formation
+            }) else {
+                ctx.note(Diagnostic::Unexpected {
+                    what: "join replacement does not match the pending attempt",
+                });
+                return;
+            };
+            attempt.session = session;
+            retry_join(ctx, attempt);
         }
 
         Command::Leave {
@@ -1434,6 +1520,33 @@ fn handle_command(ctx: &mut Context, command: Command) {
         Command::ClearTombstone { node } => handle_clear_tombstone(ctx, node),
 
         Command::SetPolicy(policy) => ctx.model.set_policy(policy),
+
+        Command::SetMembershipLock(locked) => {
+            if ctx.model.membership_locked() == locked {
+                return;
+            }
+            let previous = ctx
+                .model
+                .membership_policy()
+                .map(|p| p.version.clone())
+                .unwrap_or_else(|| VersionTuple::initial(0, ctx.model.local_id().clone()));
+            let Some(version) = previous.checked_successor(ctx.model.local_id().clone()) else {
+                ctx.note(Diagnostic::LimitExceeded {
+                    limit: "versionCounter",
+                    value: 0,
+                    max: 0,
+                });
+                return;
+            };
+            let outcome = merge::merge_delta(
+                &mut ctx.model,
+                DeltaBody::MembershipPolicyUpdate(crate::model::MembershipPolicy {
+                    locked,
+                    version,
+                }),
+            );
+            absorb_outcome(ctx, outcome);
+        }
 
         Command::UpdateBlocklist(entry) => {
             let outcome = merge::merge_delta(&mut ctx.model, DeltaBody::BlocklistUpdate(entry));
@@ -1511,6 +1624,12 @@ fn handle_leave(
 }
 
 fn handle_remove(ctx: &mut Context, node: NodeId, mode: RemovalMode, reason: Option<String>) {
+    if ctx.model.membership_locked() {
+        ctx.note(Diagnostic::Unexpected {
+            what: "membership is locked",
+        });
+        return;
+    }
     if &node == ctx.model.local_id() {
         ctx.note(Diagnostic::Unexpected {
             what: "operator asked this node to remove itself; use Leave",

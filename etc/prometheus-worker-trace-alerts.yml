@@ -1,11 +1,18 @@
 # Optional local-tracing warning examples, not measured SLOs or restart policy.
-# Apply rate before aggregation so each process counter reset is handled first.
+# Evaluate rate per metric before combining positive symptoms. Selecting several
+# unlabelled metric names inside one rate() produces duplicate output labelsets.
 groups:
   - name: orishu-worker-trace-v1
     interval: 1m
     rules:
       - alert: OrishuWorkerTraceLocalDrops
-        expr: (sum by (job, instance) (rate({job="orishu-worker",__name__=~"orishu_worker_trace_(active_full|queue_full|encoding_dropped|invalid_source)_total"}[5m])) > 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        expr: >-
+          (
+            (rate(orishu_worker_trace_active_full_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_trace_queue_full_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_trace_encoding_dropped_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_trace_invalid_source_total{job="orishu-worker"}[5m]) > 0)
+          ) and on (job, instance) (up{job="orishu-worker"} == 1)
         for: 2m
         labels:
           severity: warning

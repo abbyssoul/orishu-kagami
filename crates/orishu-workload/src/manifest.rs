@@ -42,10 +42,15 @@ use crate::value::ScalarValue;
 
 /// The resource format version this crate reads and writes.
 ///
-/// `v2` while the superseded unpinned prototype in `crates/orishu` still
+/// `v2` because the superseded unpinned prototype in `crates/orishu` already
 /// answers to `orishu.dev/v1`, so exactly one parser claims each discriminator.
-/// When worker admission moves to this model and the prototype is deleted, this
-/// becomes the group's `v1` workload version.
+///
+/// It stays `v2` permanently. The discriminator is *inside* the canonical
+/// bytes, so renaming it would change every workload's digest — every existing
+/// identity, signature, provenance record, and stored reference would break at
+/// once. Deleting the prototype frees the string `orishu.dev/v1`; it does not
+/// make this format that string, and reusing it for a schema that is not the
+/// prototype would be worse than leaving it retired.
 pub const WORKLOAD_API_VERSION: &str = "orishu.dev/v2";
 
 /// The resource kind for a workload.

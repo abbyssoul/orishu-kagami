@@ -30,9 +30,24 @@ use crate::ids::{MediaType, NameError, SchemaId};
 /// than a closed list of physical phenomena, and a plugin may pin an artifact
 /// this crate has never heard of. The constants below name the roles the rest
 /// of the model reasons about.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArtifactRole(String);
+
+// Hand-written for the same reason as the other validated names, and through
+// the same helper so the two cannot drift: `#[serde(try_from = "String")]`
+// would allocate every authored role, oversized ones included, before anything
+// looked at its length.
+impl Serialize for ArtifactRole {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for ArtifactRole {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        crate::ids::deserialize_name(deserializer, "an ArtifactRole")
+    }
+}
 
 impl ArtifactRole {
     /// Executable component code. A component instance must name an artifact
@@ -51,14 +66,16 @@ impl ArtifactRole {
 
     /// Parses a role name.
     ///
+    /// Checks the borrowed value before copying it, so an oversized role is
+    /// refused without being allocated.
+    ///
     /// # Errors
     ///
     /// Returns [`NameError`] when the value is empty, oversized, or contains a
     /// character outside printable non-whitespace ASCII.
-    pub fn new(value: impl Into<String>) -> Result<Self, NameError> {
-        let value = value.into();
-        crate::ids::validate_role(&value)?;
-        Ok(Self(value))
+    pub fn new<V: AsRef<str> + Into<String>>(value: V) -> Result<Self, NameError> {
+        crate::ids::validate_role(value.as_ref())?;
+        Ok(Self(value.into()))
     }
 
     /// The role a component instance's artifact must carry.
@@ -227,6 +244,30 @@ mod tests {
     fn a_malformed_role_is_refused() {
         assert!(ArtifactRole::new("").is_err());
         assert!(ArtifactRole::new("two words").is_err());
+    }
+
+    #[test]
+    fn a_role_is_validated_as_a_borrowed_value_on_both_paths() {
+        // The constructor takes `AsRef<str>`, so the grammar runs on the
+        // caller's borrow; the deserializer goes through the same shared
+        // visitor as every other validated name, so an oversized role is
+        // refused without being copied on the authoring path too.
+        let oversized: String = "r".repeat(crate::ids::MAX_SYMBOL_LEN + 1);
+        let borrowed: &str = &oversized;
+        assert!(ArtifactRole::new(borrowed).is_err());
+        assert!(serde_json::from_str::<ArtifactRole>(&format!("\"{oversized}\"")).is_err());
+        assert!(serde_yaml::from_str::<ArtifactRole>(&oversized).is_err());
+    }
+
+    #[test]
+    fn a_role_round_trips_through_serde() {
+        let role = ArtifactRole::component();
+        let json = serde_json::to_string(&role).expect("it encodes");
+        assert_eq!(json, "\"component\"");
+        assert_eq!(
+            serde_json::from_str::<ArtifactRole>(&json).expect("it decodes"),
+            role
+        );
     }
 
     #[test]

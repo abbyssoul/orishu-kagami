@@ -16,10 +16,11 @@ troubleshooting commands require the implemented contracts.
 
 The [local Prometheus guide](../testing-worker-prometheus.md) and
 `etc/prometheus-local.yml` now have a real source-build worker scrape and
-`promtool` validation through `make test-worker-prometheus`. Remote access,
-service/container deployment, release artifacts, remote collector configuration,
-dashboards/alerts and the broader incident runbooks remain work. The local
-example alone does not close this task. The additional
+`promtool` validation through `make test-worker-prometheus`. Remaining work is
+deployment qualification, release artifacts, cross-peer/log correlation and
+later workload-specific monitoring. The scoped scrape, collector, dashboard,
+alert and incident deliveries below do not close that broader handoff. The
+additional
 [mTLS proxy recipe](../testing-worker-monitoring-proxy.md) and
 `make test-worker-monitoring-proxy` now exercise certificate/route isolation,
 actual Prometheus ingestion and proxy-outage independence through the accepted
@@ -29,19 +30,38 @@ service/container integration or supported release artifacts.
 Three local alert examples now have pinned `promtool` failure/recovery tests
 and real-server loading evidence. The guide distinguishes unavailable scrapes,
 unready workers and missing telemetry and supplies safe initial responses.
-This is not notification delivery, a complete incident manual or the full
-dashboard/alert set required as additional instruments land.
+The [optional formation warning group](../testing-worker-prometheus.md#optional-formation-warnings)
+adds owner responsiveness, admission/catch-up failures, exhausted membership
+budgets, peer timeouts and ten named slot budgets. Its 39 synthetic scenarios
+check the real rules, including coexisting counters, reset/idle behavior,
+missing data and recovery. Live checks evaluate all loaded expressions against
+the full worker catalogue after two scrapes. The trace-loss expression's
+same-worker counter collision is corrected with an explicit regression.
+These examples are not notification delivery, accepted production thresholds
+or the remaining deployment/correlation handoff.
+
+The [formation snapshot dashboard](../testing-worker-dashboard.md) now provides
+a versioned, self-contained Prometheus console with 37 per-target panels.
+The [acceptance ledger](cluster-formation-conformance.md#formation-snapshot-dashboard--2026-09-08)
+records actual HTML rendering, extracted-query fixtures, tracing-off/on workers,
+failed/missing/ambiguous targets, hostile selections and collector recovery
+and their scoped acceptance. Inspected desktop/mobile captures supplement those
+checks; the ledger retains the corrected blank fragment-capture failure.
+This delivers the formation dashboard example in slice 5, not remote UI
+security, a fleet-scale platform, later workload dashboards or M4's final
+deployment/correlation acceptance.
 
 The [live trace-counter catalogue](../orishu-observability.md#live-trace-delivery-and-loss-counters)
 now documents sampling, delivery uncertainty, queue pressure, absent-versus-zero
 semantics and safe first checks. Its real-worker pressure fixture validates
-live exposition with optional pinned `promtool` checks. Remote collector deployment,
-cross-peer correlation and trace-loss dashboards remain open. Three optional
+live exposition with optional pinned `promtool` checks. Remote collector deployment
+and cross-peer/log correlation remain open; the snapshot dashboard above includes
+trace-delivery/loss panels without establishing those capabilities. Three optional
 trace-loss warning examples now have synthetic pending/firing/recovery and
 reset/idle/disabled/unavailable-target checks, plus real-server rule loading;
 production thresholds and notification delivery remain unverified.
 The [extended scraper harness](../testing-worker-prometheus.md#ingest-trace-counters-through-prometheus)
-now checks 143-series ingestion, including membership deadline/abandonment and peer IO metrics, and fresh
+now checks 163-series ingestion, including catch-up, membership deadline/abandonment and peer IO metrics, and fresh
 values after collector recovery;
 its bounded HTTP responder is not an operator collector deployment recipe.
 
@@ -66,6 +86,29 @@ rotation/revocation, bearer authorization or collector pressure/retention.
 
 ## Delivery slices
 
+The [source-built user-service recipe](../testing-worker-user-service.md) now
+delivers a bounded portion of slice 3: actual runtime-linked systemd units,
+five capability/runtime configurations, probe/metric and authorization checks,
+graceful stop and explicit fresh-identity restart. It changes no packaged unit
+or boot policy. System-wide deployment, remote-proxy co-deployment,
+release lifecycle and trace/log correlation remain separate gaps; a working
+user manager is an explicit prerequisite, not silently provisioned by the test.
+
+The [rootless container recipe](../testing-worker-container.md) adds the local
+source-built container portion of slice 3: combined/minimal images, five runtime
+modes, private mounts, exec probes, explicit restart and separate/shared-network
+scraper checks. The original Dockerfile's release default, published images,
+remote proxy/collector co-deployment and Kubernetes remain unqualified. This
+recipe does not select the pending log output or deliver cross-peer correlation.
+
+The [formation monitoring runbook](../worker-monitoring-runbook.md) now covers
+bounded read-only triage for peer loss, local unreadiness and missing telemetry.
+Its [evidence mapping](../worker-monitoring-runbook.md#6-handoff-and-evidence-limits)
+separates public CLI/process checks, HTTP fixtures and synthetic alert tests.
+This delivers the formation incident procedure within slices 1, 5 and 6; it
+does not deliver dashboards, notification routing, service/container deployment,
+cross-peer/log correlation or later workload incident procedures.
+
 1. With the listener/configuration contract, update
    [worker stories](../user-stories/orishu/worker-admin.md) and
    [cluster stories](../user-stories/orishu/cluster-admin.md) to the final
@@ -89,6 +132,11 @@ rotation/revocation, bearer authorization or collector pressure/retention.
    walkthrough across client/peer operations, credential redaction, sampling,
    queue/drop diagnostics, collector outage and shutdown behavior. Explain
    that sampled traces and operational logs are not durable audit/provenance.
+   Use the accepted stdout logging adapter for the PoC and show how to collect
+   its structured records from ordinary processes, the selected user service
+   or container runtime. Separate bare-metal/container examples from actual
+   Kubernetes/cloud qualification. Unix-datagram and vendor-specific adapters
+   remain future extensions, not required infrastructure for local startup.
 5. With each runtime/cluster/storage instrument set, add versioned dashboard
    and alert examples using actual metric names. Cover unreachable workers,
    sustained unready state, driver lag, rejection/timeouts, queue saturation,
@@ -112,6 +160,13 @@ Linux checkpoint; they do not require or qualify unpublished release artifacts.
 Record later release/platform and workload obligations separately, with their
 owning milestone, rather than closing this entire task when M4 passes. Required
 M4 recipes cannot be waived merely by labelling them unsupported.
+Use the [recipe-to-criterion map](cluster-formation-conformance.md#m4-operator-recipe-applicability--2026-09-08)
+and [formation task's operator-handoff row](implement-cluster-formation-poc.md#open-m4-work-selection)
+before selecting another deployment increment. Preserve the scoped recipes
+delivered above; identify a missing
+combined-deployment check explicitly rather than treating all service/container
+work as unimplemented. The final trace/log walkthrough remains open until its
+corresponding runtime contracts are delivered and tested.
 
 - A fresh operator follows the manual against built release artifacts and
   sees a real scrape, expected probe transitions and a correlated trace.

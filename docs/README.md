@@ -15,6 +15,14 @@ Start here:
   precedence, startup, and trust rules.
 - [Orishu operational observability](orishu-observability.md) — implemented local
   metrics/probes and local OTLP traces, with remaining operator delivery gates.
+- [Worker monitoring incident runbook](worker-monitoring-runbook.md) — bounded
+  read-only checks for peer loss, local unreadiness and missing telemetry.
+- [Formation dashboard](testing-worker-dashboard.md) — optional per-target
+  Prometheus snapshot console, unavailable-state semantics and query checks.
+- [Worker user-service recipe](testing-worker-user-service.md) — source-built
+  systemd monitoring, explicit lifecycle and optional-capability checks.
+- [Worker container recipe](testing-worker-container.md) — rootless source-built
+  evaluation, exec probes and explicit network-namespace sharing.
 - [Interrupted admission recovery](cluster-admission-recovery.md) — bounded
   operator inspection, existing-attempt recovery and mandatory stop conditions.
 - [Implementation roadmap](roadmap/README.md) — milestone gates, workstreams,

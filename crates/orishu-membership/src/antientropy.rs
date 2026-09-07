@@ -13,7 +13,8 @@
 //!
 //! - **Leaf key** — a domain tag byte followed by the entity's identifier:
 //!   `0x01` for a member (keyed by node ID), `0x02` for a tombstone (node ID),
-//!   `0x03` for a blocklist entry (its rendered key). The tag keeps the three
+//!   `0x03` for a blocklist entry (its rendered key), and `0x04` for the
+//!   singleton membership policy (`membership`). The tag keeps the
 //!   namespaces disjoint, so a member and a tombstone for the same node never
 //!   collide.
 //! - **Leaf hash** — `SHA-256(LEAF_DOMAIN || len(key) || key || value)`, where
@@ -51,11 +52,11 @@ use crate::{
 };
 
 /// Domain separator for leaf hashing.
-const LEAF_DOMAIN: &[u8] = b"orishu.membership.leaf/1";
+const LEAF_DOMAIN: &[u8] = b"orishu.membership.leaf/2";
 /// Domain separator for bucket assignment and bucket hashing.
-const BUCKET_DOMAIN: &[u8] = b"orishu.membership.bucket/1";
+const BUCKET_DOMAIN: &[u8] = b"orishu.membership.bucket/2";
 /// Domain separator for internal tree nodes.
-const NODE_DOMAIN: &[u8] = b"orishu.membership.node/1";
+const NODE_DOMAIN: &[u8] = b"orishu.membership.node/2";
 
 /// Leaf-key tag for a member record.
 const TAG_MEMBER: u8 = 0x01;
@@ -461,6 +462,21 @@ impl MembershipTree {
             push(key, hash, DeltaBody::BlocklistUpdate(entry.clone()));
         }
 
+        if let Some(policy) = model.membership_policy() {
+            let key = b"\x04membership".to_vec();
+            let mut encoder = Encoder::new(LEAF_DOMAIN);
+            encoder
+                .bytes(&key)
+                .u8(0x04)
+                .version(&policy.version)
+                .u8(u8::from(policy.locked));
+            push(
+                key,
+                encoder.finish(),
+                DeltaBody::MembershipPolicyUpdate(policy.clone()),
+            );
+        }
+
         for leaves in buckets.values_mut() {
             leaves.sort_by(|left, right| left.key.cmp(&right.key));
         }
@@ -801,7 +817,7 @@ mod tests {
         let digest = MembershipTree::build(&model).digest();
         assert_eq!(
             digest.root.to_hex(),
-            "7d23bb007dfff678715134a29cc842361f3b95008706d9a266d0e0a70e869461"
+            "58260ddd44d437ba3fdce9277a6e4bf22c8dd65ee937e5edbd46f77dfc9609a7"
         );
     }
 

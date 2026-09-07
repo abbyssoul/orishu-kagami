@@ -26,7 +26,8 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use orishu_workload::{
-    ArtifactDigest, Limits, ScalarValue, authoring, canonical,
+    ArtifactDigest, Limits, ScalarValue, ToCanonical, authoring,
+    canonical::{self, CanonicalValue},
     closure::{self, InMemoryBlobs},
 };
 use support::{Cbor, decode};
@@ -219,6 +220,387 @@ fn no_runtime_status_key_reaches_the_canonical_form() {
         found.is_empty(),
         "runtime status and cluster-assigned identity must not affect workload identity, \
          but the canonical form contains: {found:?}"
+    );
+}
+
+// ── the encoding is a codec, and it is injective ─────────────────────────────
+//
+// Round-tripping is not a convenience test. An encoder that quietly dropped a
+// field would give two different workloads one digest; decoding is what makes
+// that detectable, so these are identity-correctness tests.
+
+#[test]
+fn every_fixture_survives_a_round_trip_through_its_canonical_form() {
+    for name in ["minimal", "two-component-graph"] {
+        let limits = Limits::DEFAULT;
+        let original = authoring::parse_str(&authored(name), &limits).expect("it parses");
+        let bytes = canonical::canonical_bytes(&original, &limits).expect("it encodes");
+
+        let recovered = canonical::manifest_from_canonical_bytes(&bytes, &limits)
+            .unwrap_or_else(|error| panic!("{name} must decode: {error}"));
+
+        assert_eq!(
+            recovered, original,
+            "{name} did not survive a canonical round trip"
+        );
+        assert_eq!(
+            canonical::canonical_bytes(&recovered, &limits).expect("it re-encodes"),
+            bytes,
+            "{name} re-encoded to different bytes"
+        );
+    }
+}
+
+#[test]
+fn a_manifest_recovered_from_canonical_bytes_keeps_its_identity() {
+    let limits = Limits::DEFAULT;
+    let original =
+        authoring::parse_str(&authored("two-component-graph"), &limits).expect("it parses");
+    let bytes = canonical::canonical_bytes(&original, &limits).expect("it encodes");
+    let recovered = canonical::manifest_from_canonical_bytes(&bytes, &limits).expect("it decodes");
+    assert_eq!(
+        canonical::workload_digest(&recovered, &limits).expect("digest"),
+        canonical::workload_digest(&original, &limits).expect("digest"),
+    );
+}
+
+#[test]
+fn the_decoder_refuses_what_the_profile_forbids() {
+    let limits = Limits::DEFAULT;
+    // Each of these is a valid CBOR document that is not *canonical* CBOR.
+    // Accepting any of them would mean two byte strings decode to one value
+    // while their digests disagree about which one they identify.
+    let cases: [(&str, Vec<u8>); 6] = [
+        ("an indefinite-length array", vec![0x9f, 0x01, 0xff]),
+        ("a non-shortest integer", vec![0x18, 0x01]),
+        ("a binary16 float", vec![0xf9, 0x3c, 0x00]),
+        ("null", vec![0xf6]),
+        ("a tag", vec![0xc0, 0x00]),
+        (
+            "out-of-order map keys",
+            // {"b": 1, "a": 2}
+            vec![0xa2, 0x61, 0x62, 0x01, 0x61, 0x61, 0x02],
+        ),
+    ];
+    for (what, bytes) in cases {
+        assert!(
+            canonical::decode(&bytes, &limits).is_err(),
+            "{what} must be refused"
+        );
+    }
+}
+
+#[test]
+fn the_decoder_refuses_negative_zero_and_duplicate_keys() {
+    let limits = Limits::DEFAULT;
+    let mut negative_zero = vec![0xfb];
+    negative_zero.extend_from_slice(&(-0.0f64).to_be_bytes());
+    assert!(canonical::decode(&negative_zero, &limits).is_err());
+
+    // {"a": 1, "a": 2}
+    let duplicate = vec![0xa2, 0x61, 0x61, 0x01, 0x61, 0x61, 0x02];
+    assert!(canonical::decode(&duplicate, &limits).is_err());
+}
+
+/// Re-encodes a fixture's canonical form with one field rewritten.
+///
+/// The result is well-formed canonical CBOR — sorted keys, definite lengths —
+/// so nothing in the byte-level profile objects to it. Only the model
+/// conversion can, which is the point of these tests.
+fn with_root_field(name: &str, field: &str, value: CanonicalValue) -> Vec<u8> {
+    let manifest = authoring::parse_str(&authored(name), &Limits::DEFAULT).expect("it parses");
+    let CanonicalValue::Map(spec_root) = manifest.to_canonical().expect("it canonicalises") else {
+        panic!("the canonical root is a map");
+    };
+    let mut entries: Vec<_> = spec_root.entries().to_vec();
+    entries.retain(|(key, _)| key != &CanonicalValue::text(field));
+    entries.push((CanonicalValue::text(field), value));
+    let tampered = CanonicalValue::Map(canonical::CanonicalMap::new(entries).expect("distinct"));
+    canonical::encode(&tampered, &Limits::DEFAULT).expect("it encodes")
+}
+
+#[test]
+fn an_explicitly_encoded_empty_collection_is_refused() {
+    // "There are none" has exactly one spelling: absence. Were a
+    // present-but-empty list accepted, two byte strings would decode to one
+    // manifest, and re-encoding would reproduce only one of them — so the
+    // digest over the other would name a workload nobody could rebuild.
+    let limits = Limits::DEFAULT;
+    let manifest = authoring::parse_str(&authored("minimal"), &limits).expect("it parses");
+    let CanonicalValue::Map(root) = manifest.to_canonical().expect("canonicalises") else {
+        panic!("the canonical root is a map");
+    };
+
+    // Rebuild `metadata` with an empty `labels` map written out explicitly.
+    let metadata = root
+        .entries()
+        .iter()
+        .find(|(key, _)| key == &CanonicalValue::text("metadata"))
+        .map(|(_, value)| value.clone())
+        .expect("metadata is present");
+    let CanonicalValue::Map(metadata) = metadata else {
+        panic!("metadata is a map");
+    };
+    let mut metadata_entries: Vec<_> = metadata.entries().to_vec();
+    metadata_entries.push((
+        CanonicalValue::text("labels"),
+        CanonicalValue::Map(canonical::CanonicalMap::new(Vec::new()).expect("empty is distinct")),
+    ));
+    let tampered_metadata =
+        CanonicalValue::Map(canonical::CanonicalMap::new(metadata_entries).expect("distinct keys"));
+
+    let bytes = with_root_field("minimal", "metadata", tampered_metadata);
+    let error = canonical::manifest_from_canonical_bytes(&bytes, &limits)
+        .expect_err("an explicitly empty map is not canonical");
+    assert!(
+        error.to_string().contains("omitting the field"),
+        "the error should say how an empty collection is spelled, got: {error}"
+    );
+}
+
+#[test]
+fn an_explicitly_encoded_empty_list_is_refused() {
+    let limits = Limits::DEFAULT;
+    let manifest =
+        authoring::parse_str(&authored("two-component-graph"), &limits).expect("it parses");
+    let CanonicalValue::Map(root) = manifest.to_canonical().expect("canonicalises") else {
+        panic!("the canonical root is a map");
+    };
+    // `spec.compute.placementConstraints` is present in this fixture; replacing
+    // it with an empty list is well-formed CBOR and must still be refused.
+    let spec = root
+        .entries()
+        .iter()
+        .find(|(key, _)| key == &CanonicalValue::text("spec"))
+        .map(|(_, value)| value.clone())
+        .expect("spec is present");
+    let CanonicalValue::Map(spec) = spec else {
+        panic!("spec is a map")
+    };
+    let mut spec_entries: Vec<_> = spec.entries().to_vec();
+    for (key, value) in &mut spec_entries {
+        if key == &CanonicalValue::text("compute") {
+            let CanonicalValue::Map(compute) = value else {
+                panic!("compute is a map")
+            };
+            let mut compute_entries: Vec<_> = compute.entries().to_vec();
+            for (key, value) in &mut compute_entries {
+                if key == &CanonicalValue::text("placementConstraints") {
+                    *value = CanonicalValue::Array(Vec::new());
+                }
+            }
+            *value = CanonicalValue::Map(
+                canonical::CanonicalMap::new(compute_entries).expect("distinct"),
+            );
+        }
+    }
+    let tampered_spec =
+        CanonicalValue::Map(canonical::CanonicalMap::new(spec_entries).expect("distinct"));
+
+    let bytes = with_root_field("two-component-graph", "spec", tampered_spec);
+    assert!(
+        canonical::manifest_from_canonical_bytes(&bytes, &limits).is_err(),
+        "an explicitly empty list is not canonical"
+    );
+}
+
+#[test]
+fn decoding_accepts_only_a_manifests_own_canonical_form() {
+    // The property, stated directly: whatever `manifest_from_canonical_bytes`
+    // returns, the bytes it was given must be exactly what encoding that
+    // manifest produces. This is the backstop that holds even for a second
+    // spelling nobody has thought of yet.
+    let limits = Limits::DEFAULT;
+    for name in ["minimal", "two-component-graph"] {
+        let bytes = canonical::canonical_bytes(
+            &authoring::parse_str(&authored(name), &limits).expect("parses"),
+            &limits,
+        )
+        .expect("encodes");
+        let recovered =
+            canonical::manifest_from_canonical_bytes(&bytes, &limits).expect("it decodes");
+        assert_eq!(
+            canonical::canonical_bytes(&recovered, &limits).expect("re-encodes"),
+            bytes,
+            "{name} is not its own canonical form"
+        );
+    }
+}
+
+#[test]
+fn whatever_encodes_under_a_limit_decodes_under_the_same_limit() {
+    // The symmetry that makes a digest meaningful: if a manifest can be given
+    // an identity under some bounds, the bytes that identity is taken over must
+    // be readable back under those same bounds. An encoder allowed to outrun
+    // its decoder would mint workloads nobody could ever load.
+    let manifest =
+        authoring::parse_str(&authored("two-component-graph"), &Limits::DEFAULT).expect("parses");
+    let natural = canonical::canonical_bytes(&manifest, &Limits::DEFAULT)
+        .expect("it encodes under the default")
+        .len();
+
+    // Sweep the limit across the boundary, so the transition itself is covered
+    // rather than one comfortable value on each side.
+    for limit in [
+        1,
+        natural / 2,
+        natural - 1,
+        natural,
+        natural + 1,
+        natural * 2,
+    ] {
+        let limits = Limits {
+            max_manifest_bytes: limit as u64,
+            ..Limits::DEFAULT
+        };
+        match canonical::canonical_bytes(&manifest, &limits) {
+            Ok(bytes) => {
+                assert!(
+                    bytes.len() <= limit,
+                    "encoding at limit {limit} produced {} bytes",
+                    bytes.len()
+                );
+                canonical::manifest_from_canonical_bytes(&bytes, &limits).unwrap_or_else(|error| {
+                    panic!("bytes encoded at limit {limit} must decode at limit {limit}: {error}")
+                });
+            }
+            Err(error) => assert!(
+                matches!(error, canonical::CanonicalError::EncodedTooLarge { .. }),
+                "at limit {limit} encoding should fail only on size, got {error}"
+            ),
+        }
+    }
+}
+
+#[test]
+fn a_digest_is_never_taken_over_bytes_a_reader_would_refuse() {
+    // The same property stated where it bites: `workload_digest` must not
+    // succeed where decoding the bytes it hashed would fail.
+    let manifest = authoring::parse_str(&authored("minimal"), &Limits::DEFAULT).expect("it parses");
+    let tight = Limits {
+        max_manifest_bytes: 64,
+        ..Limits::DEFAULT
+    };
+    assert!(
+        canonical::workload_digest(&manifest, &tight).is_err(),
+        "a manifest too large to read back must not be given an identity"
+    );
+}
+
+#[test]
+fn a_document_over_the_byte_limit_is_refused_before_it_is_read() {
+    // The collection headers can claim no more than the input holds, so
+    // bounding the input is what bounds every allocation underneath — but only
+    // if the input is bounded, which it was not.
+    let manifest = authoring::parse_str(&authored("minimal"), &Limits::DEFAULT).expect("it parses");
+    let bytes = canonical::canonical_bytes(&manifest, &Limits::DEFAULT).expect("it encodes");
+    let tight = Limits {
+        max_manifest_bytes: 16,
+        ..Limits::DEFAULT
+    };
+    let error = canonical::decode(&bytes, &tight).expect_err("over the limit");
+    assert!(
+        matches!(error, canonical::CanonicalError::TooLarge { limit: 16, .. }),
+        "got {error}"
+    );
+    assert!(canonical::manifest_from_canonical_bytes(&bytes, &tight).is_err());
+}
+
+#[test]
+fn the_decoder_refuses_trailing_bytes() {
+    // A canonical form is exactly one value. Ignoring a suffix would let two
+    // byte strings carry one workload.
+    let limits = Limits::DEFAULT;
+    let manifest = authoring::parse_str(&authored("minimal"), &limits).expect("it parses");
+    let mut bytes = canonical::canonical_bytes(&manifest, &limits).expect("it encodes");
+    bytes.push(0x00);
+    assert!(canonical::manifest_from_canonical_bytes(&bytes, &limits).is_err());
+}
+
+#[test]
+fn the_decoder_refuses_a_truncated_document() {
+    let limits = Limits::DEFAULT;
+    let manifest = authoring::parse_str(&authored("minimal"), &limits).expect("it parses");
+    let bytes = canonical::canonical_bytes(&manifest, &limits).expect("it encodes");
+    for cut in [1, bytes.len() / 3, bytes.len() / 2, bytes.len() - 1] {
+        assert!(
+            canonical::manifest_from_canonical_bytes(&bytes[..cut], &limits).is_err(),
+            "a document cut at {cut} must be refused"
+        );
+    }
+}
+
+#[test]
+fn the_decoder_refuses_a_length_header_larger_than_the_document() {
+    // The cheapest defence against a header claiming billions of elements:
+    // every element costs at least a byte, so a length past the remaining
+    // input is a lie whatever follows. Without this the reader would try to
+    // reserve capacity for it first.
+    let limits = Limits::DEFAULT;
+    // An array header claiming 2^32 items, followed by nothing.
+    let bytes = vec![0x9a, 0xff, 0xff, 0xff, 0xff];
+    assert!(canonical::decode(&bytes, &limits).is_err());
+    // The same for a map and for a text string.
+    assert!(canonical::decode(&[0xba, 0xff, 0xff, 0xff, 0xff], &limits).is_err());
+    assert!(canonical::decode(&[0x7a, 0xff, 0xff, 0xff, 0xff], &limits).is_err());
+}
+
+#[test]
+fn the_decoder_bounds_the_number_of_values_it_will_build() {
+    let manifest =
+        authoring::parse_str(&authored("two-component-graph"), &Limits::DEFAULT).expect("parses");
+    let bytes = canonical::canonical_bytes(&manifest, &Limits::DEFAULT).expect("it encodes");
+    let tight = Limits {
+        max_canonical_values: 8,
+        ..Limits::DEFAULT
+    };
+    assert!(canonical::manifest_from_canonical_bytes(&bytes, &tight).is_err());
+}
+
+#[test]
+fn the_decoder_refuses_a_document_that_is_not_a_workload() {
+    let limits = Limits::DEFAULT;
+    // Structurally fine canonical CBOR, but not this schema.
+    let bytes = canonical::encode(
+        &CanonicalValue::Map(
+            canonical::CanonicalMap::fields([("hello", Some(CanonicalValue::text("world")))])
+                .expect("distinct keys"),
+        ),
+        &limits,
+    )
+    .expect("it encodes");
+    let error = canonical::manifest_from_canonical_bytes(&bytes, &limits)
+        .expect_err("that is not a workload");
+    // The error should locate the problem, not merely announce one.
+    assert!(
+        error.to_string().contains('$'),
+        "the error should carry a path, got: {error}"
+    );
+}
+
+#[test]
+fn the_decoder_refuses_a_field_the_schema_does_not_define() {
+    // The same answer the authoring path gives, for the same reason: in an
+    // identity-bearing document a key nobody reads is either a mistake or
+    // something being carried past the digest.
+    let limits = Limits::DEFAULT;
+    let manifest = authoring::parse_str(&authored("minimal"), &limits).expect("it parses");
+    let CanonicalValue::Map(root) = manifest.to_canonical().expect("it canonicalises") else {
+        panic!("the canonical root is a map");
+    };
+    let mut entries: Vec<_> = root.entries().to_vec();
+    entries.push((
+        CanonicalValue::text("status"),
+        CanonicalValue::text("Running"),
+    ));
+    let tampered = CanonicalValue::Map(canonical::CanonicalMap::new(entries).expect("distinct"));
+    let bytes = canonical::encode(&tampered, &limits).expect("it encodes");
+
+    let error = canonical::manifest_from_canonical_bytes(&bytes, &limits)
+        .expect_err("an unknown field is refused");
+    assert!(
+        error.to_string().contains("status"),
+        "the error should name the field, got: {error}"
     );
 }
 

@@ -101,6 +101,12 @@ and introducer ID. An endpoint hint does not replace authenticated identity.
 | `wrongIssuer` | The process is not the original formation/node/certificate issuer, including after its restart. Stop/review; another member cannot substitute for its formation-lifetime ledger. |
 | Authentication, transport, timeout or decoding failure | Stop/review. Do not downgrade authentication, disclose the token to another endpoint or treat failure as a negative admission report. |
 
+An original issuer that becomes ejected retains its formation/node identity
+but discards its admission replay ledger. Its `recordUnavailable` can therefore
+refer to a previously accepted assignment; it is not limited to requests that
+never reached the issuer. Check the issuer's participation as well as identity,
+and follow the same stop condition without a new attempt or alternate issuer.
+
 Reports are local-at-request diagnostics. Even `currentMember` does not prove
 current token/source-network authorization, introducer readiness or successful
 catch-up. A lock can safely refuse new members while retaining an existing
@@ -144,7 +150,10 @@ credential files and verifies fresh standalone identities plus authenticated
 the missing-history stop condition after both process histories are lost.
 The separate `make test-formation-source-loss` journey keeps the original
 issuer alive with its retained ledger. Following confirmed insertion and ACK
-loss, it pauses that issuer briefly to arrange a pre-adoption source crash,
+loss, it pauses that issuer briefly. An authenticated inspection must reach
+its two-second CLI timeout while the issuer process remains alive; the source
+must retain the same recovery reference, source/target identity and unadopted
+local formation. The harness then injects a pre-adoption source crash,
 restarts the source with retained credentials and resumes the issuer. The
 source reports fresh standalone identities and `UnknownOperation`; the issuer
 still identifies the original assignment, whether locally current or already
@@ -192,3 +201,13 @@ receipt therefore remains insufficient evidence of current participation.
 Combined fault acceptance stays open in
 N-FORMATION. Telemetry may assist diagnosis but never supplies missing admission
 authority; metrics, probes and traces remain companion implementation work.
+
+`make test-formation-issuer-ejection` now verifies the distinct original-issuer
+history-loss path: after insertion and ACK loss, a third admitted worker sends
+the issuer's self-removal tombstone over real authenticated gossip. The issuer
+stays alive with its original identity but reports `recordUnavailable`. The
+original source preserves its reference and unadopted identity through real
+retry exhaustion; exact replay does not reset it, and new join/leave work
+refuses. Pausing the source and signalling the test peer arrange the fault;
+they are not steps in this operator recovery procedure. See the
+[current evidence](tasks/cluster-formation-conformance.md#original-issuer-ejection-and-unavailable-accepted-history--2026-09-07).

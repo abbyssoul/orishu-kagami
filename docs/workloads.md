@@ -276,14 +276,37 @@ with this profile:
 - floats always 64 bits (the permitted "no float shrinking" variant), with NaN
   and infinities refused and `-0.0` normalised to `+0.0`;
 - no tags, and no simple values other than `true` and `false`;
-- an absent optional field is *omitted*, never encoded as null, so "not present"
-  has exactly one encoding. An empty collection and an absent one are the same
-  workload.
+- an absent optional field is *omitted*, never encoded as null, and an empty
+  collection is omitted rather than written out. "There are none" therefore has
+  exactly one encoding: absence. An empty collection and an absent one are the
+  same workload, and a document that writes one out explicitly is refused
+  rather than accepted as a second spelling of it.
 
 CBOR because it is already the canonical client payload format, so this adds no
-second codec to the product. The encoder is written by hand rather than derived
-from `serde`, so that a serialization attribute cannot silently relocate what a
-workload commits to.
+second codec to the product. Both directions are written by hand rather than
+derived from `serde`, so that a serialization attribute cannot silently relocate
+what a workload commits to.
+
+It is a codec, not only a hash input: canonical bytes decode back into a
+manifest. That is what lets a receiver work from canonical bytes alone without
+being handed the author's JSON, and it is also how the encoding is shown to be
+*injective* — an encoder that quietly dropped a field would give two different
+workloads one digest, and a round trip is what notices.
+
+Decoding accepts a document **only when those bytes are exactly what encoding
+the recovered manifest produces**. Every construct outside the profile is
+refused where it occurs, with an error saying where and why; the result is then
+re-encoded and compared against the input, which catches any second spelling not
+already on that list. Both matter, because accepting a second spelling would
+mean two byte strings decode to one workload — and the digest over the one that
+does not re-encode would name a workload nobody could rebuild.
+
+Encoding and decoding are bounded by the same manifest byte limit, and this is
+symmetric on purpose: whatever encodes under a given bound decodes under it.
+Encoding stops at the point it would exceed the budget rather than completing
+and then being measured, so a manifest too large to read back is never given a
+digest at all. An encoder allowed to outrun its own decoder would mint
+identities for workloads nobody could ever load.
 
 JSON and YAML remain how a person writes a workload. They parse into the typed
 model and never define identity: whitespace, key order, comments, and the choice
@@ -348,6 +371,22 @@ everything it receives. Nothing a provider says about a blob — its claimed rol
 name, size, or origin — participates in the decision. Thin submission, a local
 directory, a portable bundle, and an authenticated peer fetch are therefore
 different sources for one verifier rather than four trust models.
+
+Verification happens in two phases, and the order matters. Everything a manifest
+can get wrong on its own — its bounds, its domain, its component graph, and
+every claim it makes about its own artifacts, including contradictory
+descriptors and both byte budgets — is decided from the manifest alone. Only a
+manifest that passes reaches a provider at all: retrieval is work, possibly
+network work, and a document earns it by being internally consistent first. A
+contradiction is therefore reported even when the blob it concerns was never
+supplied.
+
+Candidates are streamed rather than held: bytes arrive in chunks, are hashed as
+they go, and are never materialised by the validator. What a verified closure
+records is *that* each artifact was verified and what the manifest said about
+it, not its contents. This is what makes a 64 GiB artifact limit an honest
+number, and it means a source supplying more bytes than declared is cut off at
+the declared length rather than read to the end.
 
 Run observations, checkpoints, and results record at least the workload/root
 identity, workload epoch, executed component digest, input/state identity,

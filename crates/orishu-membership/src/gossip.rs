@@ -42,7 +42,7 @@ pub struct ForeignDelta {
 
 /// What one delta carries.
 ///
-/// The three membership-owned variants serialize with exactly the
+/// The membership-owned variants serialize with exactly the
 /// `deltaType` discriminators the peer protocol names. `Foreign` is a
 /// core-internal tag: the decoder maps any *other* `deltaType` onto it,
 /// preserving the original string in [`ForeignDelta::delta_type`], and
@@ -57,6 +57,8 @@ pub enum DeltaBody {
     TombstoneUpdate(MembershipTombstone),
     /// A blocklist entry.
     BlocklistUpdate(BlocklistEntry),
+    /// The formation's singleton versioned membership lock.
+    MembershipPolicyUpdate(crate::model::MembershipPolicy),
     /// Something membership does not own.
     Foreign(ForeignDelta),
 }
@@ -69,6 +71,7 @@ impl DeltaBody {
             Self::MembershipUpdate(member) => &member.version,
             Self::TombstoneUpdate(tombstone) => &tombstone.version,
             Self::BlocklistUpdate(entry) => &entry.version,
+            Self::MembershipPolicyUpdate(policy) => &policy.version,
             Self::Foreign(delta) => &delta.version,
         }
     }
@@ -83,6 +86,7 @@ impl DeltaBody {
                 Some(GossipKey::Tombstone(tombstone.node_id.clone()))
             }
             Self::BlocklistUpdate(entry) => Some(GossipKey::Blocklist(entry.key.clone())),
+            Self::MembershipPolicyUpdate(_) => Some(GossipKey::MembershipPolicy),
             Self::Foreign(_) => None,
         }
     }
@@ -94,6 +98,7 @@ impl DeltaBody {
             Self::MembershipUpdate(member) => format!("member:{}", member.id),
             Self::TombstoneUpdate(tombstone) => format!("tombstone:{}", tombstone.node_id),
             Self::BlocklistUpdate(entry) => format!("blocklist:{}", entry.key),
+            Self::MembershipPolicyUpdate(_) => "policy:membership".to_owned(),
             Self::Foreign(delta) => format!("{}:{}", delta.delta_type, delta.key),
         }
     }
@@ -117,6 +122,8 @@ pub struct GossipDelta {
 /// which is the difference between a queue that converges and one that grows.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GossipKey {
+    /// The formation's singleton lock policy.
+    MembershipPolicy,
     /// A member record.
     Member(NodeId),
     /// A membership tombstone.

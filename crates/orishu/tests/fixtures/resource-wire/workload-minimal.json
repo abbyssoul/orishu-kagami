@@ -16,7 +16,7 @@
     },
     "model": {
       "image": {
-        "uri": "oci://registry.example.com/sim/hydro:v1"
+        "uri": "urn:orishu:superseded-prototype-artifact"
       }
     }
   }

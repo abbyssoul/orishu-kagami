@@ -227,17 +227,90 @@ As an administrator, I want to be able to start a worker process that does not a
 
 ### Monitor worker metrics and process health
 
+The [rootless container recipe](../../testing-worker-container.md) adds scoped
+source-built evidence for private mounted state, optional metrics, exec probes
+and explicit stop/restart. Probes execute inside the worker's network namespace;
+disabled diagnostics are unavailable by configuration, not proof of a failed
+worker. This does not complete the published-container installation story.
+
+The [source-built user-service recipe](../../testing-worker-user-service.md)
+now supplies scoped systemd evidence for explicit startup/stop, disabled and
+probes-only modes, private socket/credential access and fresh-identity restart.
+An active unit is not a ready worker. No failed probe or process exit triggers
+automatic restart/readmission; this does not qualify the packaged service or
+container installation story.
+
+The optional [snapshot dashboard](../../testing-worker-dashboard.md) now
+presents the implemented per-worker instruments, withholding values for failed
+or ambiguous targets and distinguishing missing series, idle estimates and
+unavailable capacity from measured zero. Its HTML/query and local browser
+checks do not qualify a remote monitoring deployment.
+
+The [optional formation alerts](../../testing-worker-prometheus.md#optional-formation-warnings)
+provide tested warning examples for local owner unresponsiveness and named
+capacity budgets alongside admission/catch-up and transport symptoms. Their
+finite labels and example delays support inspection, not automatic restarts;
+missing metrics remain distinct from zero values.
+
+The [monitoring incident runbook](../../worker-monitoring-runbook.md) supplies
+the formation-stage read-only triage workflow: separate access failure from
+an HTTP health result, inspect the directly targeted worker, and escalate with
+bounded secret-free evidence. The linked process/HTTP checks establish scoped
+behavior, not automatic remediation or complete deployment acceptance.
+
 Status: **partial — local probes/health gauges and route selection implemented; full monitoring acceptance pending**
 
 The optional loopback listener currently provides three health gauges, thirteen
-process-lifetime owner counters, eight bounded-lane occupancy/capacity gauges,
+process-lifetime owner counters, ten inbound peer handshake outcome/capacity
+counters, eight bounded-lane occupancy/capacity gauges,
 seven aggregate client-service count/duration instruments and
 startup/liveness/readiness routes. Metrics and probes are separately selectable
 through file/environment/CLI settings; disabled groups return `404`. See the
 [worker manual](../../../apps/orishu-worker/README.md#optional-local-diagnostics).
 Owner counters include admission insertion, refusal and assignment replay.
+The [inbound peer catalogue](../../orishu-observability.md#inbound-peer-handshake-counters)
+separates transport failures, timeouts and capacity refusal from core admission
+outcomes; aggregate errors alone never justify restarting or readmitting a worker.
+The [inbound capacity gauges](../../orishu-observability.md#inbound-connection-capacity-gauges)
+show current TLS and connection-task pressure separately from cumulative
+refusals. Zero capacity with metrics enabled means no peer adapter is running;
+task occupancy is not established-session or formation membership count.
+The [registry gauges](../../orishu-observability.md#registered-session-capacity-gauges)
+separately show retained total/provisional sessions, including outgoing
+introducer bindings. An active empty registry retains capacity even without a
+peer listener; owner termination withdraws that projection. Closed entries
+await normal pruning. Inspect operation status and related refusal/pressure
+signals before acting; occupancy alone never justifies restart or readmission.
+The [reliable-exchange catalogue](../../orishu-observability.md#reliable-peer-exchange-metrics)
+adds request/serve outcomes, elapsed durations, partial stream bytes and pool
+pressure. Operators can distinguish pending slot use from terminal byte counts;
+neither locally accepted writes nor transport success proves admission.
+The [datagram/pre-pool counters](../../orishu-observability.md#datagram-and-pre-pool-traffic-counters)
+separate local submission/refusal/failure, payload reception before decoding
+and per-connection stream-task refusal. They do not establish all datagram loss
+or identify which peer failed; monitoring remains a prompt for inspection, not
+automatic recovery authority.
+The [outbound dial catalogue](../../orishu-observability.md#outbound-dial-and-tls-metrics)
+distinguishes attempt exhaustion, candidate TLS failure/timeout, cancellation
+and four-slot capacity refusal. A failed candidate may precede successful
+fallback; a completed attempt still needs owner validation, not automatic
+readmission based on a transport signal.
+The [membership deadline counters](../../orishu-observability.md#membership-deadline-and-abandonment-counters)
+separate consumed probe/reconciliation/retry timers from stale tokens and
+abandoned attempts/rounds. Cancelled timers are not failures; exhausted join
+retries can retain uncertain admission and require the recovery runbook's
+inspection/stop procedure, not a fresh join inferred from a counter.
+The [catch-up outcomes](../../orishu-observability.md#admission-state-catch-up-outcomes)
+distinguish receiver validation, source refusal, invalid data, transport failure,
+whole-transfer timeout and cancellation from the owner's later adoption or
+fencing decision. Pages are not attempts, and validation is not introduction
+readiness. Use retained join-operation status and the recovery runbook; these
+counters never authorize restart, readmission or clearing an exclusion.
 The [mTLS proxy recipe](../../testing-worker-monitoring-proxy.md) now provides
 tested source-build secure scraping/probes with monitoring-only certificates.
+Its [stalled-reader checks](../../testing-worker-monitoring-proxy.md#downstream-response-backpressure-and-expiry)
+show bounded response generation and expiry/recovery while operator control
+continues; they do not qualify arbitrary monitoring floods or deployments.
 Native remote diagnostics, the full probe/security matrix, remaining formation
 metrics, cross-peer traces and release/service/container deployment remain work, so this
 story is not complete.
@@ -251,6 +324,10 @@ real span receipt and inspection, disabled/zero-sampling checks and collector
 shutdown/recovery while authenticated control remains usable. This is local
 client-service telemetry only; cross-peer/log correlation, remote collector
 security and durable backend operation are not established by that recipe.
+The [mTLS receiver extension](../../testing-worker-otelcol-mtls.md) now adds
+dedicated collector trust/client credentials and real startup/certificate/name
+refusal evidence. Cross-host deployment and credential lifecycle qualification
+remain separate from its tested loopback security contract.
 
 As an administrator, I want to enable a Prometheus scrape endpoint and
 startup/liveness/readiness probes so that I can monitor a worker and configure

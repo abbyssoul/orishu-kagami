@@ -367,6 +367,25 @@ pub enum Effect {
 /// A membership or admission change worth recording outside the core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeRecord {
+    /// Complete public baseline merge outcome. One bounded publication replaces
+    /// per-record events; normal reconciliation disseminates the merged state.
+    AdmissionBaselineApplied {
+        /// Shell-provided snapshot correlation.
+        snapshot: u64,
+        /// The merged state removes the local assigned identity. The shell must
+        /// stop participating and must never install credentials or readiness.
+        self_removed: bool,
+    },
+    /// No baseline changes were committed; diagnostics carry the domain reason.
+    AdmissionBaselineRejected {
+        /// Shell-provided snapshot correlation.
+        snapshot: u64,
+    },
+    /// A new version of the formation lock was adopted.
+    MembershipPolicyChanged {
+        /// Locally observed lock state after adoption.
+        locked: bool,
+    },
     /// A node was admitted and inserted into membership.
     MemberAdmitted {
         /// Assigned ID.
@@ -463,6 +482,10 @@ pub enum RejectReason {
     },
     /// ID generation produced an ID already in use, so nothing was inserted.
     IdentityCollision,
+    /// This certificate already owns an alive or suspected membership identity
+    /// in the introducer's current view. Recover that admission; do not allocate
+    /// a second live identity. Dead history alone does not forbid readmission.
+    AlreadyAdmitted,
     /// Too many admission decisions are already in flight.
     Overloaded,
 }
@@ -484,6 +507,7 @@ impl std::fmt::Display for RejectReason {
             }
             Self::MalformedRequest { field } => write!(f, "malformed request field `{field}`"),
             Self::IdentityCollision => f.write_str("generated node ID already exists"),
+            Self::AlreadyAdmitted => f.write_str("certificate already has a live admission"),
             Self::Overloaded => f.write_str("too many admissions in flight"),
         }
     }

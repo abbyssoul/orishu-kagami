@@ -1,0 +1,104 @@
+{{ define "orishu_worker_row_v1" }}
+<tr data-panel="{{ .arg0 }}" data-query="{{ .arg2 }}"><th scope="row"><a href="{{ pathPrefix }}{{ graphLink .arg2 }}">{{ .arg1 }}</a></th>
+{{ if .arg5 }}{{ $samples := query .arg2 }}
+{{ if eq (len $samples) 1 }}{{ $value := value (first $samples) }}{{ $number := printf "%v" $value }}
+{{ if or (eq $number "NaN") (eq $number "+Inf") (eq $number "-Inf") }}<td data-state="nonfinite">Unavailable <small>no finite estimate</small></td>
+{{ else }}<td data-state="value" data-value="{{ $number }}" data-unit="{{ .arg3 }}"><strong>{{ printf "%.3g" $value }}</strong> <small>{{ .arg3 }}</small></td>{{ end }}
+{{ else if eq (len $samples) 0 }}<td data-state="missing">Unavailable <small>absent or insufficient samples</small></td>
+{{ else }}<td data-state="ambiguous">Unavailable <small>multiple matching series</small></td>{{ end }}
+{{ else }}<td data-state="unavailable">Unavailable <small>no successful current scrape</small></td>{{ end }}
+<td>{{ .arg4 }}</td></tr>
+{{ end }}
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Orishu worker · formation dashboard v1</title>
+<style>
+:root{color-scheme:light dark;--bg:#f4f7fa;--panel:#fff;--fg:#182a3b;--muted:#526677;--line:#d8e2e9;--accent:#006d83;--notice:#fff3cc}
+@media(prefers-color-scheme:dark){:root{--bg:#101821;--panel:#182430;--fg:#e4edf5;--muted:#a3b7c7;--line:#344756;--accent:#65d4e8;--notice:#42391e}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
+main{max-width:1180px;margin:auto;padding:32px 24px}h1{font-size:2rem;line-height:1.2;margin:.4rem 0}h2{font-size:1.2rem;margin:0}
+p{color:var(--muted);margin:.5rem 0 1rem}a{color:var(--accent)}nav{display:flex;gap:1.5rem;flex-wrap:wrap}
+section,header,aside{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;margin:18px 0}
+.eyebrow{font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+form{display:flex;gap:12px;flex-wrap:wrap;align-items:end}label{display:grid;gap:4px;font-size:.9rem}input,button{font:inherit;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg)}
+button{cursor:pointer;color:var(--accent)}.targets{display:flex;gap:8px;flex-wrap:wrap}.targets a{border:1px solid var(--line);padding:4px 10px;border-radius:6px}
+.notice{background:var(--notice)}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{font-size:.8rem;color:var(--muted);text-transform:uppercase}tbody th{width:30%;font-weight:500}td:nth-child(2){width:24%;font-variant-numeric:tabular-nums}small{display:block;font-size:.8rem;color:var(--muted)}
+td[data-state]:not([data-state=value]){color:var(--muted)}td[data-value="0"][data-unit="0/1"] strong{color:#b35424}
+code{overflow-wrap:anywhere}footer{font-size:.85rem;color:var(--muted)}@media(max-width:600px){main{padding:12px}section,header,aside{padding:16px}h1{font-size:1.6rem}th,td{padding:8px;font-size:.9rem}}
+</style></head><body><main>
+<header><span class="eyebrow">Orishu · operational observability · v1</span><h1>Formation worker dashboard</h1>
+<p>A read-only snapshot of one scrape target. Metrics and probes are not membership, command acceptance or recovery authority.</p>
+<nav><a href="{{ pathPrefix }}/targets">Scrape targets</a><a href="{{ pathPrefix }}/alerts">Alert rules</a><a href="#incident-checks">Incident checks</a></nav></header>
+{{ $job := or (index .Params "job") "orishu-worker" }}{{ $instance := or (index .Params "instance") "" }}
+{{ $valid := and (le (len $job) 128) (le (len $instance) 256) (le (len (index .RawParams "job")) 1) (le (len (index .RawParams "instance")) 1) (match "^[A-Za-z0-9_.:-]+$" $job) (or (eq $instance "") (match "^[A-Za-z0-9_.:\\[\\]-]+$" $instance)) }}
+<form method="get"><label>Scrape job<input name="job" value="{{ if $valid }}{{ $job }}{{ end }}" maxlength="128" required></label><label>Exact instance<input name="instance" value="{{ if $valid }}{{ $instance }}{{ end }}" maxlength="256" placeholder="127.0.0.1:9168"></label><button type="submit">Load snapshot</button></form>
+{{ if not $valid }}
+<aside class="notice" data-target-state="invalid">Invalid target selection. Use one bounded job and literal host:port instance, not a selector or URL.</aside>
+{{ else }}
+{{ $targets := query (printf "topk(32, up{job=%q})" $job) | sortByLabel "instance" }}
+<section><h2>Choose a scrape target</h2><p>Up to 32 current targets. This is discovery, not expected inventory or peer membership. Select or enter an exact instance; refresh manually for new data.</p><div class="targets">
+{{ range $targets }}{{ $target := label "instance" . }}{{ if and (le (len $target) 256) (match "^[A-Za-z0-9_.:\\[\\]-]+$" $target) }}<a href="?job={{ $job | urlquery }}&amp;instance={{ $target | urlquery }}">{{ $target }} · scrape {{ value . }}</a>{{ else }}<span>Unsupported instance label; inspect scrape configuration.</span>{{ end }}{{ else }}<span>No discovered targets for this job.</span>{{ end }}</div></section>
+{{ if eq $instance "" }}<aside data-target-state="unselected">Select a target to load its worker panels.</aside>
+{{ else }}
+{{ $selector := printf "{job=%q,instance=%q}" $job $instance }}
+{{ $up := query (printf "up%s" $selector) }}{{ $available := false }}
+{{ if eq (len $up) 1 }}{{ $available = eq (value (first $up)) 1.0 }}{{ end }}
+<aside class="{{ if not $available }}notice{{ end }}" data-target-state="{{ if $available }}up{{ else if eq (len $up) 0 }}missing{{ else if gt (len $up) 1 }}ambiguous{{ else }}down{{ end }}">
+<strong>{{ $job }} / {{ $instance }}</strong><br>
+{{ if $available }}Current scrape succeeded. Panels use the most recent samples and five-minute rates.{{ else }}Current scrape is failed, absent or ambiguous. Worker values are withheld; no stale value is presented as current health.{{ end }}
+<small>Rendered {{ query "vector(time())" | first | value | humanizeTimestamp }} · panels are separate queries, not an atomic formation snapshot.</small></aside>
+<nav aria-label="Panel groups"><a href="#health">Health</a><a href="#admission">Admission</a><a href="#io">IO</a><a href="#capacity">Capacity</a><a href="#traces">Traces</a></nav>
+<section id="health"><h2>Health</h2><p>Current local inputs; readiness is not cluster convergence.</p><div class="table-wrap"><table><thead><tr><th scope="col">Instrument</th><th scope="col">Value</th><th scope="col">Interpretation</th></tr></thead><tbody>
+{{ template "orishu_worker_row_v1" (args "scrape" "Scrape available" (printf "up%s" $selector) "0/1" "Prometheus reachability, not membership." true) }}
+{{ template "orishu_worker_row_v1" (args "owner" "Owner responsive" (printf "orishu_worker_owner_responsive%s" $selector) "0/1" "Supervised control loop; five-second PoC deadline." $available) }}
+{{ template "orishu_worker_row_v1" (args "ready" "Locally ready" (printf "orishu_worker_ready%s" $selector) "0/1" "Configured roles can be served safely." $available) }}
+{{ template "orishu_worker_row_v1" (args "startup" "Startup complete" (printf "orishu_worker_startup_complete%s" $selector) "0/1" "Latched initialization, not continuing health." $available) }}
+</tbody></table></div></section>
+<section id="admission"><h2>Admission and reconciliation</h2><p>Five-minute rates. Inspect the original operation for outcomes.</p><div class="table-wrap"><table><thead><tr><th scope="col">Instrument</th><th scope="col">Value</th><th scope="col">Interpretation</th></tr></thead><tbody>
+{{ template "orishu_worker_row_v1" (args "admitted" "Local insertions" (printf "(rate(orishu_worker_admissions_accepted_total%s[5m])) and on (job, instance) orishu_worker_admissions_accepted_total%s" $selector $selector) "events/s" "Insertion, even when its reply is lost." $available) }}
+{{ template "orishu_worker_row_v1" (args "refused" "Admission refusals" (printf "(rate(orishu_worker_admissions_rejected_total%s[5m])) and on (job, instance) orishu_worker_admissions_rejected_total%s" $selector $selector) "events/s" "Correct lock or policy enforcement may refuse joins." $available) }}
+{{ template "orishu_worker_row_v1" (args "replayed" "Assignment replays" (printf "(rate(orishu_worker_admission_assignment_replays_total%s[5m])) and on (job, instance) orishu_worker_admission_assignment_replays_total%s" $selector $selector) "events/s" "Retained assignment replay, not another insertion." $available) }}
+{{ template "orishu_worker_row_v1" (args "catchup-invalid" "Invalid catch-up" (printf "(rate(orishu_worker_catchup_transfer_invalid_total%s[5m])) and on (job, instance) orishu_worker_catchup_transfer_invalid_total%s" $selector $selector) "events/s" "Receiver validation failure, not lifecycle fencing." $available) }}
+{{ template "orishu_worker_row_v1" (args "catchup-unavailable" "Unavailable catch-up" (printf "(rate(orishu_worker_catchup_transfer_unavailable_total%s[5m])) and on (job, instance) orishu_worker_catchup_transfer_unavailable_total%s" $selector $selector) "events/s" "IO/framing failure; inspect the original operation." $available) }}
+{{ template "orishu_worker_row_v1" (args "catchup-timeout" "Catch-up timeout" (printf "(rate(orishu_worker_catchup_transfer_timed_out_total%s[5m])) and on (job, instance) orishu_worker_catchup_transfer_timed_out_total%s" $selector $selector) "events/s" "Whole-transfer expiry, not each page or exchange." $available) }}
+{{ template "orishu_worker_row_v1" (args "catchup-adopted" "Owner baseline adoption" (printf "(rate(orishu_worker_catchup_owner_adopted_total%s[5m])) and on (job, instance) orishu_worker_catchup_owner_adopted_total%s" $selector $selector) "events/s" "Owner adoption after validated transfer and lifecycle checks." $available) }}
+{{ template "orishu_worker_row_v1" (args "join-abandoned" "Join budget exhausted" (printf "(rate(orishu_worker_membership_join_abandoned_total%s[5m])) and on (job, instance) orishu_worker_membership_join_abandoned_total%s" $selector $selector) "events/s" "May retain unresolved remote admission; never infer safe retry." $available) }}
+{{ template "orishu_worker_row_v1" (args "reconciliation-abandoned" "Reconciliation abandoned" (printf "(rate(orishu_worker_membership_anti_entropy_abandoned_total%s[5m])) and on (job, instance) orishu_worker_membership_anti_entropy_abandoned_total%s" $selector $selector) "events/s" "Timeout or continuation-budget exhaustion, not peer death." $available) }}
+</tbody></table></div></section>
+<section id="io"><h2>IO and client service</h2><p>Transport layers can overlap. No panel proves remote domain acceptance.</p><div class="table-wrap"><table><thead><tr><th scope="col">Instrument</th><th scope="col">Value</th><th scope="col">Interpretation</th></tr></thead><tbody>
+{{ template "orishu_worker_row_v1" (args "reliable-timeout" "Reliable request timeout" (printf "(rate(orishu_worker_peer_reliable_request_timed_out_total%s[5m])) and on (job, instance) orishu_worker_peer_reliable_request_timed_out_total%s" $selector $selector) "events/s" "Reliable request adapter deadline." $available) }}
+{{ template "orishu_worker_row_v1" (args "dial-timeout" "Outbound attempt timeout" (printf "(rate(orishu_worker_peer_outbound_attempt_timed_out_total%s[5m])) and on (job, instance) orishu_worker_peer_outbound_attempt_timed_out_total%s" $selector $selector) "events/s" "Whole outbound attempt, not each TLS candidate." $available) }}
+{{ template "orishu_worker_row_v1" (args "stream-sent" "Reliable bytes sent" (printf "(rate(orishu_worker_peer_reliable_bytes_sent_total%s[5m])) and on (job, instance) orishu_worker_peer_reliable_bytes_sent_total%s" $selector $selector) "bytes/s" "Local stream accounting, including partial transfers." $available) }}
+{{ template "orishu_worker_row_v1" (args "stream-received" "Reliable bytes received" (printf "(rate(orishu_worker_peer_reliable_bytes_received_total%s[5m])) and on (job, instance) orishu_worker_peer_reliable_bytes_received_total%s" $selector $selector) "bytes/s" "Received stream bytes, not adopted state." $available) }}
+{{ template "orishu_worker_row_v1" (args "client-rate" "Completed client handlers" (printf "(rate(orishu_worker_client_requests_completed_total%s[5m])) and on (job, instance) orishu_worker_client_requests_completed_total%s" $selector $selector) "handlers/s" "Includes rejected responses; excludes response delivery." $available) }}
+{{ template "orishu_worker_row_v1" (args "client-p95" "Client handler p95" (printf "(histogram_quantile(0.95, rate(orishu_worker_client_request_duration_seconds_bucket%s[5m]))) and on (job, instance) orishu_worker_client_request_duration_seconds_count%s" $selector $selector) "seconds" "Five-minute estimate; unavailable without observations." $available) }}
+</tbody></table></div></section>
+<section id="capacity"><h2>Capacity</h2><p>Occupancy includes reservations. Zero or missing capacity is unavailable, not 0% utilized.</p><div class="table-wrap"><table><thead><tr><th scope="col">Instrument</th><th scope="col">Value</th><th scope="col">Interpretation</th></tr></thead><tbody>
+{{ template "orishu_worker_row_v1" (args "capacity-peer" "Peer lane" (printf "100 * (orishu_worker_peer_slots_in_use%s / (orishu_worker_peer_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-control" "Control lane" (printf "100 * (orishu_worker_control_slots_in_use%s / (orishu_worker_control_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-completion" "Completion lane" (printf "100 * (orishu_worker_completion_slots_in_use%s / (orishu_worker_completion_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-shutdown" "Shutdown lane" (printf "100 * (orishu_worker_shutdown_slots_in_use%s / (orishu_worker_shutdown_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-peer_inbound_tls" "Inbound TLS" (printf "100 * (orishu_worker_peer_inbound_tls_slots_in_use%s / (orishu_worker_peer_inbound_tls_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-peer_inbound_connection" "Inbound task" (printf "100 * (orishu_worker_peer_inbound_connection_slots_in_use%s / (orishu_worker_peer_inbound_connection_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-peer_registry" "Retained registry" (printf "100 * (orishu_worker_peer_registry_slots_in_use%s / (orishu_worker_peer_registry_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-peer_registry_provisional" "Provisional registry" (printf "100 * (orishu_worker_peer_registry_provisional_slots_in_use%s / (orishu_worker_peer_registry_provisional_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-peer_reliable" "Reliable exchanges" (printf "100 * (orishu_worker_peer_reliable_slots_in_use%s / (orishu_worker_peer_reliable_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+{{ template "orishu_worker_row_v1" (args "capacity-peer_outbound" "Outbound dials" (printf "100 * (orishu_worker_peer_outbound_slots_in_use%s / (orishu_worker_peer_outbound_slots_capacity%s > 0))" $selector $selector) "%" "Percentage of this named positive slot capacity." $available) }}
+</tbody></table></div></section>
+<section id="traces"><h2>Trace delivery</h2><p>Optional local tracing. Absent series do not mean zero; these are not correlated peer traces.</p><div class="table-wrap"><table><thead><tr><th scope="col">Instrument</th><th scope="col">Value</th><th scope="col">Interpretation</th></tr></thead><tbody>
+{{ template "orishu_worker_row_v1" (args "trace-sampled-out" "Sampling exclusions" (printf "(rate(orishu_worker_trace_sampled_out_total%s[5m])) and on (job, instance) orishu_worker_trace_sampled_out_total%s" $selector $selector) "records/s" "Not a delivery failure." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-accepted" "Collector accepted" (printf "(rate(orishu_worker_trace_accepted_total%s[5m])) and on (job, instance) orishu_worker_trace_accepted_total%s" $selector $selector) "records/s" "Collector-reported acceptance, not durable backend storage." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-failed" "Delivery failures" (printf "(rate(orishu_worker_trace_failed_total%s[5m])) and on (job, instance) orishu_worker_trace_failed_total%s" $selector $selector) "records/s" "Receipt may be uncertain; do not replay domain operations." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-rejected" "Collector rejected" (printf "(rate(orishu_worker_trace_rejected_total%s[5m])) and on (job, instance) orishu_worker_trace_rejected_total%s" $selector $selector) "records/s" "Collector-reported rejection." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-active-full" "Active-slot drops" (printf "(rate(orishu_worker_trace_active_full_total%s[5m])) and on (job, instance) orishu_worker_trace_active_full_total%s" $selector $selector) "records/s" "Local capacity shedding." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-queue-full" "Queue-full drops" (printf "(rate(orishu_worker_trace_queue_full_total%s[5m])) and on (job, instance) orishu_worker_trace_queue_full_total%s" $selector $selector) "records/s" "Completed record queue shedding." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-encoding" "Encoding drops" (printf "(rate(orishu_worker_trace_encoding_dropped_total%s[5m])) and on (job, instance) orishu_worker_trace_encoding_dropped_total%s" $selector $selector) "records/s" "Bounded encoding failure." $available) }}
+{{ template "orishu_worker_row_v1" (args "trace-source" "Invalid source drops" (printf "(rate(orishu_worker_trace_invalid_source_total%s[5m])) and on (job, instance) orishu_worker_trace_invalid_source_total%s" $selector $selector) "records/s" "Invalid local identity or clock input." $available) }}
+</tbody></table></div></section>
+
+{{ end }}{{ end }}
+<aside id="incident-checks"><h2>Inspect before acting</h2><p>Check the directly targeted worker with <code>orishuctl cluster info</code>, <code>ls</code> and <code>inspect NODE_ID</code>. Verify formation, source, assigned identity and certificate binding. Use the original <code>join-status</code> operation for an interrupted admission.</p>
+<p>No panel authorizes restart, leave, a fresh join or exclusion removal. Follow the versioned <code>docs/worker-monitoring-runbook.md</code> and <code>docs/cluster-admission-recovery.md</code> in the matching source checkout. The dashboard setup guide links those full procedures.</p></aside>
+<footer>Source-built formation PoC · Prometheus console example · no workload metrics, peer trace correlation or deployment/SLO qualification.</footer>
+</main></body></html>

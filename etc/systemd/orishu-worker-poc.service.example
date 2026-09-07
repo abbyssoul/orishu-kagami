@@ -1,0 +1,19 @@
+# Optional user-scoped, source-built Linux PoC. Not the packaged system unit.
+# Replace every placeholder; see docs/testing-worker-user-service.md.
+# No Install section: linking makes this explicitly startable, not boot-enabled.
+[Unit]
+Description=Orishu source-built monitoring PoC
+
+[Service]
+Type=exec
+ExecStart="@WORKER@" --state-dir "@STATE_DIR@" --listen.clients "@CLIENT_SOCKET@" --accepts.peers false --observability.enabled @OBSERVABILITY@ --observability.bind @METRICS_BIND@ --observability.metrics @METRICS@ --observability.probes true --tracing.enabled false
+WorkingDirectory=@WORKING_DIRECTORY@
+Restart=no
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=10s
+SendSIGKILL=yes
+UMask=0077
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal

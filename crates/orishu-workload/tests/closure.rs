@@ -9,9 +9,9 @@
 
 use orishu_workload::{
     ArtifactDescriptor, ArtifactDigest, ArtifactRole, ClosureError, ComponentInstance, ComputeSpec,
-    Discretization, DomainBounds, DomainSpec, FiniteF64, Limits, Reduction, SchemaCompat,
-    StateChannel, StepInvocation, StepPlan, WorkloadInputs, WorkloadManifest, WorkloadMeta,
-    WorkloadRequirements, WorkloadSpec,
+    Discretization, DomainBounds, DomainSpec, FiniteF64, Limits, Reduction, ScalarValue,
+    SchemaCompat, StateChannel, StepInvocation, StepPlan, WorkloadInputs, WorkloadManifest,
+    WorkloadMeta, WorkloadRequirements, WorkloadSpec,
     closure::{self, InMemoryBlobs},
 };
 
@@ -178,8 +178,13 @@ fn a_missing_artifact_is_reported_with_its_role() {
 struct LyingBlobs(Vec<u8>);
 
 impl closure::BlobSource for LyingBlobs {
-    fn blob(&self, _digest: &ArtifactDigest) -> Option<&[u8]> {
-        Some(&self.0)
+    fn read_blob(
+        &self,
+        _digest: &ArtifactDigest,
+        verifier: &mut closure::BlobVerifier<'_>,
+    ) -> bool {
+        verifier.write(&self.0);
+        true
     }
 }
 
@@ -494,6 +499,113 @@ fn an_instance_writing_state_it_does_not_own_is_refused() {
     );
 }
 
+// ── ownership is declared twice and must agree ──────────────────────────────
+
+#[test]
+fn a_channel_naming_an_owner_that_does_not_claim_it_is_refused() {
+    // `stateOwnership` and `owner` are both in the schema, so neither is
+    // derived from the other and a workload where they differ has no single
+    // answer to "who owns this state".
+    let mut manifest = valid();
+    manifest.spec.compute.components[0].state_ownership.clear();
+    let error = sole_error(&manifest, &blobs());
+    assert!(matches!(
+        error,
+        ClosureError::OwnershipDisagreement { ref channel, .. } if channel.as_str() == "e-field"
+    ));
+}
+
+#[test]
+fn an_instance_claiming_a_channel_that_names_no_owner_is_refused() {
+    let mut manifest = valid();
+    manifest.spec.compute.channels[0].owner = None;
+    // A channel with no owner is a contribution channel, so its reduction must
+    // also change or that becomes a second, unrelated defect.
+    manifest.spec.compute.channels[0].reduction = Reduction::Sum;
+    let error = sole_error(&manifest, &blobs());
+    assert!(matches!(
+        error,
+        ClosureError::OwnershipDisagreement { ref channel, .. } if channel.as_str() == "e-field"
+    ));
+}
+
+#[test]
+fn two_instances_claiming_one_channel_are_refused() {
+    let mut manifest = valid();
+    manifest.spec.compute.components[1]
+        .state_ownership
+        .push(name("e-field"));
+    let error = sole_error(&manifest, &blobs());
+    let ClosureError::OwnershipDisagreement { claimants, .. } = &error else {
+        panic!("expected an ownership disagreement, got {error:?}");
+    };
+    assert!(
+        claimants.contains("field") && claimants.contains("dynamics"),
+        "the error should name both claimants, got {claimants}"
+    );
+}
+
+#[test]
+fn an_owned_channel_declaring_a_combining_reduction_is_refused() {
+    // Authoritative state has one writer, so there is nothing to combine.
+    let mut manifest = valid();
+    manifest.spec.compute.channels[0].reduction = Reduction::Sum;
+    let error = sole_error(&manifest, &blobs());
+    assert!(matches!(
+        error,
+        ClosureError::OwnedChannelNotSingle {
+            ref channel,
+            reduction: "sum",
+            ..
+        } if channel.as_str() == "e-field"
+    ));
+}
+
+#[test]
+fn owned_state_that_nothing_writes_is_refused() {
+    // An owner that never writes leaves its state at the initial boundary
+    // forever, which is a plan that does not advance.
+    let mut manifest = valid();
+    manifest.spec.compute.step_plan.invocations[0]
+        .outputs
+        .clear();
+    let error = sole_error(&manifest, &blobs());
+    assert!(matches!(
+        error,
+        ClosureError::OwnedStateWithoutWriter { ref channel, ref owner }
+            if channel.as_str() == "e-field" && owner.as_str() == "field"
+    ));
+}
+
+#[test]
+fn an_owned_channel_with_two_writers_is_refused_whatever_its_reduction() {
+    // Ownership implies a single writer independently of the reduction field,
+    // so a manifest cannot buy itself extra writers by declaring `sum`.
+    let mut manifest = valid();
+    let mut second = invocation("advance-field-again", "field", &["e-field"]);
+    second.depends_on = vec![name("advance-field")];
+    manifest.spec.compute.step_plan.invocations.push(second);
+
+    let errors = errors_for(&manifest, &blobs());
+    assert!(
+        errors.iter().any(|error| matches!(
+            error,
+            ClosureError::MultipleWriters { channel, count: 2 } if channel.as_str() == "e-field"
+        )),
+        "got {errors:#?}"
+    );
+}
+
+#[test]
+fn the_compute_definition_and_its_step_plan_must_name_one_graph_profile() {
+    // The profile decides how the graph and the plan are read; two answers
+    // would let a worker interpret one half under each.
+    let mut manifest = valid();
+    manifest.spec.compute.step_plan.profile = name("orishu.workload-graph/v2");
+    let error = sole_error(&manifest, &blobs());
+    assert!(matches!(error, ClosureError::GraphProfileMismatch { .. }));
+}
+
 #[test]
 fn a_cyclic_step_plan_is_refused() {
     let mut manifest = valid();
@@ -535,8 +647,12 @@ fn an_unknown_dependency_is_reported_once_rather_than_also_as_a_cycle() {
 
 #[test]
 fn a_component_owning_an_absent_channel_is_refused() {
+    // Added rather than substituted, so `e-field` keeps its claimant and this
+    // manifest has exactly the one defect under test.
     let mut manifest = valid();
-    manifest.spec.compute.components[0].state_ownership = vec![name("no-such-channel")];
+    manifest.spec.compute.components[0]
+        .state_ownership
+        .push(name("no-such-channel"));
     let error = sole_error(&manifest, &blobs());
     assert!(matches!(error, ClosureError::UnknownChannel { .. }));
 }
@@ -604,7 +720,7 @@ fn a_plan_over_the_invocation_bound_is_refused() {
 // ── the whole picture, not the first problem ────────────────────────────────
 
 #[test]
-fn every_defect_is_reported_rather_than_only_the_first() {
+fn every_structural_defect_is_reported_rather_than_only_the_first() {
     // A submitter fixing a workload wants the list. Re-running the validator
     // once per mistake is a poor substitute.
     let mut manifest = valid();
@@ -612,20 +728,39 @@ fn every_defect_is_reported_rather_than_only_the_first() {
     manifest.spec.compute.components[1].artifact.role = name(ArtifactRole::GEOMETRY);
     manifest.spec.domain.dimensions = 0;
 
-    let report = closure::validate_closure(&manifest, &InMemoryBlobs::new(), &Limits::DEFAULT)
+    let report = closure::validate_closure(&manifest, &blobs(), &Limits::DEFAULT)
         .expect_err("a broken workload is refused");
-    assert!(
-        report.len() >= 4,
-        "expected the domain, graph, and both missing artifacts, got {} in:\n{report}",
-        report.len()
-    );
     let rendered = report.to_string();
-    for expected in ["domain", "ghost", "component", "candidate bytes"] {
+    for expected in ["domain", "ghost", "component"] {
         assert!(
             rendered.contains(expected),
             "the report should mention {expected:?}, got:\n{rendered}"
         );
     }
+}
+
+#[test]
+fn a_report_is_bounded_and_says_when_it_was_truncated() {
+    // A bounded manifest can still be wrong in proportion to its size, so the
+    // report needs its own bound. A truncated list must not read as exhaustive.
+    let mut manifest = valid();
+    for index in 0..20 {
+        let mut extra = invocation(&format!("ghost-{index}"), "nowhere", &[]);
+        extra.depends_on = vec![name("also-nowhere")];
+        manifest.spec.compute.step_plan.invocations.push(extra);
+    }
+    let tight = Limits {
+        max_reported_errors: 5,
+        ..Limits::DEFAULT
+    };
+    let report = closure::validate_closure(&manifest, &blobs(), &tight)
+        .expect_err("a broken workload is refused");
+    assert_eq!(report.len(), 5, "the list is capped");
+    assert!(report.withheld() > 0, "and it says so: {report}");
+    assert!(
+        report.to_string().contains("further problems"),
+        "got {report}"
+    );
 }
 
 #[test]
@@ -654,4 +789,336 @@ fn an_inconsistent_domain_is_reported_as_a_closure_defect() {
     manifest.spec.domain.discretization.space_metres = finite(10.0);
     let error = sole_error(&manifest, &blobs());
     assert!(matches!(error, ClosureError::Domain(_)));
+}
+
+// ── a structurally broken manifest never reaches the provider ───────────────
+
+/// A source that fails the test if it is ever consulted.
+///
+/// Retrieval is work, possibly network work. A manifest that contradicts itself
+/// has not earned it, and asserting that with a panicking source is stronger
+/// than asserting the shape of the resulting report.
+struct UnreachableBlobs;
+
+impl closure::BlobSource for UnreachableBlobs {
+    fn read_blob(
+        &self,
+        digest: &ArtifactDigest,
+        _verifier: &mut closure::BlobVerifier<'_>,
+    ) -> bool {
+        panic!(
+            "a structurally invalid manifest must not reach the provider, but it asked for {digest}"
+        );
+    }
+}
+
+/// Every way a manifest can be wrong on its own, each of which must stop before
+/// retrieval.
+fn structurally_broken() -> Vec<(&'static str, WorkloadManifest)> {
+    let over_artifact_budget = {
+        let mut manifest = valid();
+        manifest.spec.compute.components[0].artifact.size_bytes = u64::MAX;
+        manifest
+    };
+    let unknown_channel = {
+        let mut manifest = valid();
+        manifest.spec.compute.step_plan.invocations[0].inputs = vec![name("no-such-channel")];
+        manifest
+    };
+    let conflicting = {
+        let mut manifest = valid();
+        manifest.spec.inputs.additional = vec![ArtifactDescriptor {
+            size_bytes: 1,
+            ..component_artifact(FIELD_WASM)
+        }];
+        manifest
+    };
+    let bad_domain = {
+        let mut manifest = valid();
+        manifest.spec.domain.dimensions = 0;
+        manifest
+    };
+    let cyclic = {
+        let mut manifest = valid();
+        manifest.spec.compute.step_plan.invocations[0].depends_on = vec![name("integrate")];
+        manifest.spec.compute.step_plan.invocations[1].depends_on = vec![name("advance-field")];
+        manifest
+    };
+    vec![
+        ("an artifact over its byte budget", over_artifact_budget),
+        ("an unresolved channel name", unknown_channel),
+        ("contradictory descriptors", conflicting),
+        ("an invalid domain", bad_domain),
+        ("a cyclic step plan", cyclic),
+    ]
+}
+
+#[test]
+fn a_structurally_invalid_manifest_never_reaches_the_provider() {
+    for (what, manifest) in structurally_broken() {
+        // The source panics if consulted, so reaching an `Err` at all is the
+        // assertion: the defect was found without any retrieval.
+        assert!(
+            closure::validate_closure(&manifest, &UnreachableBlobs, &Limits::DEFAULT).is_err(),
+            "{what} should have been reported"
+        );
+    }
+}
+
+#[test]
+fn exceeding_the_artifact_count_stops_before_retrieval() {
+    // The count is the bound on how much retrieval a manifest may ask for, so
+    // exceeding it must not be reported *while* doing that retrieval.
+    let tight = Limits {
+        max_artifacts: 1,
+        ..Limits::DEFAULT
+    };
+    let report = closure::validate_closure(&valid(), &UnreachableBlobs, &tight)
+        .expect_err("two artifacts is over a bound of one");
+    assert!(
+        report.errors().iter().any(|error| matches!(
+            error,
+            ClosureError::LimitExceeded {
+                what: "the artifact count",
+                found: 2,
+                limit: 1
+            }
+        )),
+        "got {report}"
+    );
+}
+
+#[test]
+fn a_contradiction_is_reported_even_when_the_blob_is_missing() {
+    // Descriptor consistency is a property of the manifest. Deciding it from
+    // the verified set would let a submitter hide a contradiction simply by
+    // withholding the blob it concerns.
+    let mut manifest = valid();
+    manifest.spec.inputs.additional = vec![ArtifactDescriptor {
+        size_bytes: 1,
+        ..component_artifact(FIELD_WASM)
+    }];
+    let report = closure::validate_closure(&manifest, &InMemoryBlobs::new(), &Limits::DEFAULT)
+        .expect_err("contradictory descriptors are refused");
+    assert!(
+        report
+            .errors()
+            .iter()
+            .any(|error| matches!(error, ClosureError::ConflictingDescriptor { .. })),
+        "got {report}"
+    );
+    // And nothing was fetched, so there are no missing-artifact errors to wade
+    // through alongside it.
+    assert!(
+        !report
+            .errors()
+            .iter()
+            .any(|error| matches!(error, ClosureError::MissingArtifact { .. })),
+        "got {report}"
+    );
+}
+
+// ── string and collection bounds ────────────────────────────────────────────
+
+#[test]
+fn too_many_labels_are_refused() {
+    let mut manifest = valid();
+    for index in 0..40 {
+        manifest
+            .metadata
+            .labels
+            .insert(name(&format!("label-{index}")), name("value"));
+    }
+    let report = closure::validate_closure(&manifest, &UnreachableBlobs, &Limits::DEFAULT)
+        .expect_err("40 labels is over the default of 32");
+    assert!(
+        report.errors().iter().any(|error| matches!(
+            error,
+            ClosureError::LimitExceeded {
+                what: "the label count",
+                found: 40,
+                ..
+            }
+        )),
+        "got {report}"
+    );
+}
+
+#[test]
+fn an_oversized_text_value_is_refused_wherever_it_sits() {
+    // Names are bounded by their own types. Free text is not, so every map that
+    // can hold a `ScalarValue::Text` needs the bound applied.
+    let long = ScalarValue::Text("x".repeat(64));
+    let tight = Limits {
+        max_text_bytes: 16,
+        ..Limits::DEFAULT
+    };
+
+    let mut config = valid();
+    config.spec.compute.components[0]
+        .config
+        .insert(name("note"), long.clone());
+
+    let mut requirement = valid();
+    requirement
+        .spec
+        .requirements
+        .execution_profile
+        .insert(name("numericMode"), long.clone());
+
+    let mut constraint = valid();
+    constraint
+        .spec
+        .compute
+        .placement_constraints
+        .push(orishu_workload::PlacementConstraint {
+            constraint: name("co-locate"),
+            instances: vec![name("field")],
+            parameters: [(name("note"), long.clone())].into_iter().collect(),
+        });
+
+    let mut integration = valid();
+    integration.spec.domain.discretization.integration = Some(orishu_workload::Integration {
+        scheme: name("velocity-verlet"),
+        parameters: [(name("note"), long)].into_iter().collect(),
+    });
+
+    for (what, manifest) in [
+        ("component config", config),
+        ("a requirement", requirement),
+        ("a placement constraint", constraint),
+        ("an integration parameter", integration),
+    ] {
+        let report = closure::validate_closure(&manifest, &UnreachableBlobs, &tight)
+            .expect_err("an oversized text value is refused");
+        assert!(
+            report.errors().iter().any(|error| matches!(
+                error,
+                ClosureError::TextTooLong {
+                    found: 64,
+                    limit: 16,
+                    ..
+                }
+            )),
+            "{what} should have been bounded, got {report}"
+        );
+    }
+}
+
+// ── verification streams rather than holding ────────────────────────────────
+
+/// A source that produces `size` bytes in small chunks without ever holding
+/// them, standing in for a large artifact on disk or arriving from a peer.
+struct GeneratedBlob {
+    size: u64,
+    byte: u8,
+}
+
+impl closure::BlobSource for GeneratedBlob {
+    fn read_blob(
+        &self,
+        _digest: &ArtifactDigest,
+        verifier: &mut closure::BlobVerifier<'_>,
+    ) -> bool {
+        let chunk = vec![self.byte; 4096];
+        let mut written = 0u64;
+        while written < self.size {
+            let take = chunk.len().min((self.size - written) as usize);
+            if !verifier.write(&chunk[..take]) {
+                break;
+            }
+            written += take as u64;
+        }
+        true
+    }
+}
+
+/// The digest of `size` repetitions of `byte`, computed the same streaming way.
+fn digest_of_generated(size: u64, byte: u8) -> ArtifactDigest {
+    ArtifactDigest::sha256_of(&vec![byte; size as usize])
+}
+
+#[test]
+fn a_blob_far_larger_than_the_validator_holds_is_verified_in_chunks() {
+    // 8 MiB is not 64 GiB, but it is far more than any single allocation this
+    // test makes: the source hands over 4 KiB at a time and the validator keeps
+    // none of it. The closure that results holds descriptors, not bytes.
+    const SIZE: u64 = 8 * 1024 * 1024;
+    let mut manifest = valid();
+    manifest.spec.compute.components.truncate(1);
+    manifest.spec.compute.channels.truncate(1);
+    manifest.spec.compute.step_plan.invocations.truncate(1);
+    manifest.spec.compute.components[0].artifact = ArtifactDescriptor {
+        role: ArtifactRole::component(),
+        digest: digest_of_generated(SIZE, 0xab),
+        size_bytes: SIZE,
+        media_type: name("application/wasm"),
+        schema: None,
+    };
+
+    let verified = closure::validate_closure(
+        &manifest,
+        &GeneratedBlob {
+            size: SIZE,
+            byte: 0xab,
+        },
+        &Limits::DEFAULT,
+    )
+    .unwrap_or_else(|report| panic!("the streamed blob must verify:\n{report}"));
+
+    let artifact = verified
+        .artifact(&digest_of_generated(SIZE, 0xab))
+        .expect("it is in the closure");
+    assert_eq!(artifact.size_bytes, SIZE);
+    assert_eq!(artifact.roles.len(), 1);
+}
+
+#[test]
+fn a_source_supplying_more_than_declared_is_stopped_and_refused() {
+    // The verifier stops accepting at the declared length, so an endless source
+    // cannot make the validator read forever.
+    const DECLARED: u64 = 1024;
+    let mut manifest = valid();
+    manifest.spec.compute.components.truncate(1);
+    manifest.spec.compute.channels.truncate(1);
+    manifest.spec.compute.step_plan.invocations.truncate(1);
+    manifest.spec.compute.components[0].artifact = ArtifactDescriptor {
+        role: ArtifactRole::component(),
+        digest: digest_of_generated(DECLARED, 0x01),
+        size_bytes: DECLARED,
+        media_type: name("application/wasm"),
+        schema: None,
+    };
+
+    let report = closure::validate_closure(
+        &manifest,
+        &GeneratedBlob {
+            size: DECLARED * 64,
+            byte: 0x01,
+        },
+        &Limits::DEFAULT,
+    )
+    .expect_err("more bytes than declared is not the artifact");
+    assert!(matches!(
+        report.errors()[0],
+        ClosureError::SizeOverrun {
+            declared: DECLARED,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_source_supplying_fewer_bytes_than_declared_is_refused() {
+    let mut manifest = valid();
+    manifest.spec.compute.components[0].artifact.size_bytes = 9999;
+    let error = sole_error(&manifest, &blobs());
+    assert!(matches!(
+        error,
+        ClosureError::SizeMismatch {
+            declared: 9999,
+            actual: 20,
+            ..
+        }
+    ));
 }

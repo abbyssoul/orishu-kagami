@@ -1,0 +1,79 @@
+# Optional formation-stage examples, not measured SLOs or remediation policy.
+# Same job selector as prometheus-local.yml; adapt every selector for another job.
+# See docs/testing-worker-prometheus.md and docs/worker-monitoring-runbook.md.
+groups:
+  - name: orishu-worker-formation-v1
+    interval: 1m
+    rules:
+      - alert: OrishuWorkerOwnerUnresponsive
+        expr: (orishu_worker_owner_responsive{job="orishu-worker"} == 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reachable diagnostics report an unresponsive worker owner
+      - alert: OrishuWorkerAdmissionRefusals
+        expr: (rate(orishu_worker_admissions_rejected_total{job="orishu-worker"}[5m]) > 0) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: Worker recently refused admission; policy may be working as intended
+      - alert: OrishuWorkerCatchupTransferFailures
+        expr: >-
+          (
+            (rate(orishu_worker_catchup_transfer_binding_rejected_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_catchup_transfer_invalid_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_catchup_transfer_rejected_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_catchup_transfer_unavailable_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_catchup_transfer_timed_out_total{job="orishu-worker"}[5m]) > 0)
+          ) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker recently failed admission-state transfer; inspect the original operation
+      - alert: OrishuWorkerMembershipAbandoned
+        expr: >-
+          (
+            (rate(orishu_worker_membership_join_abandoned_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_membership_anti_entropy_abandoned_total{job="orishu-worker"}[5m]) > 0)
+          ) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker exhausted a join or reconciliation budget; outcome needs inspection
+      - alert: OrishuWorkerPeerTimeouts
+        expr: >-
+          (
+            (rate(orishu_worker_peer_reliable_request_timed_out_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_peer_reliable_serve_timed_out_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_peer_outbound_attempt_timed_out_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_peer_outbound_tls_timed_out_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_peer_inbound_tls_timed_out_total{job="orishu-worker"}[5m]) > 0)
+            or (rate(orishu_worker_peer_inbound_handshake_timed_out_total{job="orishu-worker"}[5m]) > 0)
+          ) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker recently observed peer IO timeouts; this is not a peer-death count
+      - alert: OrishuWorkerCapacityExhausted
+        expr: >-
+          (
+            label_replace(
+              {job="orishu-worker",__name__=~"orishu_worker_(peer|control|completion|shutdown|peer_inbound_tls|peer_inbound_connection|peer_registry|peer_registry_provisional|peer_reliable|peer_outbound)_slots_in_use"},
+              "budget", "$1", "__name__", "orishu_worker_(.*)_slots_in_use"
+            )
+            >= on (job, instance, budget)
+            label_replace(
+              {job="orishu-worker",__name__=~"orishu_worker_(peer|control|completion|shutdown|peer_inbound_tls|peer_inbound_connection|peer_registry|peer_registry_provisional|peer_reliable|peer_outbound)_slots_capacity"} > 0,
+              "budget", "$1", "__name__", "orishu_worker_(.*)_slots_capacity"
+            )
+          ) and on (job, instance) (up{job="orishu-worker"} == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker has sustained full slot occupancy including reservations

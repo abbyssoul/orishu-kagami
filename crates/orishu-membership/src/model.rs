@@ -419,8 +419,6 @@ impl BlocklistEntry {
 /// returns as [`crate::message::AdmissionEvidence`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdmissionPolicy {
-    /// Operator-set membership lock. While set, no node is admitted.
-    pub membership_locked: bool,
     /// Whether this node acts as an introducer at all.
     pub accepts_peers: bool,
     /// Maximum members this formation will hold, including the local node.
@@ -432,12 +430,22 @@ pub struct AdmissionPolicy {
 impl Default for AdmissionPolicy {
     fn default() -> Self {
         Self {
-            membership_locked: false,
             accepts_peers: true,
             capacity: 4096,
             protocol_range: ProtocolRange::default(),
         }
     }
+}
+
+/// Formation-scoped membership lock, replicated through gossip and anti-entropy.
+/// Local admission flags and credentials are deliberately excluded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MembershipPolicy {
+    /// Whether new admissions and operator removals are locked.
+    pub locked: bool,
+    /// Total-order version of the last accepted policy change.
+    pub version: VersionTuple,
 }
 
 /// Local identity and advertised description of this worker.
@@ -615,6 +623,7 @@ pub struct AntiEntropyRound {
 /// size.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Membership {
+    membership_policy: Option<MembershipPolicy>,
     formation: FormationId,
     cluster_name: ClusterName,
     local: LocalIdentity,
@@ -624,7 +633,7 @@ pub struct Membership {
     members: BTreeMap<NodeId, Member>,
     tombstones: BTreeMap<NodeId, MembershipTombstone>,
     blocklist: BTreeMap<BlocklistKey, BlocklistEntry>,
-    last_seq: BTreeMap<NodeId, u64>,
+    last_seq: BTreeMap<NodeId, SequenceWindow>,
     probes: BTreeMap<ProbeId, PendingProbe>,
     suspicions: BTreeMap<NodeId, Suspicion>,
     admissions: BTreeMap<SessionId, PendingAdmission>,
@@ -634,6 +643,42 @@ pub struct Membership {
     gossip: GossipQueue,
     policy: AdmissionPolicy,
     limits: Limits,
+}
+
+/// Fixed-memory replay tracking that permits independently reordered streams.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SequenceWindow {
+    highest: u64,
+    seen: u128,
+}
+
+impl SequenceWindow {
+    fn observe(&mut self, seq: u64) -> bool {
+        if self.seen == 0 {
+            self.highest = seq;
+            self.seen = 1;
+            return false;
+        }
+        if seq > self.highest {
+            let distance = seq - self.highest;
+            self.seen = if distance >= 128 {
+                0
+            } else {
+                self.seen << distance
+            };
+            self.seen |= 1;
+            self.highest = seq;
+            return false;
+        }
+        let distance = self.highest - seq;
+        if distance >= 128 {
+            return true;
+        }
+        let bit = 1_u128 << distance;
+        let replayed = self.seen & bit != 0;
+        self.seen |= bit;
+        replayed
+    }
 }
 
 impl Membership {
@@ -674,6 +719,7 @@ impl Membership {
         };
 
         Ok(Self {
+            membership_policy: None,
             formation,
             cluster_name,
             members: BTreeMap::from([(local.node_id.clone(), self_member)]),
@@ -720,6 +766,7 @@ impl Membership {
             formation,
             cluster_name,
             local,
+            membership_policy: None,
             incarnation: Incarnation::INITIAL,
             next_seq: 0,
             next_correlation: 0,
@@ -837,6 +884,24 @@ impl Membership {
     #[must_use]
     pub fn policy(&self) -> &AdmissionPolicy {
         &self.policy
+    }
+
+    /// Last replicated lock value; absence is the initial unlocked policy.
+    #[must_use]
+    pub fn membership_policy(&self) -> Option<&MembershipPolicy> {
+        self.membership_policy.as_ref()
+    }
+
+    /// Whether this formation's locally observed policy forbids membership changes.
+    #[must_use]
+    pub fn membership_locked(&self) -> bool {
+        self.membership_policy
+            .as_ref()
+            .is_some_and(|policy| policy.locked)
+    }
+
+    pub(crate) fn set_membership_policy(&mut self, policy: MembershipPolicy) {
+        self.membership_policy = Some(policy);
     }
 
     /// The validated limits in force.
@@ -978,8 +1043,7 @@ impl Membership {
         self.incarnation = incarnation;
     }
 
-    /// Replaces the admission policy, for operator lock/unlock and capacity
-    /// changes.
+    /// Replaces node-local admission configuration without changing replicated policy.
     pub(crate) fn set_policy(&mut self, policy: AdmissionPolicy) {
         self.policy = policy;
     }
@@ -1007,19 +1071,11 @@ impl Membership {
     /// Records an inbound sequence number, reporting whether it is a replay of
     /// one already seen from that sender.
     pub(crate) fn observe_seq(&mut self, sender: &NodeId, seq: u64) -> bool {
-        match self.last_seq.get_mut(sender) {
-            Some(last) if seq <= *last => true,
-            Some(last) => {
-                *last = seq;
-                false
-            }
-            None => {
-                // Bounded by member count: a sender that is not a member never
-                // reaches here, because the sender-binding check runs first.
-                self.last_seq.insert(sender.clone(), seq);
-                false
-            }
-        }
+        // Sender authentication happens before this bounded per-member entry.
+        self.last_seq
+            .entry(sender.clone())
+            .or_default()
+            .observe(seq)
     }
 
     /// Drops per-sender bookkeeping for a member that is no longer present.
@@ -1058,10 +1114,11 @@ mod tests {
             BlocklistKey::Name(WorkerName::new("banned").unwrap()),
             testing::blocklist_entry("banned"),
         );
-        model.set_policy(AdmissionPolicy {
-            membership_locked: true,
-            ..AdmissionPolicy::default()
-        });
+        model = crate::update(
+            model,
+            crate::Message::Local(crate::Command::SetMembershipLock(true)),
+        )
+        .model;
 
         let target = FormationId::new("formation-target").unwrap();
         let assigned = NodeId::new("node-assigned").unwrap();
@@ -1087,7 +1144,7 @@ mod tests {
         assert!(!adopted.members().contains_key(&stale.id));
         assert_eq!(adopted.incarnation(), Incarnation::INITIAL);
         // Local configuration is not formation state, so it does carry over.
-        assert!(adopted.policy().membership_locked);
+        assert!(adopted.membership_policy().is_none());
         assert_eq!(adopted.local_name(), model.local_name());
     }
 
@@ -1097,8 +1154,19 @@ mod tests {
         let sender = NodeId::new("node-peer").unwrap();
         assert!(!model.observe_seq(&sender, 5));
         assert!(model.observe_seq(&sender, 5), "same sequence is a replay");
-        assert!(model.observe_seq(&sender, 4), "older sequence is a replay");
+        assert!(
+            !model.observe_seq(&sender, 4),
+            "unseen reordered sequence is valid"
+        );
+        assert!(model.observe_seq(&sender, 4), "duplicate is a replay");
         assert!(!model.observe_seq(&sender, 6));
+        assert!(!model.observe_seq(&sender, 200));
+        assert!(model.observe_seq(&sender, 6), "outside retained window");
+        assert!(!model.observe_seq(&sender, 73), "oldest retained bit");
+        assert!(model.observe_seq(&sender, 72), "one before retained window");
+        assert!(!model.observe_seq(&sender, u64::MAX));
+        assert!(!model.observe_seq(&sender, u64::MAX - 1));
+        assert!(model.observe_seq(&sender, u64::MAX));
     }
 
     #[test]

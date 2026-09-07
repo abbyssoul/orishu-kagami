@@ -158,6 +158,52 @@ pub(crate) fn validate_role(value: &str) -> Result<(), NameError> {
     validate_symbol("ArtifactRole", value)
 }
 
+/// Deserializes a validated name from the borrowed string the codec holds.
+///
+/// The alternative — `#[serde(try_from = "String")]` — allocates every authored
+/// name, oversized ones included, before anything looks at its length. A
+/// visitor sees `&str`, so the grammar runs on the borrow and only a name that
+/// passes is copied.
+///
+/// Shared by the macro below and by `ArtifactRole`, which is written out by
+/// hand because it carries role-specific behaviour: one implementation, so the
+/// two cannot drift into validating at different moments.
+pub(crate) fn deserialize_name<'de, D, T>(
+    deserializer: D,
+    expecting: &'static str,
+) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    struct NameVisitor<T> {
+        expecting: &'static str,
+        marker: std::marker::PhantomData<fn() -> T>,
+    }
+
+    impl<T> serde::de::Visitor<'_> for NameVisitor<T>
+    where
+        T: FromStr,
+        T::Err: std::fmt::Display,
+    {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.expecting)
+        }
+
+        fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<T, E> {
+            value.parse().map_err(serde::de::Error::custom)
+        }
+    }
+
+    deserializer.deserialize_str(NameVisitor {
+        expecting,
+        marker: std::marker::PhantomData,
+    })
+}
+
 /// Declares a validated string new-type.
 ///
 /// The inner `String` stays private, so the validating constructor is the only
@@ -171,21 +217,41 @@ macro_rules! validated_name {
         $name:ident, $validator:path
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-        #[serde(try_from = "String", into = "String")]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(String);
+
+        // Serializing borrows, where the derive's `into = "String"` would
+        // clone; deserializing validates the borrow before copying it. See
+        // `deserialize_name`.
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(&self.0)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                deserializer: D,
+            ) -> Result<Self, D::Error> {
+                deserialize_name(deserializer, concat!("a ", stringify!($name)))
+            }
+        }
 
         impl $name {
             /// Parses `value`, rejecting anything the grammar forbids.
+            ///
+            /// The borrowed value is checked *before* it is copied, so an
+            /// oversized name is refused without being allocated. `AsRef<str>`
+            /// plus `Into<String>` is what makes that possible while still
+            /// accepting an already-owned `String` without a second copy.
             ///
             /// # Errors
             ///
             /// Returns [`NameError`] when the value is empty, exceeds its
             /// length bound, or contains a forbidden character.
-            pub fn new(value: impl Into<String>) -> Result<Self, NameError> {
-                let value = value.into();
-                $validator(stringify!($name), &value)?;
-                Ok(Self(value))
+            pub fn new<V: AsRef<str> + Into<String>>(value: V) -> Result<Self, NameError> {
+                $validator(stringify!($name), value.as_ref())?;
+                Ok(Self(value.into()))
             }
 
             /// Borrows the validated value.
@@ -428,6 +494,32 @@ mod tests {
             MediaType::new("Application/WASM"),
             Err(NameError::ForbiddenCharacter { offset: 0, .. })
         ));
+    }
+
+    #[test]
+    fn a_borrowed_name_is_checked_before_it_is_copied() {
+        // The ordering, not just the outcome. `new` takes `AsRef<str>` so the
+        // grammar is applied to the caller's borrow; if it took
+        // `impl Into<String>` the oversized value below would be allocated
+        // first and only then refused. This will not compile if that
+        // regresses, which is the point of asserting it with a `&str`.
+        let oversized: String = "s".repeat(MAX_SYMBOL_LEN + 1);
+        let borrowed: &str = &oversized;
+        assert!(matches!(
+            SchemaId::new(borrowed),
+            Err(NameError::TooLong { .. })
+        ));
+    }
+
+    #[test]
+    fn an_oversized_name_in_a_document_is_refused_as_a_borrowed_value() {
+        // The authoring path reaches the same constructor through a visitor
+        // that sees the codec's borrowed `&str`, rather than through
+        // `try_from = "String"`, which would allocate first.
+        let long = "n".repeat(MAX_SYMBOL_LEN + 1);
+        let json = format!("\"{long}\"");
+        assert!(serde_json::from_str::<ComponentInstanceId>(&json).is_err());
+        assert!(serde_yaml::from_str::<ComponentInstanceId>(&long).is_err());
     }
 
     #[test]

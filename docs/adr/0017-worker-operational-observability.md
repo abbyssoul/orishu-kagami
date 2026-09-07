@@ -102,6 +102,37 @@ Telemetry is best-effort and cannot replace required command decisions, durable
 artifact records or provenance. Measure enabled/disabled and sampled trace
 overhead on representative workloads; publish limits and measurements.
 
+### Correlated operational logs — decision refinement, 2026-09-08
+
+The operator selected structured standard-stream output for the PoC, explicitly
+refining the initial stderr proposal to **stdout by default**. Keep event
+production separate from output through a small worker-owned adapter. This
+supports bare-metal service managers, container runtimes and cloud collection
+without requiring a vendor SDK or local logging daemon to run the worker.
+Kubernetes supports both standard streams; stdout is our chosen default, not
+a Kubernetes-only requirement. See its [logging architecture](https://kubernetes.io/docs/concepts/cluster-administration/logging/).
+
+Use bounded asynchronous delivery, bounded record fields/encoding and queue
+bytes, explicit loss accounting and a finite whole-process shutdown deadline.
+Slow, full, closed or unavailable output sheds diagnostic records without
+blocking domain handlers. Runtime failure/flush diagnostics must not bypass
+that boundary with synchronous standard-stream writes. Records correlate with
+reviewed trace/span IDs but never become durable audit or scientific provenance.
+
+Destination defaults do not select log levels, sampling or runtime enablement;
+publish those settings and zero-sampling behavior in the implementation
+contract. This decision does not enable metrics or trace export implicitly.
+
+Research Rust logging crates before selecting and pinning dependencies; use
+ecosystem instrumentation/adapter interfaces where they fit, while proving
+Orishu's stricter byte, redaction and shutdown guarantees. Keep dependencies
+in the IO shell. Unix-datagram and vendor sinks are future adapter extensions,
+not PoC implementations, a new plugin registry or a reason to extract a crate.
+Each future sink must preserve the same bounded/nonblocking contract.
+
+This design is accepted; logging implementation and deployment evidence remain
+pending in the [owning task](../tasks/implement-worker-observability.md#accepted-logging-output-decision).
+
 ### Access and configuration
 
 Use the existing file < environment < CLI precedence. Specify listener,

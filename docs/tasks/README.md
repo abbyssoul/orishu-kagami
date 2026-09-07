@@ -31,8 +31,8 @@ and viewport/app adoption.
 | [Implement the sans-IO cluster membership core](implement-membership-model.md) | Implemented and accepted |
 | [Fix membership liveness propagation through full-record merge](fix-membership-liveness-gossip-merge.md) | Implemented and accepted |
 | [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | N-FORMATION accepted for source-built Linux; combined M4 telemetry/operator handoff remains open |
-| [Implement worker operational observability](implement-worker-observability.md) | Local probes/metrics, membership deadlines, inbound/outbound/reliable/datagram and pre-pool instruments, OTLP receipt and live trace counters have scoped evidence; broader instrumentation, log correlation, cross-peer tracing and full probe/security/operator M4 acceptance remain open |
-| [Document and verify operator observability workflows](document-worker-observability.md) | Local/mTLS-proxy scrape and pinned HTTP/mTLS Collector recipes verified on loopback; remaining deployment/security/correlation/alert handoff pending |
+| [Implement worker operational observability](implement-worker-observability.md) | Finite formation-metric inventory covered, including registry/catch-up outcomes; local OTLP receipt and live trace counters verified at scoped boundaries. Cross-peer/log correlation, reviewed overhead and full operator/deployment M4 acceptance remain open |
+| [Document and verify operator observability workflows](document-worker-observability.md) | Local/mTLS-proxy scrape, pinned HTTP/mTLS Collector recipes, formation runbook, alerts, dashboard, user service and rootless evaluation containers have scoped evidence; remaining deployment/security/correlation/notification handoff pending |
 | [Implement the `orishu-monitor` TUI shell](implement-orishu-monitor-admin-tui.md) | Implemented; first slice toward full operator parity, with live APIs/actions deferred and raw admission-secret output CLI-only |
 | [Integrate `orishu-monitor` with the operator API](integrate-orishu-monitor-operator-api.md) | Backlog; promote bounded increments as N-FORMATION and O-CLIENT contracts land |
 
@@ -42,6 +42,29 @@ checkpoints; it is not another task or a
 current acceptance checklist. Select remaining M4 work through the task's
 [open-work table](implement-cluster-formation-poc.md#open-m4-work-selection)
 and [bounded increment rules](implement-cluster-formation-poc.md#selecting-and-closing-an-audit-increment).
+The [completed foundation audit](cluster-formation-conformance.md#m4-foundation-evidence-reconciliation--2026-09-07)
+maps probe/configuration/security evidence to exact remaining assertions; its
+diagnostics response-backpressure increment now has
+[real-handler expiry and slot-reuse evidence](cluster-formation-conformance.md#diagnostics-response-backpressure--2026-09-07).
+The [direct-listener method/error contract](cluster-formation-conformance.md#direct-diagnostics-method-and-error-contract--2026-09-07)
+also has real-process coverage, and [mixed pre-HTTP proxy expiry](cluster-formation-conformance.md#monitoring-proxy-pre-http-pressure-and-expiry--2026-09-07)
+has a bounded live journey. The
+[downstream proxy evidence](cluster-formation-conformance.md#monitoring-proxy-downstream-backpressure-and-expiry--2026-09-07)
+now closes the last named foundation gap, including actual blocked TLS writes,
+expiry and request-slot reuse. Select remaining instrumentation, correlation,
+overhead or operator handoff from the open-work table; do not reopen formation
+acceptance or repeat completed foundation cases.
+The [formation instrumentation inventory](cluster-formation-conformance.md#formation-instrumentation-coverage-inventory--2026-09-07)
+maps existing instruments to their actual events/evidence. The
+[inbound capacity gauges](cluster-formation-conformance.md#inbound-connection-capacity-gauges--2026-09-08)
+now expose TLS and connection-task budgets. The
+[delivered registry increment](implement-cluster-formation-poc.md#delivered-increment-registered-session-visibility)
+separately covers retained total/provisional sessions and operator interpretation.
+The [catch-up outcome increment](cluster-formation-conformance.md#admission-state-catch-up-outcome-metrics--2026-09-08)
+now covers the final named metric row: receiver validation/failure/cancellation
+and owner adoption/fencing, with process-lifetime accounting. Do not restart a
+blanket instrumentation audit. Trace/log correlation, overhead and
+the full operator handoff retain their separate gates.
 The following formation summaries preserve historical checkpoints, not a new
 implementation backlog. The task's
 [assembly-deadline increment](implement-cluster-formation-poc.md#http2-assembly-deadline-increment)

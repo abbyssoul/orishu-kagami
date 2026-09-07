@@ -2,6 +2,27 @@ rule_files:
   - prometheus-worker-trace-alerts.yml
 evaluation_interval: 1m
 tests:
+  - name: all-local-loss-counters-coexist-on-one-worker-and-reset-independently
+    interval: 1m
+    input_series:
+      - series: up{job="orishu-worker",instance="combined"}
+        values: 1x10
+      - series: orishu_worker_trace_active_full_total{job="orishu-worker",instance="combined"}
+        values: 99x2 0x8
+      - series: orishu_worker_trace_queue_full_total{job="orishu-worker",instance="combined"}
+        values: 0+1x4 4x6
+      - series: orishu_worker_trace_encoding_dropped_total{job="orishu-worker",instance="combined"}
+        values: 0x10
+      - series: orishu_worker_trace_invalid_source_total{job="orishu-worker",instance="combined"}
+        values: 0x10
+    alert_rule_test:
+      - {eval_time: 2m, alertname: OrishuWorkerTraceLocalDrops, exp_alerts: []}
+      - eval_time: 3m
+        alertname: OrishuWorkerTraceLocalDrops
+        exp_alerts:
+          - exp_labels: {job: orishu-worker, instance: combined, severity: warning}
+            exp_annotations: {summary: Worker recently shed sampled traces locally}
+      - {eval_time: 10m, alertname: OrishuWorkerTraceLocalDrops, exp_alerts: []}
   - name: loss-categories-pending-delay-and-recovery
     interval: 1m
     input_series:

@@ -102,9 +102,19 @@ impl ArtifactDigest {
     /// Computes the SHA-256 digest of `content`.
     #[must_use]
     pub fn sha256_of(content: &[u8]) -> Self {
+        Self::from_sha256(Sha256::digest(content).into())
+    }
+
+    /// Wraps an already-computed SHA-256 result.
+    ///
+    /// Crate-internal because it is how streaming verification finishes: a
+    /// blob too large to hold is hashed in chunks and only its 32-byte result
+    /// arrives here. Public callers get [`Self::sha256_of`], which cannot be
+    /// given a digest that was not taken over the bytes it claims.
+    pub(crate) const fn from_sha256(bytes: [u8; 32]) -> Self {
         Self {
             algorithm: DigestAlgorithm::Sha256,
-            bytes: Sha256::digest(content).into(),
+            bytes,
         }
     }
 

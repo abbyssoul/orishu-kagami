@@ -28,6 +28,12 @@ Check `state.phase`: only `joined` denotes completed adoption and catch-up;
 a clean rejection. Catch-up is automatically scheduled after adoption; a ready
 joined introducer can admit another worker. `catchUpFailed` remains degraded
 target-formation state; bounded automatic retries may return it to `catchingUp`.
+When optional worker metrics are enabled, the
+[catch-up counters](../../docs/orishu-observability.md#admission-state-catch-up-outcomes)
+separate receiver failures/validation from owner adoption and lifecycle fencing.
+They are aggregate diagnostics, not a replacement for this targeted operation
+status. A validated transfer alone never authorizes introduction, and a counter
+increase is not permission to restart or resubmit with a fresh admission ID.
 Lost-ACK recovery can return the original still-live assignment from the same
 introducer. Retirement, issuer loss and unavailable history use the tested
 bounded stop procedure, not automatic restoration; do not retry with a new ID
@@ -142,6 +148,11 @@ identified join/leave and recovery have passing process evidence; final task
 acceptance remains tracked in the [formation task](../../docs/tasks/implement-cluster-formation-poc.md).
 
 ## Operator authentication
+
+Use the [monitoring incident runbook](../../docs/worker-monitoring-runbook.md)
+to combine read-only formation/operation inspection with process probes and
+metrics. Missing telemetry or a failed peer does not authorize a mutation;
+the runbook preserves direct-worker targeting and explicit stop conditions.
 
 Local same-user summary reads need no credential. Remote summary reads require
 the target worker's operator credential. On Unix, select its private token file

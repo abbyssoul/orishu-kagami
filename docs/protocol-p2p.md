@@ -112,6 +112,30 @@ encoded envelope fields, checks authenticated session binding, formation and
 protocol before constructing a typed payload, and measures the received
 `membership` array's byte extent directly (not by re-encoding its values).
 
+### Proposed trace-context extension
+
+[ADR 0025](adr/0025-version-peer-trace-context-propagation.md) accepts profile 5
+only, with coordinated rebuild/restart and no profile-4 fallback. It is not
+negotiated or implemented today. Profile 4 continues to reject added envelope
+fields, including `traceParent`; do not emit the field under profile 4.
+
+The planned membership envelope keeps its seven required fields and permits
+one optional `traceParent` CBOR text field. It uses the
+[client trace-context grammar](protocol-client.md#planned-client-trace-context),
+with a 128-byte context-processing cap. Invalid/missing context is discarded
+independently of an otherwise valid membership message. A non-text field is
+ignored after bounded structural validation. Duplicate keys, malformed CBOR,
+unknown domain fields and existing frame/value/string limits still reject the
+packet normally; optional telemetry does not relax hostile-input validation.
+
+Only authenticated and correctly bound session traffic may supply a remote
+parent. Context is absent from admission identity/digests, replay keys, hashes,
+core messages and catch-up records. A sender omits context when it would exceed
+the existing packet budget, preserving the already selected payload/gossip
+and delivery class. New-profile builds without tracing support the same grammar
+but need not retain metadata. The existing handshake and baseline shapes remain
+unchanged; exporter implementation must not imply context support there.
+
 ### Formation profile 2 membership payloads
 
 The implemented `peer::wire` adapter uses the envelope below with all seven
@@ -150,7 +174,8 @@ rejects stream-only bodies on datagrams and SWIM bodies on streams. Applicant
 sessions carry only `JoinReq`; a label matching a member ID cannot upgrade a
 provisional session. The worker integration described below now supplies session
 orchestration, admission-state catch-up and live-assignment retry recovery;
-full lifecycle/process conformance remains in the formation task.
+lifecycle/process conformance is recorded in the
+[accepted formation ledger](tasks/cluster-formation-conformance.md).
 
 ### Sequence and credential lifecycle
 
@@ -209,7 +234,7 @@ All peer protocol messages are wrapped in a `MessageEnvelope` — a discriminate
   "proto":     <uint>,                -- Protocol version. Current version: 1
   "type":      <string>,              -- Message type discriminator (see message catalog below)
   "senderId":  <string>,              -- Node ID of the sender. For pre-admission messages (Handshake, JoinReq from a new node), this is the node's name since no cluster ID has been assigned yet.
-  "formationId": <string>,            -- Immutable cluster formation ID (`metadata.id`). Serves as a strict security boundary; receiver rejects if mismatch.
+  "formationId": <string>,            -- Immutable cluster formation ID (`orishu_identity::FormationId`, ADR 0013). Serves as a strict security boundary; receiver rejects if mismatch.
   "seq":       <uint64>,              -- Monotonic per-sender sequence number
   "payload":   <map>,                 -- Type-specific payload (defined per message)
   "gossip":    [<GossipDelta>, ...]   -- Optional piggybacked gossip deltas (may be empty)
@@ -218,7 +243,7 @@ All peer protocol messages are wrapped in a `MessageEnvelope` — a discriminate
 
 **`type` values:** `"Handshake"`, `"HandshakeAck"`, `"JoinReq"`, `"JoinReply"`, `"Ping"`, `"Ack"`, `"PingReq"`, `"PingReply"`, `"Announce"`, `"PullReq"`, `"PullReply"`, `"PartitionIntent"`, `"PartitionAck"`, `"HaloDelta"`, `"ComponentChannelData"`, `"StepVote"`, `"StepCommit"`, `"CheckpointReq"`, `"CheckpointReply"`, `"FetchChunkReq"`, `"FetchChunkReply"`.
 
-**`formationId` guard:** A node receiving a message with a `formationId` that does not match its own immutable `metadata.id` must silently discard the message. This acts as a strict security boundary preventing cross-cluster interference. The legacy human-readable `clusterName` is no longer used as a wire guard.
+**`formationId` guard:** A node receiving a message with a `formationId` that does not match its own immutable formation ID must silently discard the message. This acts as a strict security boundary preventing cross-cluster interference. The legacy human-readable `clusterName` is no longer used as a wire guard.
 
 **`seq` deduplication:** The `seq` field is scoped to one sender identity in one
 formation. Use the 128-sequence replay window above, not a high-water mark:
@@ -440,6 +465,12 @@ by this profile. A dropped pending result closes its connection even if clones
 exist. Dial success returns raw ACK bytes for current-owner validation, not
 membership or command acceptance.
 
+Optional [outbound dial metrics](orishu-observability.md#outbound-dial-and-tls-metrics)
+observe whole attempts, individual TLS candidates and the shared capacity gate.
+Candidate fallback, initial stream exchange and subsequent owner validation
+remain distinct stages; instrumentation changes neither this wire profile nor
+the dial/retry budgets. Metrics do not carry endpoint or credential metadata.
+
 The pinned-introducer ACK validator checks the supplied assigned node ID in
 addition to formation and TLS fingerprint before granting the limited
 JoinReply role. A real dispatcher test covers correct/wrong pins, mismatched
@@ -479,7 +510,10 @@ delivery. A real-QUIC fault test completes introducer insertion and discards its
 ACK at the response-write boundary, verifying retained remote membership,
 unchanged local formation and explicit unresolved status. The hook exists only
 in the test harness; production transport/authentication/core paths are used.
-It does not yet recover the lost outcome or close the interrupted-join task.
+That original fixture proves uncertainty only. The later identified replay and
+[recovery process evidence](tasks/cluster-formation-conformance.md#recovery-outcome-and-history-loss-audit--2026-09-07)
+separately establish usable-assignment recovery and bounded stop outcomes; an
+unresolved result itself is not recovery.
 
 The sans-IO core now provides `RebindJoin` for an IO shell that has established
 a fresh authenticated session to the same pinned introducer. It checks the
@@ -734,11 +768,12 @@ standalone identities/token; after ejection it preserves non-introducing state
 without another core transition; after shutdown it cannot revive the closed
 owner. These tests exercise the normal receiver and completion handler, not
 fabricated credentials. Ejection itself is supplied at the owner boundary;
-public ejection/restart exclusion and the wider lifecycle fault matrix remain
-required. The owner path is exercised
+public ejection/restart exclusion and the wider lifecycle fault matrix have
+separate passing process evidence in the formation ledger. The owner path is exercised
 with real receiver IO by the runtime test, including cancellation followed by
 automatic retry. The public CLI harness now proves completed catch-up and
-A-admits-B, B-admits-C handoff; full lifecycle/fault conformance remains required.
+A-admits-B, B-admits-C handoff; final lifecycle/fault validation is recorded in
+the formation ledger, without widening these receiver fixtures' scope.
 
 A further runtime regression retires the source session after successful fetch
 without changing the receiver's generation. The old completion is refused;
@@ -860,9 +895,12 @@ QUIC workers in one process after adoption, while the joiner is catching up;
 it is not partition/heal or arbitrary-topology evidence. Ordinary connection
 loss is also exercised by the catch-up lifecycle fixture.
 
-The formation owner now has a bounded inbound application-session registry:
-64 total registered connections, at most 16 provisional applicants, and a
-10-second provisional lifetime. Session IDs increase for the process lifetime
+The formation owner has a bounded inbound/outbound application-session registry:
+64 total retained entries, at most 16 provisional bindings shared by incoming
+applicants and outgoing introducers, and a 10-second provisional lifetime.
+Optional [registry gauges](orishu-observability.md#registered-session-capacity-gauges)
+observe those budgets without changing them or establishing membership.
+Session IDs increase for the process lifetime
 and are not reset by formation adoption/leave. A second live connection using
 the same certificate is refused without replacing the first; a reconnect may
 register after the old connection has closed and been pruned. This is not
@@ -2119,7 +2157,7 @@ The following examples use CBOR diagnostic notation ([RFC 8949 §8](https://www.
 ## Security considerations
 
 - **Transport encryption:** All peer traffic is encrypted via QUIC's built-in TLS 1.3. mTLS is mandatory — both sides present certificates.
-- **Cluster isolation:** The `formationId` field in `MessageEnvelope` carries the immutable `metadata.id` of the cluster formation. Messages with mismatched formation IDs are silently discarded. This acts as a strict security boundary preventing cross-cluster interference. The legacy human-readable cluster name is not a security boundary and is no longer used as a wire guard.
+- **Cluster isolation:** The `formationId` field in `MessageEnvelope` carries the immutable formation ID under ADR 0013, not a resource's `metadata.uid`. Messages with mismatched formation IDs are silently discarded. This acts as a strict security boundary preventing cross-cluster interference. The legacy human-readable cluster name is not a security boundary and is no longer used as a wire guard.
 - **Join token scoping:** Join tokens authorize cluster admission only. They must not authorize any other operation (operator APIs, workload submission, result access).
 - **Certificate pinning:** Certificate fingerprints are pinned in `NodeRecord.certFingerprint` on admission and verified on every reconnection.
 - **Partition integrity:** `PartitionIntent` and `PartitionAck` carry cryptographic signatures to prevent spoofed ownership claims that could lead to duplicate writers.

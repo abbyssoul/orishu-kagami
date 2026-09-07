@@ -47,7 +47,7 @@ pub(crate) fn evaluate_local_gates(
     if !model.policy().accepts_peers {
         return Err(RejectReason::NotAnIntroducer);
     }
-    if model.policy().membership_locked {
+    if model.membership_locked() {
         return Err(RejectReason::MembershipLocked);
     }
 
@@ -70,6 +70,16 @@ pub(crate) fn evaluate_local_gates(
         .any(|tombstone| !tombstone.cleared && tombstone.cert_fingerprint == fingerprint)
     {
         return Err(RejectReason::Tombstoned);
+    }
+
+    if model.members().values().any(|member| {
+        member.cert_fingerprint == fingerprint
+            && matches!(
+                member.liveness,
+                crate::Liveness::Alive | crate::Liveness::Suspected
+            )
+    }) {
+        return Err(RejectReason::AlreadyAdmitted);
     }
 
     if model.members().len() >= model.policy().capacity.min(model.limits().max_members()) {
@@ -169,7 +179,6 @@ mod tests {
         // the cheapest check must run first.
         let mut model = testing::standalone("node-self");
         model.set_policy(AdmissionPolicy {
-            membership_locked: true,
             accepts_peers: false,
             capacity: 1,
             ..AdmissionPolicy::default()
@@ -233,10 +242,11 @@ mod tests {
     #[test]
     fn a_membership_lock_is_refused() {
         let mut model = testing::standalone("node-self");
-        model.set_policy(AdmissionPolicy {
-            membership_locked: true,
-            ..AdmissionPolicy::default()
-        });
+        model = crate::update(
+            model,
+            crate::Message::Local(crate::Command::SetMembershipLock(true)),
+        )
+        .model;
         assert_eq!(gates(&model), Err(RejectReason::MembershipLocked));
     }
 
@@ -329,9 +339,13 @@ mod tests {
         let mut model = testing::model_with_members(3);
         model.set_policy(AdmissionPolicy {
             capacity: 4,
-            membership_locked: true,
             ..AdmissionPolicy::default()
         });
+        model = crate::update(
+            model,
+            crate::Message::Local(crate::Command::SetMembershipLock(true)),
+        )
+        .model;
         assert_eq!(gates(&model), Err(RejectReason::MembershipLocked));
     }
 

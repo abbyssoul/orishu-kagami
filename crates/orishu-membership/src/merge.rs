@@ -106,6 +106,7 @@ pub(crate) fn merge_delta(model: &mut Membership, body: DeltaBody) -> MergeOutco
         DeltaBody::MembershipUpdate(member) => merge_member(model, member),
         DeltaBody::TombstoneUpdate(tombstone) => merge_tombstone(model, tombstone),
         DeltaBody::BlocklistUpdate(entry) => merge_blocklist(model, entry),
+        DeltaBody::MembershipPolicyUpdate(policy) => merge_policy(model, policy),
         // Reaching here is a caller bug: foreign deltas are split off before
         // merging so that membership never decodes another subsystem's data.
         DeltaBody::Foreign(_) => MergeOutcome::Rejected(Diagnostic::Unexpected {
@@ -395,6 +396,33 @@ fn merge_tombstone(model: &mut Membership, incoming: MembershipTombstone) -> Mer
 }
 
 /// Merges a blocklist entry.
+fn merge_policy(model: &mut Membership, incoming: crate::model::MembershipPolicy) -> MergeOutcome {
+    if let Some(current) = model.membership_policy() {
+        if current == &incoming {
+            return MergeOutcome::Idempotent;
+        }
+        if current.version == incoming.version {
+            return MergeOutcome::Rejected(Diagnostic::VersionConflict {
+                entity: "policy:membership".to_owned(),
+                version: incoming.version,
+            });
+        }
+        if current.version > incoming.version {
+            return MergeOutcome::Rejected(Diagnostic::StaleDelta {
+                entity: "policy:membership".to_owned(),
+            });
+        }
+    }
+    model.set_membership_policy(incoming.clone());
+    MergeOutcome::Adopted {
+        change: Some(ChangeRecord::MembershipPolicyChanged {
+            locked: incoming.locked,
+        }),
+        body: DeltaBody::MembershipPolicyUpdate(incoming),
+        diagnostic: None,
+    }
+}
+
 fn merge_blocklist(model: &mut Membership, incoming: crate::model::BlocklistEntry) -> MergeOutcome {
     if let Err(error) = incoming.validate(model.limits()) {
         return MergeOutcome::Rejected(Diagnostic::MalformedRecord {

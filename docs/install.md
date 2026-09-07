@@ -32,7 +32,7 @@ it must not become the only usable form of a binary.
 | --- | --- | --- |
 | Build and run from a checkout | Available for development | Contributors and evaluators |
 | Local Cargo installation from a checkout | Available for all four application packages; not a supported release | Developers evaluating candidate binaries |
-| Locally built container targets | Build scaffolding exists; worker runtime defaults require correction and validation | Packaging developers |
+| Locally built containers | Separate rootless source-built evaluation recipe verified; root Dockerfile release scaffold remains unqualified | Evaluators and packaging developers |
 | Native release archives | Candidate CI builds Linux x86-64/ARM64 and macOS Apple Silicon/Intel suites plus Windows x86-64 Kagami; no supported release is published | Future operators and researchers |
 | Debian packages | Candidate CI builds and inspects amd64/arm64 packages; install lifecycle and service-start policy remain unresolved | Future Linux operators |
 | crates.io / `cargo install <package>` | Planned; packages are not published from this monorepo as a supported release | Operators and developers |
@@ -71,6 +71,11 @@ different state directories and sockets. Read the
 [`orishuctl` guide](../apps/orishu-ctl/README.md) before enabling a peer or TCP
 listener; mutation commands require the worker's operator credential even on a
 local socket.
+
+For optional service-manager evaluation, the
+[source-built user-service recipe](testing-worker-user-service.md) exercises
+explicit runtime-only systemd start/stop and monitoring. It neither installs
+the packaged system service nor establishes boot, logout or release support.
 
 Run the Kagami development application with:
 
@@ -111,6 +116,11 @@ signing, application bundles/installers, upgrades, and persona first-run
 journeys. See the [release engineering guide](releasing.md).
 
 ### Containers
+
+The [rootless evaluation recipe](testing-worker-container.md) packages
+source-built worker/CLI binaries in a separate Containerfile and verifies
+non-root state, optional diagnostics, exec probes and namespace isolation.
+It publishes no image and does not qualify the root Dockerfile targets below.
 
 The root Dockerfile has separate development targets:
 

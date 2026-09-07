@@ -2,7 +2,8 @@
   "apiVersion": "orishu.dev/v1",
   "kind": "Node",
   "metadata": {
-    "name": "worker-a"
+    "name": "worker-a",
+    "uid": "node-7f3a"
   },
   "spec": {
     "accepts": {

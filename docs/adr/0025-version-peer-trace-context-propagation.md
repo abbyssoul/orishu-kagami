@@ -1,6 +1,7 @@
 # 0025 — Version peer trace-context propagation separately from membership semantics
 
-Status: **proposed — review required before changing the negotiated profile**
+Status: **accepted — implementation pending**
+Decision date: **2026-09-08**
 
 ## Context
 
@@ -11,14 +12,19 @@ and rejects unknown ones. Adding optional context is therefore incompatible
 with existing peers, even when its sender considers the field optional.
 Silently relaxing profile 4 would make telemetry enablement change interoperability.
 
-## Proposed decision
+## Decision
+
+The operator selected profile 5 only in the decision Q&A. There are no supported
+published releases requiring profile-4 compatibility; maintaining two profiles
+would add negotiation and downgrade work without an accepted rolling-upgrade
+requirement. This accepts the design, not its implementation or M4 completion.
 
 Introduce `orishu-membership/5` when bounded propagation and its compatibility
 fixtures are ready. Keep semantic `proto: 1`, policy Merkle hashing, admission
 attempt identity and assignment replay unchanged. Do not negotiate profile 4
 as a fallback. As with previous PoC profile changes, rebuild/restart all workers
 together; rolling upgrades and retained formation recovery remain unsupported.
-Until accepted and implemented, the supported profile remains 4.
+Until implemented and validated, the supported profile remains 4.
 
 All profile-5 builds understand the optional membership-envelope `traceParent`
 field, independently of exporter features. Exporter dependencies stay behind

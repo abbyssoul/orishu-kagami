@@ -257,6 +257,12 @@ metrics without probes add `--observability.probes false`. Disabled routes
 return `404`. Selecting routes alone never enables diagnostics, and enabling
 the listener with both groups disabled is a configuration error. Probe-only
 mode remains loopback-only; it is not an unauthenticated remote probe exemption.
+Use exact GET paths with no query parameters. Other methods (including HEAD)
+on enabled query-free paths return 405 with `Allow: GET`; unknown/disabled paths
+return 404, and queries on enabled paths return 400 before method checking.
+Dispatched errors are non-cacheable fixed plain text; HEAD has no body. Encoded,
+case or trailing-slash aliases are not supported. These transport/route errors
+are not the worker's health 503 and do not authorize restart or readmission.
 File and environment equivalents follow the same precedence as listener
 enablement; see [configuration](../../docs/orishu-configuration.md#worker-configuration).
 
@@ -267,6 +273,12 @@ An occupied diagnostics port produces a clear startup error (exit code 2)
 before worker credentials or client sockets are created. The worker never
 removes or replaces the conflicting listener; select a free port or resolve
 the owning service's configuration.
+Diagnostics share a sixteen-connection budget and the bounded HTTP server's
+five-second stalled-write timeout. A full diagnostics budget can make probes
+unreachable while operator/owner work remains healthy; do not equate that
+transport failure with peer death. The [slow-reader tests](../../docs/tasks/cluster-formation-conformance.md#diagnostics-response-backpressure--2026-09-07)
+establish real HTTP/Unix backpressure and slot recovery, not TCP/proxy or
+whole-process shutdown-under-write-pressure qualification.
 The current metrics comprise three health gauges and six process-lifetime
 owner counters for transitions, stale inputs, core diagnostics, foreign gossip,
 reliable replies and failed sends. Three further counters distinguish local
@@ -292,9 +304,51 @@ gossip items (envelope plus pull-reply deltas). Repeated/ignored traffic counts;
 these are not successful probes, newly merged records or convergence evidence.
 An aggregate completed-handler duration histogram adds fixed buckets from 1 ms
 through 5 s and `+Inf`; cancellation and socket delivery remain excluded.
-Scrapes never count themselves. The base 40-series exposition is below 8 KiB
-(increased from the earlier 6 KiB catalogue budget); per-route latency
-histograms remain planned.
+Scrapes never count themselves. Ten additional inbound peer counters distinguish
+TLS/application handshake completion, failure, timeout, cancellation and the
+two connection-capacity refusals. They do not count accepted admissions or
+establish peer death. Collection follows metrics enablement, independently of
+tracing, and has no counter allocation in probes-only/disabled modes. See the
+[inbound catalogue](../../docs/orishu-observability.md#inbound-peer-handshake-counters).
+Four [inbound capacity gauges](../../docs/orishu-observability.md#inbound-connection-capacity-gauges)
+also expose the actual TLS permits and connection-task occupancy/limits.
+Completed tasks awaiting collection still occupy a slot; these are not counts
+of established sessions or admitted members. With collection enabled but no
+peer adapter running, occupancy and capacity are zero. Adapter termination
+withdraws the gauges while retaining cumulative event counts.
+The shared reliable-exchange pool additionally measures request/serve outcomes,
+duration, partial stream bytes and slot occupancy/capacity. Bytes are published
+at exchange termination; locally accepted writes do not prove remote receipt.
+See the [reliable-exchange catalogue](../../docs/orishu-observability.md#reliable-peer-exchange-metrics)
+for precise boundaries and safe interpretation. Eight additional
+[traffic counters](../../docs/orishu-observability.md#datagram-and-pre-pool-traffic-counters)
+report datagram submission outcomes/payload bytes, pre-validation reception and
+the per-connection stream-task refusal gate. Submission is not delivery, and
+these counters cannot establish all datagram loss. The
+[outbound catalogue](../../docs/orishu-observability.md#outbound-dial-and-tls-metrics)
+adds whole-attempt and individual TLS-candidate outcomes/durations plus four-slot
+dial pressure. Candidate fallback and owner acceptance remain distinct: a
+completed attempt has only returned a reply for validation. The
+[membership deadline catalogue](../../docs/orishu-observability.md#membership-deadline-and-abandonment-counters)
+adds consumed timers, stale timer input and join/reconciliation abandonment.
+Cancellation is not expiry, and abandonment does not prove non-admission.
+Four [registry gauges](../../docs/orishu-observability.md#registered-session-capacity-gauges)
+separately expose retained authenticated-session usage/capacity and the shared
+provisional subset, including outgoing introducer bindings. Closed entries
+remain counted until normal pruning; registration is not admission or proof
+of a live socket. An active empty registry reports capacities 64/16 even without
+a peer listener; owner drop withdraws all four values to zero. Inspect operation
+status and related pressure/refusal signals before acting, never restart or
+readmit solely because these gauges are high.
+The [catch-up counters](../../docs/orishu-observability.md#admission-state-catch-up-outcomes)
+separate whole-job receiver outcomes from the owner's adoption, non-adoption,
+fencing and abandonment decisions. Pages are not separate attempts; a validated
+transfer can still be fenced after a lifecycle change. Inspect authenticated
+join-operation status before taking action, never infer successful admission or
+authorize restart/readmission from these counters.
+The base 151-series exposition
+requires a 32 KiB scrape budget (previously 50 series within 16 KiB). Per-route,
+inbound-handshake and broader formation-stage latency remain separate work.
 Validate the current catalogue and a real local scrape with
 `make test-worker-prometheus`; the [test guide](../../docs/testing-worker-prometheus.md)
 documents pinned tools and the runnable local scrape configuration.
@@ -309,11 +363,11 @@ including bounded request/response bytes and shutdown drain. Tracing is disabled
 by default and independent of metrics. Invalid credentials or an omitted build
 capability fail startup; disabled tracing makes no collector connection.
 With metrics and tracing both enabled, twelve unlabelled trace delivery/loss
-counters extend the catalogue to 52 series; allow a 16 KiB scrape budget.
+counters extend the catalogue to 163 series within the same 32 KiB scrape budget.
 They remain readable during collector stalls without waiting for export and
 are absent when tracing is disabled or omitted. See the
 [catalogue and safe troubleshooting](../../docs/orishu-observability.md#live-trace-delivery-and-loss-counters).
-`make test-worker-trace-prometheus` validates all 52 series through a real
+`make test-worker-trace-prometheus` validates all 163 series through a real
 Prometheus server, including fresh delivery counts after collector recovery;
 see the [test guide](../../docs/testing-worker-prometheus.md#ingest-trace-counters-through-prometheus)
 for pinned tool prerequisites and the supported local source-build scope.
@@ -324,6 +378,10 @@ real OTLP decoding/file receipt, disabled/zero sampling and collector
 shutdown/recovery while authenticated control remains usable. The guide also
 shows how to inspect a retained local span. This is a loopback diagnostic
 recipe, not a remote collector or durable tracing backend.
+`make test-worker-otelcol-mtls` exercises the corresponding
+[mTLS receiver recipe](../../docs/testing-worker-otelcol-mtls.md), using
+collector-only trust/client keys and testing certificate/name refusals and
+control continuity. Never reuse peer/operator/monitoring credentials for export.
 `make test-formation-observability` checks issuer-local counts through HTTP
 during the full public three-worker churn journey. The separate
 `make test-formation-observability-lost-ack` target requires a debug fault build
@@ -346,7 +404,11 @@ before creating state or a client socket. This checks the repository's default
 release configuration, not published artifacts or custom profile overrides.
 The [mTLS monitoring proxy recipe](../../docs/testing-worker-monitoring-proxy.md)
 now tests ADR 0017's secure-proxy option with real Nginx and Prometheus while
-the worker remains loopback-only. Worker-native remote diagnostics, sampled
+the worker remains loopback-only. Its
+[stalled-reader journey](../../docs/testing-worker-monitoring-proxy.md#downstream-response-backpressure-and-expiry)
+checks actual TLS write pressure, bounded generation, timeout-driven request
+slot reuse and independent operator progress; it is not a fleet-scale or
+arbitrary slow-client guarantee. Worker-native remote diagnostics, sampled
 Cross-peer OTLP traces, broader metrics and service/container/release handoff
 remain pending.
 See the [configuration mapping](../../docs/orishu-configuration.md#worker-configuration).
@@ -565,6 +627,19 @@ operation IDs, the explicit 1,024-outcome formation-lifetime limit and testing.
 
 ## Monitoring interface and remaining work
 
+The [source-built user-service recipe](../../docs/testing-worker-user-service.md)
+provides tested runtime-only systemd start/stop, feature-disabled and probes-only
+modes, private credentials and explicit fresh-identity restart. It has no
+automatic restart, join or probe-triggered action. Packaged system service and
+published-container lifecycle acceptance remain separate.
+
+The [rootless container recipe](../../docs/testing-worker-container.md) now
+verifies source-built evaluation images with private state, exec probes,
+disabled/probes-only modes and explicit stop/restart. A separate container's
+loopback cannot scrape this worker; network sharing grants diagnostics access
+without granting its filesystem or operator credential. No image is published
+and no worker port is exposed remotely by this recipe.
+
 The optional `observability` build provides loopback Prometheus metrics and
 startup/liveness/readiness probes with explicit runtime enablement, as described
 in the [implemented local surface](../../docs/orishu-observability.md#implemented-local-surface).
@@ -575,6 +650,24 @@ tracing and full remote deployment acceptance remain incomplete under
 [operator manual task](../../docs/tasks/document-worker-observability.md) tracks
 the remaining deployment, collector and troubleshooting acceptance. Local
 metrics/probes do not establish the complete M4 monitoring handoff.
+
+The [monitoring incident runbook](../../docs/worker-monitoring-runbook.md)
+provides bounded read-only checks for peer loss, local unreadiness and missing
+telemetry. It distinguishes failed monitoring access from failed owner
+supervision and preserves admission-recovery stop conditions; no probe or
+counter authorizes an automatic restart or fresh join.
+
+An [optional formation alert group](../../docs/testing-worker-prometheus.md#optional-formation-warnings)
+supplies tested owner/admission/catch-up/timeout/capacity warnings using the
+existing metrics. Enable it separately in Prometheus, adapt all job selectors
+together and review its example thresholds. Existing trace-loss rules should
+use the corrected per-counter expression; no worker rebuild or new feature
+is needed for this rule change.
+
+The [formation dashboard example](../../docs/testing-worker-dashboard.md)
+provides 37 per-target snapshot panels and links to Prometheus history views.
+It is served by Prometheus, not the worker. Tracing-off and unavailable
+instruments remain explicit; no additional worker capability or port is added.
 
 See the [project architecture](../../docs/architecture.md), [security
 policy](../../SECURITY.md), and root [README](../../README.md).

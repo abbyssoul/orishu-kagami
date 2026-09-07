@@ -21,6 +21,195 @@ fn node(id: &str) -> NodeId {
     NodeId::new(id).unwrap()
 }
 
+fn policy(counter: u64, actor: &str, locked: bool) -> DeltaBody {
+    DeltaBody::MembershipPolicyUpdate(orishu_membership::MembershipPolicy {
+        locked,
+        version: version(counter, actor),
+    })
+}
+
+#[test]
+fn independently_reordered_stream_requests_are_not_replays() {
+    let mut driver = Driver::new(testing::model_with_members(3));
+    let digest = MembershipTree::build(driver.model()).digest();
+    for sequence in [10, 9] {
+        driver.apply(Message::Peer(PeerInput {
+            context: testing::peer_context(driver.model(), &node("node-0001"), sequence),
+            body: PeerBody::PullRequest {
+                round: sequence,
+                digest: digest.clone(),
+                buckets: Vec::new(),
+                cursor: None,
+            },
+        }));
+        assert!(driver.sent().iter().any(|(_, body)| matches!(body,
+            OutboundBody::PullReply { round, .. } if *round == sequence)));
+    }
+    driver.apply(Message::Peer(PeerInput {
+        context: testing::peer_context(driver.model(), &node("node-0001"), 9),
+        body: PeerBody::PullRequest {
+            round: 9,
+            digest,
+            buckets: Vec::new(),
+            cursor: None,
+        },
+    }));
+    assert!(
+        driver
+            .diagnostics
+            .iter()
+            .any(|d| matches!(d, Diagnostic::ReplayedSequence { seq: 9, .. }))
+    );
+    assert!(driver.sent().is_empty());
+}
+
+#[test]
+fn membership_lock_converges_and_local_configuration_cannot_unlock_it() {
+    let mut first = Driver::new(testing::model_with_members(3));
+    first.apply(Message::Local(Command::SetMembershipLock(true)));
+    let locked = first.model().membership_policy().unwrap().clone();
+    let mut second = Driver::new(testing::model_with_members(3));
+    relay(&mut second, "node-0001", next_hop(&mut first));
+    assert_eq!(second.model().membership_policy(), Some(&locked));
+    second.apply(Message::Local(Command::SetPolicy(Default::default())));
+    assert!(second.model().membership_locked());
+    second.apply(Message::Local(Command::SetMembershipLock(false)));
+    let unlocked = second.model().membership_policy().unwrap().clone();
+    assert!(unlocked.version > locked.version);
+    relay(&mut first, "node-0001", next_hop(&mut second));
+    assert_eq!(first.model().membership_policy(), Some(&unlocked));
+    first.apply(Message::Local(Command::SetMembershipLock(false)));
+    assert!(
+        first.effects.is_empty(),
+        "idempotent command emits no change"
+    );
+}
+
+#[test]
+fn policy_order_conflicts_and_overflow_do_not_change_local_configuration() {
+    let deltas = [policy(2, "node-0001", true), policy(2, "node-0002", false)];
+    let mut roots = Vec::new();
+    for order in [deltas.to_vec(), deltas.iter().rev().cloned().collect()] {
+        let mut driver = Driver::new(testing::model_with_members(3));
+        gossip(&mut driver, "node-0001", order);
+        assert!(!driver.model().membership_locked());
+        roots.push(MembershipTree::build(driver.model()).digest());
+        let held = driver.model().membership_policy().cloned();
+        gossip(&mut driver, "node-0001", vec![policy(2, "node-0002", true)]);
+        assert_eq!(driver.model().membership_policy(), held.as_ref());
+        assert_eq!(conflicts(&driver), 1);
+        gossip(
+            &mut driver,
+            "node-0001",
+            vec![policy(u64::MAX, "node-0002", true)],
+        );
+        driver.apply(Message::Local(Command::SetMembershipLock(false)));
+        assert!(driver.model().membership_locked());
+        assert!(driver.diagnostics.iter().any(|d| matches!(
+            d,
+            Diagnostic::LimitExceeded {
+                limit: "versionCounter",
+                ..
+            }
+        )));
+    }
+    assert_eq!(roots[0], roots[1]);
+}
+
+#[test]
+fn lock_fences_operator_removal_but_not_failure_detection() {
+    let mut driver = Driver::new(testing::model_with_members(3));
+    driver.apply(Message::Local(Command::SetMembershipLock(true)));
+    driver.apply(Message::Local(Command::RemoveMember {
+        node: node("node-0001"),
+        mode: RemovalMode::Force,
+        reason: None,
+    }));
+    assert!(driver.model().tombstones().is_empty());
+    announce(
+        &mut driver,
+        "node-0002",
+        Announcement::Dead,
+        "node-0001",
+        Incarnation(2),
+    );
+    assert_eq!(
+        driver.model().member(&node("node-0001")).unwrap().liveness,
+        Liveness::Dead
+    );
+    assert!(driver.model().tombstones().is_empty());
+}
+
+#[test]
+fn policy_is_carried_in_real_anti_entropy_replies() {
+    let mut source = Driver::new(testing::model_with_members(3));
+    source.apply(Message::Local(Command::SetMembershipLock(true)));
+    let mut target = Driver::new(testing::model_with_members(3));
+    target.apply(Message::Local(Command::StartAntiEntropyRound));
+    target.supply_peers(&["node-0001"]);
+    let request = target
+        .sent()
+        .into_iter()
+        .find_map(|(_, body)| match body {
+            OutboundBody::PullRequest {
+                round,
+                digest,
+                buckets,
+                cursor,
+            } => Some(PeerBody::PullRequest {
+                round: *round,
+                digest: digest.clone(),
+                buckets: buckets.clone(),
+                cursor: cursor.clone(),
+            }),
+            _ => None,
+        })
+        .unwrap();
+    source.apply(Message::Peer(PeerInput {
+        context: testing::peer_context(source.model(), &node("node-0001"), 1),
+        body: request,
+    }));
+    let reply = source
+        .sent()
+        .into_iter()
+        .find_map(|(_, body)| match body {
+            OutboundBody::PullReply {
+                round,
+                digest,
+                deltas,
+                complete,
+                cursor,
+            } => {
+                assert!(
+                    deltas
+                        .iter()
+                        .any(|d| matches!(d.body, DeltaBody::MembershipPolicyUpdate(_)))
+                );
+                Some(PeerBody::PullReply {
+                    round: *round,
+                    digest: digest.clone(),
+                    deltas: deltas.clone(),
+                    complete: *complete,
+                    cursor: cursor.clone(),
+                })
+            }
+            _ => None,
+        })
+        .unwrap();
+    target.apply(Message::Peer(PeerInput {
+        context: testing::peer_context(target.model(), &node("node-0001"), 1),
+        body: reply,
+    }));
+    assert_eq!(
+        target.model().membership_policy(),
+        source.model().membership_policy()
+    );
+    assert_eq!(
+        MembershipTree::build(target.model()).digest(),
+        MembershipTree::build(source.model()).digest()
+    );
+}
+
 fn version(counter: u64, actor: &str) -> VersionTuple {
     VersionTuple {
         epoch: 0,

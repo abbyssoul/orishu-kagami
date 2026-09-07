@@ -98,10 +98,11 @@ Recheck the affected task's source and acceptance evidence before assigning work
 - `apps/orishu-monitor` implements the P-MONITOR terminal shell: navigation,
   help, honest unavailable states, and terminal-safe shutdown. It has no worker
   API integration and reports no cluster state.
-- Feature-gated local Prometheus exposition and process probes have scoped
-  evidence for health, owner/lane and aggregate client-service instruments.
-  Secured remote exposure, broader instrumentation, OTLP traces and full
-  P-OBSERVABILITY/P-OBS-DOCS acceptance remain incomplete.
+- Feature-gated Prometheus exposition covers the finite formation-metric
+  inventory, including retained sessions and catch-up outcomes. Local probes,
+  secured-proxy scraping and local OTLP receipt have scoped evidence.
+  Cross-peer/log correlation, reviewed overhead and the full operator/deployment
+  handoff remain open; workload/storage instruments follow their owning stages.
 - [Kagami](../../apps/kagami/) opens a native window and has an offscreen-capable renderer, but its
   scene tree, open/save, playback, simulation, networking, and run controls are
   prototypes or stubs rather than the accepted experiment authority. The
@@ -151,7 +152,7 @@ slices and acceptance criteria before implementation begins.
 | ID | Work package | Lane | State | Depends on |
 | --- | --- | --- | --- | --- |
 | S-RESOURCE | [Shared Kubernetes-style resource envelope](../tasks/extract-shared-resource-envelope.md) | S | **Implemented and accepted**; both consumers migrated, wire compatibility pinned, and verification findings resolved | M0 complete; the deferred `metadata.id` vs `metadata.uid` spelling has since been settled in favour of `uid` (see O-API-SHAPE) |
-| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Partial: slices 1–2 and structural slice 3 implemented and accepted in `crates/orishu-workload` — manifest, artifact descriptors, component graph and step plan, deterministic CBOR identity with golden fixtures, closure validator, and bounds. Kagami compilation, Orishu admission, distribution seams, and protocol/CLI migration remain | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
+| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Partial: slice 1 and structural slice 3 accepted in `crates/orishu-workload` — manifest, artifact descriptors, component graph and step plan, deterministic CBOR codec with golden fixtures, streaming closure validator, and bounds. Slice 2 is complete except its before-allocation bound on collections, which needs a counting deserializer and is carried into O-CLIENT/slice 5. Kagami compilation, Orishu admission, distribution seams, and protocol/CLI migration remain | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
 | S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Partial: generic and dimensioned evaluation plus experiment integration through [K2](../tasks/kagami/integrate-document-variables.md) have landed; shared-engine resource bounds and slice 4 remain | S-WORKLOAD for slice 4 |
 | S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types landed in `orishu-identity`; cluster projection and run identity still require specification/reconciliation | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
@@ -184,8 +185,8 @@ slices and acceptance criteria before implementation begins.
 | N-ARTIFACT | [Availability, replication, re-replication, repair](../storage-spec.md) and committed-artifact discovery | N/O | **Task specification required** | O-STORAGE; N-CLUSTER; N-TRANSFER; N-PURGE |
 | P-SCALE | Reproducible [1/3/5/12/32-worker](../orishu-scaling-objectives.md#staged-evidence) compute, capacity, storage, retrieval and churn evidence | P/N/O | **Task specification required**; implement harness incrementally | O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
 | P-INSTALL | [Installable archives, native packages, Cargo applications, containers, Kagami installers, and first-run journeys](../tasks/publish-installable-artifacts.md) | P | In progress: candidate archives, Debian builds, Cargo-path installs, checksums/provenance, and Homebrew handoff; supported publication gated by M8 | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
-| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Local probes, metrics, membership deadlines, inbound/outbound/reliable/datagram and pre-pool instruments, OTLP receipt and live trace counters have scoped evidence; broader instrumentation, cross-peer traces and full security/operator acceptance pending | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
-| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Local/mTLS-proxy scrape and pinned HTTP/mTLS Collector recipes verified on loopback; remaining handoff ships alongside each observability slice | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
+| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Finite formation-metric inventory covered, including registry/catch-up outcomes; local OTLP/probe evidence retained. Cross-peer/log correlation, reviewed overhead and full operator/deployment acceptance pending | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
+| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Local/mTLS-proxy scrape, pinned HTTP/mTLS Collector recipes, formation runbook, alerts, dashboard, user service and rootless evaluation containers have scoped evidence; remaining deployment/correlation handoff stays open | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
 | P-MONITOR | [`orishu-monitor` admin TUI shell](../tasks/implement-orishu-monitor-admin-tui.md), followed by [operator API integration and parity](../tasks/integrate-orishu-monitor-operator-api.md); raw formation-admission secrets remain CLI-only | P | Shell task implemented; integration task recorded in backlog | No API gate for the shell; N-FORMATION membership projection for first live views; O-CLIENT and owning mutation contracts for later parity |
 
 ## Dependency graph
@@ -725,8 +726,8 @@ are recorded in the [acceptance ledger](../tasks/cluster-formation-conformance.m
 Its [remaining increments](../tasks/implement-cluster-formation-poc.md#remaining-reviewable-increments)
 now concern the M4 telemetry/operator handoff, not another formation fault audit.
 Use the [open M4 work table](../tasks/implement-cluster-formation-poc.md#open-m4-work-selection)
-to distinguish independent work from the pending logging-output and peer-profile
-decisions. Formation-stage overhead belongs to this handoff, not later
+to track accepted but unimplemented stdout logging and ADR 0025's profile-5
+propagation. Formation-stage overhead belongs to this handoff, not later
 scientific runtime instrumentation.
 A lost-ACK refusal or unresolved status alone is not a recovery procedure.
 Track N-FORMATION, P-OBSERVABILITY and P-OBS-DOCS separately:
@@ -766,10 +767,12 @@ selecting implementation.
   client/peer traces. Metrics/probes can land before trace propagation; M4
   acceptance requires both and their bounded real-wire tests. P-OBS-DOCS ships
   tested scrape, probe and collector instructions with the corresponding slice.
-  Peer propagation additionally needs acceptance of the proposed
-  [ADR 0025](../adr/0025-version-peer-trace-context-propagation.md); M4 scope
-  does not itself approve its wire-profile change. Local exporter work and
-  formation conformance can proceed independently of that decision.
+  Peer propagation follows accepted
+  [ADR 0025](../adr/0025-version-peer-trace-context-propagation.md): profile 5
+  only, coordinated rebuild/restart, no profile-4 fallback. Implementation and
+  compatibility validation remain pending. The separate logging decision is
+  also accepted: structured stdout with bounded asynchronous delivery and a
+  replaceable output adapter; additional sinks remain future work.
 
 ### Parallel execution
 

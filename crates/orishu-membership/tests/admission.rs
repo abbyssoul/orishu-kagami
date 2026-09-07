@@ -102,6 +102,147 @@ fn rejection(driver: &Driver) -> Option<RejectReason> {
 // ── The happy path ───────────────────────────────────────────────────────
 
 #[test]
+fn concurrent_allocations_recheck_certificate_capacity_and_lock_before_insertion() {
+    for scenario in ["certificate", "capacity", "lock", "exclusion"] {
+        let initial = testing::standalone("introducer");
+        let mut policy = initial.policy().clone();
+        if scenario == "capacity" {
+            policy.capacity = 2;
+        }
+        let mut driver = Driver::new(
+            orishu_membership::Membership::standalone(
+                initial.formation().clone(),
+                initial.cluster_name().clone(),
+                initial.local().clone(),
+                policy,
+                initial.limits().clone(),
+            )
+            .unwrap(),
+        );
+        let mut allocations = Vec::new();
+        for (session, seed) in [
+            (SessionId(1), APPLICANT_SEED),
+            (
+                SessionId(2),
+                if scenario == "certificate" {
+                    APPLICANT_SEED
+                } else {
+                    APPLICANT_SEED + 1
+                },
+            ),
+        ] {
+            let context =
+                testing::applicant_context(driver.model().formation(), APPLICANT, session, seed);
+            driver.apply(Message::Peer(PeerInput {
+                context,
+                body: join_request(),
+            }));
+            let verification = driver
+                .effects
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::VerifyCredential { request, .. } => Some(*request),
+                    _ => None,
+                })
+                .unwrap();
+            driver.apply(Message::Outcome(EffectOutcome::CredentialVerified {
+                request: verification,
+                session,
+                evidence: good_evidence(),
+            }));
+            let allocation = driver
+                .effects
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::AllocateNodeId { request, .. } => Some(*request),
+                    _ => None,
+                })
+                .unwrap();
+            allocations.push((session, allocation));
+        }
+        driver.apply(Message::Outcome(EffectOutcome::NodeIdAllocated {
+            session: allocations[0].0,
+            request: allocations[0].1,
+            node_id: "first".parse().unwrap(),
+        }));
+        assert_eq!(driver.model().members().len(), 2);
+        if scenario == "lock" {
+            driver.apply(Message::Local(Command::SetMembershipLock(true)));
+        }
+        if scenario == "exclusion" {
+            driver.apply(Message::Local(Command::UpdateBlocklist(BlocklistEntry {
+                key: BlocklistKey::Fingerprint(testing::fingerprint(APPLICANT_SEED + 1)),
+                action: BlocklistAction::Block,
+                version: testing::version(10),
+                added_by: "operator".into(),
+            })));
+        }
+        driver.apply(Message::Outcome(EffectOutcome::NodeIdAllocated {
+            session: allocations[1].0,
+            request: allocations[1].1,
+            node_id: "second".parse().unwrap(),
+        }));
+        assert_eq!(driver.model().members().len(), 2);
+        assert!(driver.model().member(&"second".parse().unwrap()).is_none());
+        assert_eq!(
+            driver.effects.iter().find_map(|effect| match effect {
+                Effect::Publish(ChangeRecord::AdmissionRejected { reason, .. }) =>
+                    Some(reason.clone()),
+                _ => None,
+            }),
+            Some(match scenario {
+                "certificate" => RejectReason::AlreadyAdmitted,
+                "capacity" => RejectReason::CapacityExhausted,
+                "lock" => RejectReason::MembershipLocked,
+                _ => RejectReason::Blocklisted {
+                    key: BlocklistKey::Fingerprint(testing::fingerprint(APPLICANT_SEED + 1)),
+                },
+            })
+        );
+    }
+}
+
+#[test]
+fn a_known_live_certificate_is_not_readmitted_but_dead_history_allows_a_new_id() {
+    for state in [Liveness::Alive, Liveness::Suspected, Liveness::Dead] {
+        let mut driver = Driver::new(testing::standalone("introducer"));
+        let mut held = testing::member("old-assigned", 1);
+        held.cert_fingerprint = testing::fingerprint(APPLICANT_SEED);
+        held.liveness = state;
+        testing::insert_member(driver.model_mut(), held);
+        request_join(&mut driver);
+        if state == Liveness::Dead {
+            supply_evidence(&mut driver, good_evidence());
+            supply_node_id(&mut driver, "new-assigned");
+            assert_eq!(driver.model().members().len(), 3);
+            assert_eq!(
+                driver
+                    .model()
+                    .member(&"old-assigned".parse().unwrap())
+                    .unwrap()
+                    .liveness,
+                Liveness::Dead
+            );
+            assert_eq!(
+                driver
+                    .model()
+                    .member(&"new-assigned".parse().unwrap())
+                    .unwrap()
+                    .liveness,
+                Liveness::Alive
+            );
+        } else {
+            assert_eq!(rejection(&driver), Some(RejectReason::AlreadyAdmitted));
+            assert!(!driver.effects.iter().any(|effect| matches!(
+                effect,
+                Effect::VerifyCredential { .. } | Effect::AllocateNodeId { .. }
+            )));
+            assert_eq!(driver.model().members().len(), 2);
+        }
+    }
+}
+
+#[test]
 fn a_complete_admission_verifies_then_allocates_then_inserts_then_replies() {
     let mut driver = Driver::new(testing::standalone("node-self"));
 
@@ -253,10 +394,7 @@ fn a_node_that_is_not_an_introducer_refuses() {
 #[test]
 fn a_membership_lock_refuses() {
     let mut driver = Driver::new(testing::standalone("node-self"));
-    driver.apply(Message::Local(Command::SetPolicy(AdmissionPolicy {
-        membership_locked: true,
-        ..AdmissionPolicy::default()
-    })));
+    driver.apply(Message::Local(Command::SetMembershipLock(true)));
     request_join(&mut driver);
     assert_eq!(rejection(&driver), Some(RejectReason::MembershipLocked));
 }
@@ -429,10 +567,7 @@ fn admission_that_becomes_impossible_during_verification_is_refused() {
         })
         .expect("verification request");
 
-    driver.apply(Message::Local(Command::SetPolicy(AdmissionPolicy {
-        membership_locked: true,
-        ..AdmissionPolicy::default()
-    })));
+    driver.apply(Message::Local(Command::SetMembershipLock(true)));
     driver.apply(Message::Outcome(EffectOutcome::CredentialVerified {
         request,
         session: SESSION,

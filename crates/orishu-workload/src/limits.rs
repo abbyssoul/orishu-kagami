@@ -6,13 +6,26 @@
 //! network-facing caller can tighten them and a test can drive a limit failure
 //! without generating a megabyte of YAML.
 //!
-//! Two of these are load-bearing for *ordering*, not just size:
+//! Several of these are load-bearing for *ordering*, not only for size:
 //!
 //! - [`Limits::max_manifest_bytes`] is checked before the document is parsed,
-//!   so an oversized manifest is never allocated in order to be rejected.
-//! - [`Limits::max_aggregate_declared_bytes`] is checked before any blob is
-//!   requested, so a manifest cannot make a reader fetch more bytes than it
-//!   agreed to hold by declaring many large artifacts.
+//!   so an oversized manifest is never allocated in order to be rejected. It is
+//!   also what bounds deserialization: what a parse can allocate is
+//!   proportional to an input that has already been capped.
+//! - Every **collection and string bound** is applied to the parsed model
+//!   before [`crate::validate_closure`] asks a provider for a single byte.
+//!   These are structural policy rather than allocation limits — the byte cap
+//!   above is what bounds allocation — and their job is to stop a manifest
+//!   commissioning work it has not earned by being internally consistent:
+//!   retrieval now, and admission later.
+//! - [`Limits::max_aggregate_declared_bytes`] is decided from the manifest
+//!   alone for the same reason, so a document cannot make a reader fetch more
+//!   bytes than it agreed to hold by declaring many large artifacts.
+//!
+//! Tightening allocation *during* deserialization — a counting deserializer
+//! that refuses an over-long list as it reads rather than just after — is worth
+//! doing once a network-facing admission path exists to justify its cost, and
+//! is tracked with that work rather than guessed at here.
 
 /// Bounds applied while reading, canonicalising, and validating a workload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

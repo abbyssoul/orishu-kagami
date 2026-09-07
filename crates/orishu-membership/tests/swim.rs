@@ -373,6 +373,127 @@ fn overlapping_probes_of_one_target_stay_independent() {
 }
 
 #[test]
+fn direct_contact_reissues_a_lost_suspicion_without_clearing_or_extending_it() {
+    for ack in [false, true] {
+        let mut observer = Driver::new(testing::model_with_members(2));
+        probe(&mut observer, "node-0001");
+        observer.apply(Message::Timer(armed_of(&observer, TimerKind::DirectProbe)));
+        observer.supply_peers(&[]);
+        let suspicion = armed_of(&observer, TimerKind::Suspicion);
+        // Drop the original announcement and gossip. The subject continues
+        // speaking at incarnation zero because it never learned the suspicion.
+        observer.supply_peers(&[]);
+        let body = if ack {
+            PeerBody::Ack {
+                probe: probe(&mut observer, "node-0001"),
+                incarnation: Incarnation::INITIAL,
+            }
+        } else {
+            PeerBody::Ping {
+                probe: ProbeId(123),
+                incarnation: Incarnation::INITIAL,
+            }
+        };
+        from(&mut observer, "node-0001", body);
+        assert_eq!(liveness(&observer, "node-0001"), Liveness::Suspected);
+        assert_eq!(
+            observer
+                .model()
+                .suspicions()
+                .get(&node("node-0001"))
+                .unwrap()
+                .timer,
+            suspicion
+        );
+        let reminders: Vec<_> = observer.sent().into_iter().filter(|(destination, body)| {
+            matches!((destination, body), (Destination::Member(target), OutboundBody::Announce {
+                announcement: Announcement::Suspect, target: subject, incarnation: Incarnation::INITIAL,
+            }) if target == &node("node-0001") && subject == target)
+        }).collect();
+        assert_eq!(
+            reminders.len(),
+            1,
+            "direct contact must remind the suspected subject"
+        );
+
+        let mut subject_model = testing::standalone("node-0001");
+        let observer_id = observer.model().local_id().clone();
+        testing::insert_member(
+            &mut subject_model,
+            observer.model().member(&observer_id).unwrap().clone(),
+        );
+        let mut subject = Driver::new(subject_model);
+        from(
+            &mut subject,
+            observer_id.as_str(),
+            PeerBody::Announce {
+                announcement: Announcement::Suspect,
+                target: node("node-0001"),
+                incarnation: Incarnation::INITIAL,
+            },
+        );
+        assert_eq!(subject.model().incarnation(), Incarnation(1));
+        from(
+            &mut observer,
+            "node-0001",
+            PeerBody::Announce {
+                announcement: Announcement::Alive,
+                target: node("node-0001"),
+                incarnation: subject.model().incarnation(),
+            },
+        );
+        assert_eq!(liveness(&observer, "node-0001"), Liveness::Alive);
+        observer.apply(Message::Timer(suspicion));
+        assert_eq!(liveness(&observer, "node-0001"), Liveness::Alive);
+    }
+}
+
+#[test]
+fn suspicion_reminders_do_not_follow_unknown_acks_dead_records_or_newer_refutations() {
+    for case in 0..3 {
+        let mut model = testing::model_with_members(2);
+        testing::set_liveness(
+            &mut model,
+            &node("node-0001"),
+            if case == 1 {
+                Liveness::Dead
+            } else {
+                Liveness::Suspected
+            },
+            Incarnation::INITIAL,
+        );
+        let mut driver = Driver::new(model);
+        let body = if case == 0 {
+            PeerBody::Ack {
+                probe: ProbeId(999),
+                incarnation: Incarnation::INITIAL,
+            }
+        } else {
+            PeerBody::Ping {
+                probe: ProbeId(999),
+                incarnation: Incarnation(1),
+            }
+        };
+        from(&mut driver, "node-0001", body);
+        assert!(!driver.sent().iter().any(|(_, body)| matches!(
+            body,
+            OutboundBody::Announce {
+                announcement: Announcement::Suspect,
+                ..
+            }
+        )));
+        assert_eq!(
+            liveness(&driver, "node-0001"),
+            match case {
+                0 => Liveness::Suspected,
+                1 => Liveness::Dead,
+                _ => Liveness::Alive,
+            }
+        );
+    }
+}
+
+#[test]
 fn no_available_intermediary_suspects_immediately() {
     let mut driver = Driver::new(testing::model_with_members(2));
     let _ = probe(&mut driver, "node-0001");

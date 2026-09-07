@@ -24,18 +24,18 @@
     },
     "model": {
       "image": {
-        "uri": "oci://registry.example.com/sim/em:v1"
+        "uri": "urn:orishu:superseded-prototype-artifact"
       }
     },
     "inputs": {
       "geometry": {
         "mesh": {
-          "uri": "https://example.com/air-tunnel.3mf"
+          "uri": "urn:orishu:superseded-prototype-geometry"
         }
       },
       "initialConditions": {
         "image": {
-          "uri": "https://example.com/snapshot.orishu"
+          "uri": "urn:orishu:superseded-prototype-initial-state"
         }
       }
     },

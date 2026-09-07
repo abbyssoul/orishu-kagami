@@ -7,6 +7,10 @@ PROMTOOL ?= promtool
 PROMETHEUS ?= prometheus
 OTELCOL ?= otelcol
 WORKER_OTELCOL_TARGET_DIR ?= target/worker-otelcol
+WORKER_SERVICE_TARGET_DIR ?= target/worker-service-enabled
+WORKER_SERVICE_MINIMAL_TARGET_DIR ?= target/worker-service-minimal
+PODMAN ?= podman
+WORKER_CONTAINER_BASE ?= docker.io/library/debian@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f
 
 .PHONY: test-formation-release-guard
 test-formation-release-guard:
@@ -41,6 +45,30 @@ test-worker-trace-prometheus:
 	python3 scripts/test_worker_trace_collector.py
 	python3 scripts/check-worker-prometheus.py --trace-metrics --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
 
+.PHONY: test-worker-formation-prometheus
+test-worker-formation-prometheus:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing
+	python3 scripts/check-worker-prometheus.py --formation-alerts --trace-metrics --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+
+.PHONY: test-worker-dashboard
+test-worker-dashboard:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing
+	python3 scripts/check-worker-dashboard.py --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+
+# Runtime-only UUID-named user units; no package install or boot enablement.
+.PHONY: test-worker-user-service
+test-worker-user-service:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_SERVICE_TARGET_DIR)"
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --target-dir "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)"
+	python3 scripts/check-worker-user-service.py --worker "$(WORKER_SERVICE_TARGET_DIR)/debug/orishu-worker" --minimal-worker "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)/debug/orishuctl" --promtool "$(PROMTOOL)"
+
+# Rootless local evaluation images; base must be pulled explicitly, apt runs in-image.
+.PHONY: test-worker-container
+test-worker-container:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_SERVICE_TARGET_DIR)"
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --target-dir "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)"
+	python3 scripts/check-worker-container.py --podman "$(PODMAN)" --base-image "$(WORKER_CONTAINER_BASE)" --worker "$(WORKER_SERVICE_TARGET_DIR)/debug/orishu-worker" --minimal-worker "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)/debug/orishuctl" --promtool "$(PROMTOOL)"
+
 # Official pinned Collector; local receipt/outage recipe, no download or service install.
 .PHONY: test-worker-otelcol
 test-worker-otelcol:
@@ -59,6 +87,7 @@ test-worker-otelcol-mtls:
 .PHONY: test-worker-monitoring-proxy
 test-worker-monitoring-proxy:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability
+	python3 scripts/test_worker_monitoring_proxy.py
 	python3 scripts/check-worker-monitoring-proxy.py --nginx "$(NGINX)" --worker target/debug/orishu-worker --ctl target/debug/orishuctl --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
 
 # Unix process/QUIC journey with explicit per-worker diagnostic scrapes.

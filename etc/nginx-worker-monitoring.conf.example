@@ -9,8 +9,10 @@ events { worker_connections 64; }
 http {
     access_log off;
     server_tokens off;
+    # HTTP header and HTTP-listener TLS-handshake budget in the tested Nginx.
     client_header_timeout 5s;
     client_body_timeout 5s;
+    # Inactivity between response writes, not a total response-age deadline.
     send_timeout 5s;
     keepalive_timeout 5s;
     keepalive_requests 100;
@@ -38,6 +40,8 @@ http {
         ssl_verify_client on;
         ssl_verify_depth 1;
         ssl_session_tickets off;
+        # Counts requests only after the complete header, not pending TLS/heads.
+        # worker_connections also bounds those connections and upstream sockets.
         limit_conn monitoring 16;
         limit_conn_status 429;
         add_header Cache-Control no-store always;

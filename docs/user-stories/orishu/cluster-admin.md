@@ -33,7 +33,9 @@ as already-supported behavior. Operational metrics/probes are partially
 implemented; secure deployment, traces and remaining monitoring workflows
 stay with [P-OBS-DOCS](../../tasks/document-worker-observability.md). Its
 [mTLS proxy recipe](../../testing-worker-monitoring-proxy.md) now tests
-monitoring-only access and a real source-build Prometheus scrape; it does not
+monitoring-only access, a real source-build Prometheus scrape and
+[stalled-reader expiry/recovery](../../testing-worker-monitoring-proxy.md#downstream-response-backpressure-and-expiry)
+with continued operator control; it does not
 complete fleet, container/service or release deployment acceptance.
 
 Unless a story says otherwise, all stories in this document assume the following:
@@ -86,11 +88,82 @@ As an administrator, I want to get detailed information about a specific node in
 
 ### Correlate cluster metrics and traces
 
+The [rootless container recipe](../../testing-worker-container.md) verifies
+that ordinary containers have separate loopbacks, and only an explicitly
+network-sharing scraper can reach a worker's local metrics. Sharing networking
+does not require mounting worker credentials. This local trust boundary does
+not replace remote mTLS authorization or prove formation convergence.
+
+The [user-service monitoring recipe](../../testing-worker-user-service.md)
+distinguishes service-manager state, process health and formation identity.
+Its explicit restart creates a fresh standalone formation with retained
+credentials, not restored membership. Per-worker service checks do not prove
+three-worker convergence or cross-peer trace/log correlation.
+
+The [formation dashboard example](../../testing-worker-dashboard.md) supplies
+per-target metric and trace-delivery views with explicit source selection and
+graph links. It does not provide the still-pending cross-peer/log correlation,
+infer peer identity from a scrape label or prove convergence from availability.
+
+The [formation warning examples](../../testing-worker-prometheus.md#optional-formation-warnings)
+distinguish recent admission refusals, receiver failures, exhausted budgets
+and transport timeouts. They do not identify a failed peer or prove command
+outcomes; an informational refusal can be correct lock enforcement. Query
+the original operation and the runbook's exact worker/formation identities.
+
+The [monitoring incident runbook](../../worker-monitoring-runbook.md) now links
+peer-loss signals to exact formation/source/node/certificate inspection and
+the existing admission-recovery procedure. The three-worker companion checks
+healthy survivor probes at suspected/dead peer checkpoints; readiness and
+aggregate counters still do not establish convergence or permit readmission.
+
 **Current evidence:** the [local Collector walkthrough](../../testing-worker-otelcol.md)
 receives worker client-service spans and checks authenticated control through
 collector shutdown/recovery. It does not establish this story's cross-peer
 correlation or fleet dashboard outcome; those remain gated on the documented
 propagation and operator-handoff work.
+The [Collector mTLS checks](../../testing-worker-otelcol-mtls.md) also verify
+receiver access and worker server-identity checks using collector-only keys;
+they do not bind submitted telemetry to authoritative membership identities.
+Inbound peer metrics additionally distinguish TLS/application handshake
+outcomes and local capacity refusals. These are per-process signals, not
+per-peer attribution, membership convergence or admission acceptance; consult
+the [catalogue](../../orishu-observability.md#inbound-peer-handshake-counters)
+and public operation status before taking recovery action.
+The [inbound capacity gauges](../../orishu-observability.md#inbound-connection-capacity-gauges)
+distinguish current adapter pressure from historical refusal counts. Connection
+tasks include unfinished handshakes and uncollected completions; do not use
+their occupancy as a membership or cluster-size measurement.
+The [registry gauges](../../orishu-observability.md#registered-session-capacity-gauges)
+separately count retained sessions and their provisional subset, not admitted
+members or live sockets. Outgoing introducer bindings share the provisional
+budget. Compare these with authenticated operation status and transport
+pressure; neither high occupancy nor a withdrawn owner projection authorizes
+automatic restart, readmission or membership changes.
+The [catch-up counters](../../orishu-observability.md#admission-state-catch-up-outcomes)
+separate a joiner's validated transfer from safe owner adoption. Late results
+can be fenced or abandoned; a source refusal is not a new admission refusal.
+Compare authenticated join-operation status before acting, not page counts,
+aggregate readiness or a successful transport response. Counters retain totals
+across formation changes but are not durable admission history.
+Reliable-exchange metrics additionally expose aggregate request/serve outcomes,
+duration, partial stream bytes and pool pressure. Use their
+[accounting boundaries](../../orishu-observability.md#reliable-peer-exchange-metrics)
+to distinguish local transport work from accepted admissions; they supply no
+per-peer attribution or end-to-end convergence timing.
+The [traffic catalogue](../../orishu-observability.md#datagram-and-pre-pool-traffic-counters)
+also exposes local datagram submission outcomes/payload bytes and pre-pool
+refusal. Independent send/receive totals are not a network-loss measurement;
+decoded SWIM activity and public membership/operation status remain distinct.
+The [outbound dial catalogue](../../orishu-observability.md#outbound-dial-and-tls-metrics)
+adds nested attempt/TLS outcomes and duration with dial-slot pressure. It helps
+distinguish candidate fallback from whole-attempt exhaustion; neither a
+completed TLS handshake nor a returned reply establishes admission or recovery.
+The [membership deadline catalogue](../../orishu-observability.md#membership-deadline-and-abandonment-counters)
+adds local consumed timers and join/reconciliation abandonment. A learned
+liveness change need not consume a local suspicion timer, and a round can
+exhaust its continuation budget without a timeout. Use actual membership and
+operation status for recovery decisions; these counts are not cluster authority.
 
 Status: **planned — ADR 0017**
 

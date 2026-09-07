@@ -120,6 +120,20 @@ fn merkle_digest() {
 }
 
 #[test]
+fn membership_policy_update() {
+    assert_fixture(
+        "membership_policy_update",
+        &GossipDelta {
+            hops: 0,
+            body: DeltaBody::MembershipPolicyUpdate(orishu_membership::MembershipPolicy {
+                locked: true,
+                version: testing::version(3),
+            }),
+        },
+    );
+}
+
+#[test]
 fn membership_tombstone() {
     assert_fixture(
         "membership_tombstone",

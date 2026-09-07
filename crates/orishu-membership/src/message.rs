@@ -243,6 +243,19 @@ pub enum Command {
         target_formation: FormationId,
     },
 
+    /// Rebind one pending join after the shell authenticates a replacement
+    /// connection to the same introducer/formation. This consumes the next
+    /// retry, preserving the attempt budget and fencing the old timer/replies.
+    /// It cannot restart an abandoned attempt or change its target formation.
+    RebindJoin {
+        /// The session still held by the pending attempt, not a stale job's guess.
+        previous_session: SessionId,
+        /// Fresh authenticated session; the shell must not reuse a retired handle.
+        session: SessionId,
+        /// Expected target, independently checked by the replacement handshake.
+        target_formation: FormationId,
+    },
+
     /// Leave the current formation voluntarily.
     ///
     /// Announces `Leave`, drops the assigned ID, and returns to a standalone
@@ -275,8 +288,16 @@ pub enum Command {
         node: NodeId,
     },
 
-    /// Replace the admission policy, for example to lock membership.
+    /// Change the replicated membership lock using a new local version.
+    SetMembershipLock(bool),
+
+    /// Replace node-local admission configuration; never changes the cluster lock.
     SetPolicy(AdmissionPolicy),
+
+    /// Atomically merge a complete, authenticated admission-state baseline.
+    /// The shell proves completeness and fences lifecycle before submitting;
+    /// acceptance changes no local admission role or credential authority.
+    InstallAdmissionBaseline(crate::baseline::AdmissionBaseline),
 
     /// Add or lift a blocklist entry.
     UpdateBlocklist(BlocklistEntry),

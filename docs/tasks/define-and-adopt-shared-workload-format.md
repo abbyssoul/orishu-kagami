@@ -1,8 +1,10 @@
 # Define and adopt the shared workload format
 
-Status: **in progress** — slices 1–2 and the structural half of slice 3 are
-implemented and accepted; see [Increment record](#increment-record--2026-09-07).
-Slices 4–7 remain.
+Status: **in progress** — slice 1 and the structural half of slice 3 are
+implemented and accepted. Slice 2 is implemented **except** for its
+before-allocation bound on collections, which is
+[carried forward](#carried-forward-from-slice-2) to the admission path. Slices
+4–7 remain. See [Increment record](#increment-record--2026-09-07).
 Decisions: [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md),
 [ADR 0009](../adr/0009-execute-workloads-as-sandboxed-portable-programs.md),
@@ -268,12 +270,21 @@ able to compile an experiment into a workload without acquiring any of them.
 - `ComponentInstance`, `StateChannel`, `StepInvocation`, `StepPlan`,
   `PlacementConstraint`, and their validated id types, following the field
   spellings `docs/protocol-client.md` had already committed to.
-- A hand-written deterministic CBOR codec (RFC 8949 §4.2) with golden bytes and
-  digests under `tests/fixtures/`, blessed with `BLESS_WORKLOAD_FIXTURES=1`.
-- A transport-neutral `validate_closure` over a `BlobSource` addressed by digest
-  alone, reporting every defect rather than the first.
-- `Limits`, with manifest bytes checked before parsing and aggregate declared
-  bytes before any blob is requested.
+- A hand-written deterministic CBOR codec (RFC 8949 §4.2), **both directions**,
+  with golden bytes and digests under `tests/fixtures/`, blessed with
+  `BLESS_WORKLOAD_FIXTURES=1`. `manifest_from_canonical_bytes` is bounded and
+  strict: every construct outside the profile is refused rather than
+  normalised. Round-tripping each fixture is what shows the encoding is
+  injective, which is an identity-correctness property rather than a
+  convenience — an encoder that dropped a field would give two workloads one
+  digest.
+- A transport-neutral `validate_closure` over a `BlobSource`, in two phases: a
+  pure pass over the manifest, then verification, reached only if the first
+  found nothing. Verification streams through `BlobVerifier` and holds no
+  bytes; a `VerifiedClosure` records what was verified, not contents.
+- `Limits`, with manifest bytes checked before parsing, every collection and
+  string bound applied before any blob is requested, and the diagnostic list
+  itself bounded.
 
 ### Decisions taken
 
@@ -281,10 +292,14 @@ able to compile an experiment into a workload without acquiring any of them.
   canonical client payload format, so this adds no second codec. The encoder is
   hand-written over an explicit value tree rather than serde-derived, so a
   serialization attribute cannot silently change what a workload commits to.
-- **`orishu.dev/v2` during the transition.** The superseded prototype still
-  answers to `orishu.dev/v1`, so exactly one parser claims each discriminator.
-  This becomes the group's `v1` workload version when slice 5 lands and the
-  prototype is deleted; the golden digests will be re-blessed then.
+- **`orishu.dev/v2`, permanently.** The superseded prototype already answers to
+  `orishu.dev/v1`, so this version keeps exactly one parser per discriminator.
+  It is *not* renamed when the prototype is deleted: the discriminator is inside
+  the canonical bytes, so renaming it would change every workload's digest and
+  break every identity, signature, and provenance record at once. Deleting the
+  prototype frees the string `orishu.dev/v1`; it does not make this format that
+  string. (An earlier version of this record said otherwise; that would have
+  been a silent identity change and was wrong.)
 - **No migration.** Nothing has been submitted against the prototype, so there
   is no compatibility obligation and no legacy parser was written.
 - **Non-finite floats are rejected at construction**, via `FiniteF64`, rather
@@ -293,6 +308,36 @@ able to compile an experiment into a workload without acquiring any of them.
 - **Role is not part of descriptor conflict detection.** One blob may serve two
   roles and is stored once; size, media type and schema are claims about the
   bytes and may not contradict.
+
+### Carried forward from slice 2
+
+Slice 2 requires bounding "manifest bytes, nesting, collections, strings,
+descriptor counts, aggregate declared size, and expression graphs **before
+allocation or artifact retrieval**". Everything there is satisfied *except* the
+before-allocation half for collections, so slice 2 is not claimed as complete.
+
+What holds today:
+
+- **Before allocation:** manifest bytes — checked against the input length
+  before parsing, before canonical decoding, and *while encoding*, which stops
+  at the point it would exceed the budget rather than completing and then being
+  measured; nesting depth; the canonical decoder's value count; and every
+  validated name and role, whose constructors and serde visitors check the
+  borrowed `&str` before copying it.
+- **Before retrieval:** every collection and string bound, the descriptor
+  counts, and the aggregate declared size — all decided from the manifest alone,
+  behind a gate a manifest must pass before a provider is consulted.
+
+What does not: **collection counts during deserialization**. `serde` builds a
+`Vec` or `BTreeMap` and the count bound is applied to the result. Total
+allocation stays proportional to an input already capped at 4 MiB, so this is a
+looseness rather than an unbounded path — but it is not what the slice asks for.
+
+Closing it needs a counting deserializer that refuses an over-long collection as
+it reads. That is invasive, and its value is realised at a network-facing
+boundary that does not exist yet, so it is tracked with **slice 5 (Orishu admits
+the exact shared format)** rather than done speculatively here. Slice 5 cannot
+be accepted without it.
 
 ### Deferred, and by whom
 
@@ -308,6 +353,117 @@ able to compile an experiment into a workload without acquiring any of them.
   carries resolved scalars until it lands.
 - **Slices 4–7** are untouched: Kagami compilation, Orishu admission, the
   distribution seams, and the protocol/CLI migration.
+
+### Review remediation — 2026-09-07
+
+A review of the increment raised four findings, all valid and all addressed.
+
+1. **Bounds were declared but not fully applied.** `max_labels` and
+   `max_text_bytes` had no call sites; collection bounds were checked but did
+   not stop retrieval; and verified blobs were cloned into memory while the
+   limits advertised a 64 GiB artifact.
+
+   Validation is now two phases with a hard gate between them: everything a
+   manifest can get wrong on its own is decided first, and a manifest that
+   fails never reaches the provider — asserted by a `BlobSource` that panics if
+   consulted. `max_labels` and `max_text_bytes` are enforced, the latter over
+   every map that can hold a `ScalarValue::Text`. `BlobSource` became a
+   streaming interface: candidates arrive in chunks through `BlobVerifier`, are
+   hashed as they go, and are never materialised; a `VerifiedClosure` holds
+   descriptors and roles rather than bytes, which is what makes the 64 GiB
+   default honest. A source supplying more than declared is cut off at the
+   declared length. Diagnostics are bounded by `max_reported_errors`, and a
+   truncated report says so instead of reading as exhaustive.
+
+   One part is deliberately *not* claimed: deserialization itself is bounded by
+   the input byte cap checked before parsing, not by a counting deserializer.
+   The collection bounds are structural policy applied immediately after the
+   parse. Tightening allocation during deserialization is tracked with the
+   network-facing admission path that would justify it.
+
+2. **Ownership and graph-profile invariants were incomplete.** Ownership is
+   spelled twice — `StateChannel.owner` and `ComponentInstance.stateOwnership`,
+   both committed to by `docs/protocol-client.md` — and the two were never
+   reconciled. Now they must agree exactly; an owned channel must declare
+   `reduction: single`; owned state must have exactly one writer, and not zero;
+   ownership implies a single writer independently of the declared reduction;
+   and `stepPlan.profile` must equal `compute.workloadGraphProfile`. These are
+   structural, not the scientific policy this increment defers.
+
+3. **Descriptor conflicts were decided from the verified set**, so a
+   contradiction was invisible when the blob it concerned was missing or failed
+   its digest — a submitter could hide one by withholding a blob. Conflicts,
+   role cardinality, and both byte budgets are now computed from the manifest
+   alone, in phase one.
+
+4. **The codec only encoded.** `manifest_from_canonical_bytes` closes it. The
+   independent strict reader in `tests/support` is kept rather than replaced:
+   its value is precisely that it shares no code with the encoder, so an
+   encoder and decoder that were jointly wrong in a compensating way would
+   still be caught.
+
+### Review remediation — 2026-09-08
+
+A second review raised three further findings, all valid.
+
+1. **The decoder accepted non-canonical spellings.** The encoder omits an empty
+   collection, but the decoder accepted one written out explicitly — so two byte
+   strings decoded to one manifest, and re-encoding reproduced only one of them.
+   That directly contradicted the injectivity the codec had just been documented
+   to have: the digest over the other byte string would have named a workload
+   nobody could rebuild.
+
+   Fixed in two layers. An explicitly encoded empty list or map is now refused
+   where it occurs, with an error saying how emptiness is spelled. Then
+   `manifest_from_canonical_bytes` re-encodes its result and requires the bytes
+   to match — a backstop that holds for any second spelling *not* on the known
+   list, so a future field whose decoding loses a distinction cannot silently
+   give two workloads one digest. Both layers were verified to catch the
+   original bug independently. `decode` also now checks `max_manifest_bytes`
+   before reading, which is what makes the collection-header bound meaningful:
+   a header can claim no more than the input holds, but only if the input is
+   itself bounded.
+
+2. **Slice 2's before-allocation bound was deferred while the status claimed
+   the slice was accepted.** The status was wrong, and is corrected above under
+   [Carried forward from slice 2](#carried-forward-from-slice-2). The part that
+   could be closed cheaply was: validated names and roles now check the borrowed
+   value before copying it, in both their constructors and their serde
+   visitors — the derive's `try_from = "String"` had been allocating every
+   authored name, oversized ones included, before anything looked at its length.
+
+3. **`orishu.dev/v2` was documented as becoming `v1` later.** It will not. The
+   discriminator is inside the canonical bytes, so renaming it would change
+   every workload's digest and break every identity, signature, and provenance
+   record at once. Deleting the prototype frees the string `orishu.dev/v1`; it
+   does not make this format that string. The claim is removed from the code
+   comment and from the decision above.
+
+### Review remediation — 2026-09-08 (second round)
+
+A third review raised two findings, both valid.
+
+1. **The encoder could produce bytes its own decoder refused.** `decode`
+   enforced `max_manifest_bytes`; `encode` did not. Under a tight limit — or
+   with a large programmatically built manifest — encoding and
+   `workload_digest` succeeded while decoding the result failed, so a workload
+   could be given an identity that could never be read back.
+
+   Every append now goes through a guarded `Output` that stops at the point the
+   budget would be exceeded, so encoding is bounded in allocation as well as in
+   result, and the size it *would* have reached is honestly reported as unknown
+   (`EncodedTooLarge`, distinct from `TooLarge` for exactly the reason
+   `SizeOverrun` is distinct from `SizeMismatch`). A symmetry test sweeps the
+   limit across the natural encoded size and asserts that whatever encodes under
+   a bound decodes under it; a second test asserts a digest is never taken over
+   bytes a reader would refuse.
+
+2. **`ArtifactRole` still derived `Deserialize` through `String`**, contradicting
+   the claim above that every validated name *and role* checks a borrowed value.
+   The claim was wrong. The visitor is now factored into one
+   `ids::deserialize_name` used by both the macro and `ArtifactRole`, so the two
+   cannot drift into validating at different moments, and a test asserts the
+   ordering on both the constructor and the authoring path.
 
 ### Cleanup done here
 

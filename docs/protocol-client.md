@@ -483,9 +483,10 @@ scalability claim.
 
 ### Planned client trace context
 
-Trace extraction/export is not implemented. This bounded propagation contract
-is proposed alongside [ADR 0025](adr/0025-version-peer-trace-context-propagation.md),
-not a new authentication mechanism or a claim of current tracing support.
+Remote-parent extraction/propagation is not implemented. This bounded contract
+supports accepted [ADR 0025](adr/0025-version-peer-trace-context-propagation.md);
+it is not a new authentication mechanism or a claim of implemented propagation.
+Existing local root-span export is distinct from adopting an incoming parent.
 
 After normal client authorization, an enabled tracing adapter may extract one
 case-insensitive `traceparent` header. Duplicate values (including a combined
@@ -562,15 +563,27 @@ and peer admission. It serves this process, never a relayed cluster view:
 These responses do not use CBOR, the client response envelope, or require an
 assigned `X-Node-Id` during startup. Metrics use
 `text/plain; version=0.0.4; charset=utf-8`; probes use plain text. Responses
-disable caching. Query parameters return 400; unknown routes return 404, and
-no client mutation/token routes are mounted. The current catalogue is three
+disable caching, and no client mutation/token routes are mounted.
+Direct-listener dispatch uses the
+exact raw path: case variants, percent-encoded aliases, trailing/repeated
+slashes and dot-segment aliases are not alternate diagnostic routes. Unknown
+or disabled paths return 404 regardless of method/query. On an enabled exact
+path, a query (including an empty query) returns 400 before method checking;
+otherwise every method except GET returns 405 with `Allow: GET`. HEAD is not a
+scrape or probe: it receives the same rejection status/headers but no body.
+These dispatched 400/404/405 responses have `Cache-Control: no-store`, plain-text
+content type and fixed reason bodies of at most 64 bytes. They never echo paths,
+headers, credentials or bodies and never inspect worker state or produce client
+request metrics/spans. Malformed/oversized wire input rejected before dispatch
+remains subject to the shared HTTP transport contract, not this reason format.
+The current catalogue is three
 health gauges, thirteen process-lifetime owner counters, ten inbound peer
 handshake counters, eight bounded-lane slot gauges and seven client-service
 instruments, plus reliable peer exchange outcomes, duration, bytes and pool
 gauges and outbound attempt/TLS outcomes, duration and dial pressure.
 Only the five duration histograms have labels: eight fixed `le` bounds
 each. Other series are unlabelled, with constant-size snapshots. Allow 32 KiB
-of text for the 131 base series or 143 with optional trace counters, including
+of text for the 151 base series or 163 with optional trace counters, including
 datagram/pre-pool traffic and membership deadline/abandonment observations. Client service accounting
 is enabled only with runtime metrics; it excludes diagnostics, pre-service
 transport rejection and response delivery. Handler success is not command
@@ -996,6 +1009,12 @@ One typed channel carrying state or contributions between component instances.
 ```
 
 A channel with an `owner` is authoritative state and admits exactly one writing invocation, which must run the owning instance. A channel without one is a contribution channel: several invocations may produce it, combined by the declared `reduction`. Plugin order, map order, worker timing, and guest completion order never decide that reduction ([ADR 0024](./adr/0024-orishu-orchestrates-a-workload-component-graph.md)).
+
+Ownership is spelled twice — here as `owner`, and on the component as `stateOwnership` — and neither is derived from the other, so the two must agree exactly. A channel naming an owner that does not claim it, an instance claiming a channel that names no owner, and two instances claiming one channel are all rejected: a workload where they differ has no single answer to "who owns this state".
+
+Because ownership already implies a single writer, an owned channel must declare `reduction: single`; there is nothing for `sum`, `min`, or `max` to combine. Owned state must also be written by exactly one invocation of the plan — an owner that never writes leaves its state at the initial boundary forever, which is a plan that does not advance rather than one that advances slowly.
+
+`stepPlan.profile` must equal `compute.workloadGraphProfile`. The profile decides how the graph and the plan are read, and two answers would leave a worker free to interpret one half under each.
 
 #### StepPlan
 The deterministic schedule for advancing one committed boundary.

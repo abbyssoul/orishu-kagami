@@ -1,0 +1,17 @@
+# Source-built evaluation image, not the root Dockerfile's release candidate.
+# Supply an immutable Debian trixie-slim BASE_IMAGE and matching Linux binaries.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl libgcc-s1 \
+    && apt-get clean
+COPY orishu-worker /usr/local/bin/orishu-worker
+COPY orishuctl /usr/local/bin/orishuctl
+ARG WORKER_FEATURES
+LABEL org.orishu.poc.worker-features="${WORKER_FEATURES}"
+# Explicit bind mounts supply owner-only persistent state and the runtime socket.
+USER 65532:65532
+WORKDIR /
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/orishu-worker"]
+CMD ["--state-dir=/state", "--listen.clients=/run/orishu/worker.sock", "--accepts.peers=false", "--observability.enabled=false", "--tracing.enabled=false"]

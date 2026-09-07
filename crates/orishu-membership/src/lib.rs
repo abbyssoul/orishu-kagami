@@ -62,12 +62,9 @@
 //!   replayable, and a replayable secret is a leaked secret; credential checks
 //!   happen behind [`Effect::VerifyCredential`].
 //!
-//! ## Known boundary, not yet closed
-//!
-//! The membership lock in [`AdmissionPolicy`] is currently node-local. The
-//! runtime design treats it as cluster-replicated state, which needs a
-//! versioned cluster-policy entity of its own; until the task that owns that
-//! contract lands, an operator must set the lock on each introducer.
+//! The versioned [`MembershipPolicy`] lock is replicated through gossip and
+//! anti-entropy. [`AdmissionPolicy`] contains only node-local admission settings.
+//! The worker shell must finish admission-state catch-up before introducing peers.
 //!
 //! # Decoder obligations
 //!
@@ -96,6 +93,7 @@
 
 pub mod admission;
 pub mod antientropy;
+pub mod baseline;
 pub mod effect;
 pub mod gossip;
 pub mod limits;
@@ -105,6 +103,7 @@ pub mod model;
 pub mod testing;
 mod update;
 
+pub use baseline::AdmissionBaseline;
 pub use effect::{
     AllocationId, Announcement, ChangeRecord, CredentialKind, Destination, Diagnostic, Effect,
     ForeignHandoff, IndirectResult, OutboundBody, OutboundMessage, ProbeId, RejectReason,
@@ -118,7 +117,7 @@ pub use message::{
 };
 pub use model::{
     Accepts, Address, AdmissionPolicy, Capabilities, EngineCapability, Liveness, LocalIdentity,
-    Member, Membership, NetworkPattern, NodeCapacity, ValidationError,
+    Member, Membership, MembershipPolicy, NetworkPattern, NodeCapacity, ValidationError,
 };
 pub use update::update;
 

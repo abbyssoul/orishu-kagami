@@ -1,0 +1,12 @@
+{
+  "hops": 0,
+  "deltaType": "MembershipPolicyUpdate",
+  "data": {
+    "locked": true,
+    "version": {
+      "epoch": 0,
+      "counter": 3,
+      "actor": "node-actor"
+    }
+  }
+}

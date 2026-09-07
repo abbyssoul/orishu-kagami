@@ -40,6 +40,20 @@
 //! workload; they never define its identity, so whitespace, key order,
 //! comments, and the choice of codec cannot change it.
 //!
+//! The encoding is a full codec, not only a hash input:
+//! [`manifest_from_canonical_bytes`] recovers a manifest from those bytes. That
+//! is what lets a receiver work from canonical bytes alone, and it is also the
+//! check that the encoding is *injective* — an encoder that quietly dropped a
+//! field would give two different workloads one digest, and a round trip is
+//! what notices.
+//!
+//! # Nothing large is held
+//!
+//! Closure verification streams. A candidate artifact arrives in chunks through
+//! [`BlobVerifier`], is hashed as it goes, and is never materialised; a
+//! [`VerifiedClosure`] records what was verified, not the bytes. That is why
+//! [`Limits`] can honestly permit a 64 GiB artifact.
+//!
 //! # Example
 //!
 //! ```
@@ -121,10 +135,13 @@ pub mod value;
 
 pub use artifact::{ArtifactDescriptor, ArtifactRole, SchemaCompat};
 pub use authoring::AuthoringError;
-pub use canonical::{CanonicalError, CanonicalMap, CanonicalValue, ToCanonical, workload_digest};
+pub use canonical::{
+    CanonicalError, CanonicalMap, CanonicalValue, ToCanonical, manifest_from_canonical_bytes,
+    workload_digest,
+};
 pub use closure::{
-    BlobSource, ClosureError, ClosureReport, InMemoryBlobs, VerifiedArtifact, VerifiedClosure,
-    validate_closure,
+    BlobSource, BlobVerifier, ClosureError, ClosureReport, InMemoryBlobs, VerifiedArtifact,
+    VerifiedClosure, validate_closure,
 };
 pub use digest::{ArtifactDigest, DigestAlgorithm, DigestError, WorkloadDigest};
 pub use domain::{Discretization, DomainBounds, DomainError, DomainSpec, Integration};
