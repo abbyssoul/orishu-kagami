@@ -18,7 +18,7 @@ The product is delivered as separate programs for separate roles:
 | --- | --- |
 | `orishu-worker` | Self-contained worker runtime installed on each compute node. |
 | `orishuctl` | Scriptable cluster operator client. |
-| `orishu-monitor` | Interactive operator client; currently a placeholder and not ready for release. |
+| `orishu-monitor` | Interactive operator client; currently the terminal shell only, with no worker API integration, and not ready for release. |
 | `kagami` | Native experiment-authoring, submission, and visualization client. |
 
 [ADR 0003](adr/0003-single-binary-distribution.md) requires each program to

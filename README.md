@@ -188,8 +188,10 @@ The worker defaults to a per-user Unix socket. Pass `--host` or set
 
 `make run-ctl ARGS="cluster info"` now reports the worker's real standalone
 formation identity and local membership summary. Authenticated join/catch-up
-and lock/unlock/leave now have three-worker CLI evidence; recovery and full
-formation conformance remain in progress. Each instance needs its
+and lock/unlock/leave have accepted source-built Linux formation/recovery
+evidence; the combined M4 telemetry/operator handoff remains open. See the
+[acceptance ledger](docs/tasks/cluster-formation-conformance.md).
+Each instance needs its
 own private state directory and client socket; see the
 [worker README](apps/orishu-worker/README.md#identity-and-local-inspection).
 

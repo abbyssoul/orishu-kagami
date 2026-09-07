@@ -3,7 +3,7 @@ name = "orishu-monitor"
 version = "0.1.0"
 edition = "2024"
 authors = ["Ivan Ryabov <abbyssoul@gmail.com>"]
-description = "Experimental terminal monitor for administering an orishu cluster"
+description = "Experimental terminal shell for the orishu operator TUI (no worker integration yet)"
 homepage = "https://github.com/abbyssoul/orishu-kagami"
 repository = "https://github.com/abbyssoul/orishu-kagami"
 readme = "README.md"
@@ -17,9 +17,31 @@ section = "utils"
 priority = "optional"
 assets = ["$auto"]
 extended-description = """\
-Experimental terminal monitor for administering an orishu cluster.
-This package is published for early testing while the full TUI is still under active development."""
+Experimental terminal shell for the orishu operator TUI.
+It provides full-screen navigation, help, and terminal-safe shutdown only:
+this build does not connect to an orishu worker and reports no cluster state.
+Use orishuctl for implemented cluster administration."""
+
+[lib]
+name = "orishu_monitor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "orishu-monitor"
+path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.6", features = ["derive"] }
-orishu = { workspace = true }
+clap.workspace = true
+# Terminal backend. Pinned to the major version `ratatui-crossterm` selects
+# through its default `crossterm_0_29` feature; the two must be bumped together.
+crossterm = "0.29"
+# Default features are off deliberately: `all-widgets` would add `time` for the
+# calendar widget, `macros` adds `ratatui-macros`, and `layout-cache` adds a
+# second major version of `lru`. None are used by this shell. The `crossterm`
+# feature implies `std`, and `ratatui-widgets` is not optional, so the block,
+# paragraph, list, tabs, and clear widgets remain available.
+ratatui = { version = "0.30", default-features = false, features = [
+    "crossterm",
+    "underline-color",
+] }
+thiserror.workspace = true

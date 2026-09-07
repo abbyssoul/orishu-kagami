@@ -6,9 +6,35 @@ This document focuses on _day-2_ cluster operations after workers exist: inspect
 
 These stories define what administrators should be able to accomplish and what guarantees the system should provide. They are intentionally implementation-agnostic. Concrete UX details such as CLI command names, API shapes, and UI flows are examples unless and until they are specified elsewhere in corresponding documents.
 
+The product exposes these administrative outcomes through both the scriptable
+`orishuctl` CLI and the interactive `orishu-monitor` TUI. The completed TUI is
+expected to provide story-level read and mutation parity with the CLI while
+preserving the same authorization, validation, retry, audit, and outcome
+semantics. Raw formation-admission secrets are not rendered in the TUI:
+retrieval/export uses the CLI's private-file workflow, though a TUI flow may
+consume already prepared material without revealing it.
+
 Administrative mutations are authorized by access tier, not by authorship of prior mutations. In the MVP, any authenticated Tier 2 administrator may inspect, reverse, or supersede a prior administrative change made by another administrator. Cluster state such as membership lock, node membership, and blocklist entries is cluster-scoped, not owned by the administrator who created or last changed it. Audit records preserve who performed each action.
 
 ## Shared assumptions
+
+### Current formation-PoC coverage
+
+The [formation task](../../tasks/implement-cluster-formation-poc.md) and
+[evidence ledger](../../tasks/cluster-formation-conformance.md) establish the
+membership-only portions: real node views, pinned explicit join and catch-up,
+replicated lock/unlock, identified leave/replay, and interrupted-admission
+recovery or bounded stop. The [CLI manual](../../../apps/orishu-ctl/README.md)
+defines the supported commands and transports. These results do not complete
+the broader stories below: host/resource telemetry, administrative removal,
+durable audit, compute drain, artifact transfer and workload operations remain
+outside that PoC. Sample commands and desired fields must not be interpreted
+as already-supported behavior. Operational metrics/probes are partially
+implemented; secure deployment, traces and remaining monitoring workflows
+stay with [P-OBS-DOCS](../../tasks/document-worker-observability.md). Its
+[mTLS proxy recipe](../../testing-worker-monitoring-proxy.md) now tests
+monitoring-only access and a real source-build Prometheus scrape; it does not
+complete fleet, container/service or release deployment acceptance.
 
 Unless a story says otherwise, all stories in this document assume the following:
 

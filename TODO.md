@@ -317,7 +317,7 @@ Please update the stories: add new/amend existing to capture the above. And upda
 
 And do Update the plan accordingly.
 ---
-
+[X]
 answers:
 1. We will return to it later.
 2. Agreed with your recommendation. remove persisted motion authority. An object without Dynamics is kinematic/static during a run; an object with Dynamics is integrated.
@@ -345,5 +345,100 @@ Please update planning inconsistencies that can be corrected directly and then l
 
 ---
 
-You've been working bringing field-cad, the PoC part of the experiment authoring UI into this repo as kagami. This is not a simple copy-paste, because orushi made a few decisions differently (or closely) learning from PoCs.
-In the previous session you've create a list of task here docs/tasks/kagami, which had been refined since it was originally written. Please pick from K1/K3 follow-up 
+[X] You've been working bringing field-cad, the PoC part of the experiment authoring UI into this repo as kagami. This is not a simple copy-paste, because orushi made a few decisions differently (or closely) learning from PoCs.
+In the previous session you've create a list of task here docs/tasks/kagami, which had been refined since it was originally written. Please pick from K1/K3 follow-up.
+
+---
+- [X] `orishu-monitor`: implement the API-independent TUI shell
+
+Done. The shell is implemented in @apps/orishu-monitor: Overview/Members with a
+Help overlay, an owned terminal session guard, non-TTY refusal, bounded event
+polling, and headless render tests. It has no `orishu` dependency and connects
+to no worker. Live integration remains backlog under
+@docs/tasks/integrate-orishu-monitor-operator-api.md.
+
+The original assignment follows, as written.
+
+---
+
+Implement the complete bounded shell slice specified in
+@docs/tasks/implement-orishu-monitor-admin-tui.md. The current placeholder is
+@apps/orishu-monitor, whose binary only prints `Hello, world!`.
+
+## Product context
+
+`orishuctl` is the scriptable, one-shot administration client;
+`orishu-monitor` is its interactive admin-TUI counterpart. The eventual product
+goal is story-level operator parity between them, except that the TUI must not
+reveal or print raw formation-admission secrets. **That is the destination, not
+the scope of this slice.** This task delivers only the terminal shell described
+by the linked task.
+
+Read @README.md, @CONTEXT.md, @docs/architecture.md,
+@docs/Coding style.md, and the linked task before editing. Treat source and
+tests as authoritative for current behavior. @docs/protocol-client.md explains
+the future boundary, but do not implement or alter that protocol in this slice.
+The follow-up is tracked separately in
+@docs/tasks/integrate-orishu-monitor-operator-api.md; it is backlog context, not
+additional scope for this assignment.
+
+The sibling project `../avahi-tui` (Kinjo) may be inspected as a reference for
+proven terminal lifecycle, layout, input, and headless-test techniques. Adapt
+ideas deliberately to this repository's terminology and guidelines; do not
+bulk-copy its architecture or bring its configurable-keybinding feature into
+scope. k9s is product inspiration, not an API or code template.
+
+## Required scope
+
+- Replace the placeholder with the full-screen Overview/Members shell and Help
+  overlay defined by the task.
+- Keep terminal IO in a thin shell and navigation/state transitions in a
+  deterministic model/message/update core that tests can exercise without a
+  terminal.
+- Implement safe terminal acquisition/restoration, non-TTY refusal, bounded
+  idle event polling, resize/minimum-size behavior, documented keys, honest
+  integration-unavailable states, theme tokens, and headless render tests.
+- Use maintained TUI dependencies appropriate to the workspace; the expected
+  choice is `ratatui` plus `crossterm`. Keep dependency changes minimal and
+  reproducible. Remove the direct `orishu` dependency if it is unused.
+- Update @apps/orishu-monitor/README.md and package metadata so they describe
+  exactly what this slice implements.
+
+## Hard boundaries
+
+- Do **not** connect to a worker or use @crates/orishu/src/client merely because
+  its legacy methods exist. Do not add host, credential, refresh, polling,
+  streaming, or mutation behavior. Those require later tasks after the owning
+  worker routes and public projections stabilize.
+- Do not add `--config`, `--log-level`, `-H`/`--host`, user-configurable
+  shortcuts, or a speculative shared client-options abstraction. Preserve
+  `--help` and `--version`; shared client CLI/config design belongs to the
+  live-integration pass.
+- Do not modify @apps/orishu-worker, @apps/orishu-ctl, the client protocol, or
+  shared Orishu domain models for this task.
+- Another agent is actively changing formation and worker code. Preserve all
+  existing worktree changes and prefer package-scoped commands while iterating.
+
+If an implementation choice is costly to reverse and the task or repository
+guidance does not settle it, ask with concrete options and implications.
+Otherwise make the smallest in-scope choice and continue.
+
+## Verification and handoff
+
+Format only the package while iterating, then run at minimum:
+
+```sh
+cargo fmt -p orishu-monitor -- --check
+cargo clippy --locked -p orishu-monitor --all-targets -- -D warnings
+cargo test --locked -p orishu-monitor --all-targets
+make docs-check
+```
+
+Also run the task's workspace formatting check before handoff if concurrent
+changes permit it; report unrelated failures rather than rewriting another
+agent's files. Manually smoke-test the real TUI in a terminal, including Help,
+both sections, resize/minimum-size behavior, `q`, `Ctrl-C`, and terminal
+restoration. If the environment cannot provide a TTY, say so explicitly and
+rely on the required headless tests. At handoff, list files changed, dependency
+choices, checks run, manual verification, and any failure that predates this
+task.

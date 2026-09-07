@@ -40,6 +40,7 @@ jobs:
       - run: make fmt-check
       - run: make docs-check
       - run: make lint
+      - run: make test-formation-release-guard
 
   test:
     name: Root build and test contract

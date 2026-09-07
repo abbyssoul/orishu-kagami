@@ -10,6 +10,20 @@ This document mentions command-line options that can be passed to the executable
 
 ## Shared assumptions
 
+### Current formation-PoC coverage
+
+The source-built Linux worker has evidence for config-free local startup,
+private per-instance identity/credentials, explicit peer listeners and role
+configuration, standalone identity, ordinary restart and safe socket reuse.
+See the [worker manual](../../../apps/orishu-worker/README.md) and
+[formation evidence](../../tasks/cluster-formation-conformance.md) for actual
+configuration and limits. These results do not certify service packages,
+containers or other operating systems, or implement the workload/resource
+capabilities described by the broader stories. Loopback metrics and process
+probes are available through optional enablement; secure remote monitoring,
+trace export and deployment recipes remain tracked in
+[P-OBS-DOCS](../../tasks/document-worker-observability.md).
+
 Unless a story says otherwise, all stories in this document assume the following:
 
 - `orishu-worker` is installed on the host and can be invoked by the
@@ -215,15 +229,18 @@ As an administrator, I want to be able to start a worker process that does not a
 
 Status: **partial — local probes/health gauges and route selection implemented; full monitoring acceptance pending**
 
-The optional loopback listener currently provides three health gauges, nine
+The optional loopback listener currently provides three health gauges, thirteen
 process-lifetime owner counters, eight bounded-lane occupancy/capacity gauges,
-six aggregate client-service count/duration instruments and
+seven aggregate client-service count/duration instruments and
 startup/liveness/readiness routes. Metrics and probes are separately selectable
 through file/environment/CLI settings; disabled groups return `404`. See the
 [worker manual](../../../apps/orishu-worker/README.md#optional-local-diagnostics).
 Owner counters include admission insertion, refusal and assignment replay.
-Secured remote access, the full probe matrix, remaining formation metrics, traces and
-tested backend/deployment recipes remain work, so this story is not complete.
+The [mTLS proxy recipe](../../testing-worker-monitoring-proxy.md) now provides
+tested source-build secure scraping/probes with monitoring-only certificates.
+Native remote diagnostics, the full probe/security matrix, remaining formation
+metrics, traces and release/service/container deployment remain work, so this
+story is not complete.
 
 As an administrator, I want to enable a Prometheus scrape endpoint and
 startup/liveness/readiness probes so that I can monitor a worker and configure

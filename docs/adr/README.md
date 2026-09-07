@@ -28,3 +28,4 @@ consequences, and status.
 - [0022 — Persist a default view outside experiment intent](0022-persist-default-view-outside-experiment-intent.md)
 - [0023 — Fields are plugin-modelled state over the experiment domain](0023-fields-are-plugin-modelled-domain-state.md)
 - [0024 — Orishu orchestrates a workload component graph](0024-orishu-orchestrates-a-workload-component-graph.md)
+- [0025 — Version peer trace-context propagation separately from membership semantics](0025-version-peer-trace-context-propagation.md) (**proposed**)
