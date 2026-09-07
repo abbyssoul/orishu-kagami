@@ -1,9 +1,8 @@
 # Instantiate catalog templates into the document
 
-Status: **specified**; gated on [K2](integrate-document-variables.md) and the
-accepted [K-CATALOG](../implement-kagami-object-catalog.md) core. The
-[K1/K3 boundary follow-up](harden-document-boundaries.md) this task also needed
-has landed  
+Status: **slices 1 and 2 implemented**; slice 3's catalog-independence half is
+covered by recorded provenance, and its live-dependency half waits on K2's
+catalog symbol source  
 Work package: **K-CATALOG** × **K-DOCUMENT** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0008](../../adr/0008-catalog-templates-instantiate-self-contained-objects.md),
 [ADR 0018](../../adr/0018-catalog-values-are-captured-by-reference-not-linked.md),
@@ -59,7 +58,7 @@ candidate rather than dropping its definition closure.
 
 ## Implementation slices
 
-### 1. The instantiation command
+### 1. The instantiation command — **implemented**
 
 - Add `InstantiateObjectTemplate` to `SessionCommand`, carrying the template
   identity, the content fingerprint the caller believes it is instantiating,
@@ -78,7 +77,7 @@ candidate rather than dropping its definition closure.
   (catalog, template, schema version, fingerprint) as **historical evidence,
   not a pointer**.
 
-### 2. No tracking link, and prove it
+### 2. No tracking link, and prove it — **implemented**
 
 - There is no catalog-instance index, no propagation preview, no compare/apply,
   and no command that refreshes an object from its template.
@@ -86,7 +85,7 @@ candidate rather than dropping its definition closure.
   catalog entirely — leaves every materialised object byte-identical. This is a
   test, not a comment.
 
-### 3. Make the distinction visible
+### 3. Make the distinction visible — **partially implemented**
 
 - The read projection distinguishes an object materialised from a template
   (catalog-independent, carrying historical provenance) from an expression that
@@ -98,6 +97,46 @@ Catalog-qualified expression resolution is owned by K2; capture into the
 workload is owned by
 [capture-catalog-values-in-expressions](../capture-catalog-values-in-expressions.md).
 Instantiation must not become a prerequisite for either behavior.
+
+## Implementation record
+
+`SessionCommand::InstantiateObjectTemplate` carries an `InstantiationSpec`; the
+authority resolves it against one adopted `CatalogSet` and commits the result
+through the ordinary command path. 10 acceptance tests in
+`crates/kagami-session/tests/instantiate.rs`.
+
+Slice 3's two halves separated in practice. `Object::provenance` records the
+template, fingerprint and source location an object was materialised from, so a
+projection can say which objects are catalog-independent — that half is done and
+survives save/open. The other half, reporting which *expressions* are live
+catalog dependencies, needs expressions to be able to name a catalog binding at
+all, which is K2 slice 4's remaining symbol source. There is nothing to report
+until there is something to depend on.
+
+Four decisions are worth carrying forward:
+
+- **Resolution happens at the session boundary, never in the transition.**
+  `update` stays sans-IO with no catalog as a hidden input (ADR 0019). The
+  authority materialises against one immutable snapshot and hands the model an
+  ordinary command batch, so an instantiated object is validated, undone and
+  revisioned exactly like a hand-authored one.
+- **The object's scope is the identity it is about to be given.** Copied
+  definitions are rewritten into `objects.object_N` before the object exists,
+  using the next identity the counters will mint. Two instantiations of the
+  same template therefore cannot collide.
+- **The document re-derives every magnitude.** The catalog already resolved the
+  candidate, but the bridge submits the *rewritten expressions* and lets the
+  model price them. A value entering an experiment without validation would
+  have broken the one invariant the whole model rests on, and instantiation is
+  not an exception to it.
+- **Document variables an override reads are captured as literals.**
+  `resolve_variables` supplies their current magnitudes to the request, because
+  instantiation materialises rather than links (ADR 0018).
+
+Adopting a catalog publishes no event, unlike adopting schemas: a materialised
+object carries a copy, so the catalog moving cannot change any projection over
+the experiment. `changing_the_template_afterwards_leaves_the_object_identical`
+is the test that would fail if a tracking link ever came back.
 
 ## Acceptance criteria
 

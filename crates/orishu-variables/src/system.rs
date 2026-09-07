@@ -5,11 +5,12 @@ use thiserror::Error;
 
 use crate::expression::{CompiledExpression, ExprEvalError, ExprParsingError, eval_ast};
 use crate::namespace::{FQName, IntoName, InvalidName, Name, Namespace};
+use crate::quantity::{self, Quantity};
 use crate::variable::{Variable, VariableId, VariableOptions};
 
 /// Everything that can go wrong when defining, redefining, or evaluating
 /// variables through a [`VariablesSystem`].
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum VariablesError {
     /// The expression source text does not parse.
     #[error(transparent)]
@@ -26,11 +27,27 @@ pub enum VariablesError {
     /// The `VariableId` does not refer to a variable in this system.
     #[error("unknown variable handle")]
     UnknownHandle,
+    /// A root-namespace name would shadow a unit symbol.
+    ///
+    /// Units resolve as ordinary symbols, so a root variable called `m` would
+    /// silently change what every expression using metres means. Only the
+    /// root namespace can collide — a namespaced variable is reached by its
+    /// qualified name — so `electricity.K` is accepted and a bare `K` is not.
+    #[error("`{name}` is a unit symbol, so it cannot also be a root variable name")]
+    ShadowsUnit {
+        /// The name that was refused.
+        name: Name,
+    },
 }
 
 /// Subsystem that owns a set of namespaced variables and computes their
 /// values, resolving references between them on demand (idCVarSystem-style,
-/// but with no notion of dimensions or documents).
+/// but with no notion of documents).
+///
+/// A symbol resolves to a variable if one is defined, and otherwise to a unit
+/// from the shared table. Definition refuses a name the unit table already
+/// claims, so that fallback can never be shadowed out from under an
+/// expression that relied on it.
 #[derive(Default)]
 pub struct VariablesSystem {
     variables: Vec<Variable>,
@@ -77,7 +94,7 @@ struct EvalScratch {
     /// cycle; `Some(value)` = fully evaluated during this call. Doubling as
     /// the memo means a shared dependency is evaluated once per call rather
     /// than once per path that reaches it.
-    state: HashMap<VariableId, Option<f64>>,
+    state: HashMap<VariableId, Option<Quantity>>,
 }
 
 impl EvalScratch {
@@ -103,6 +120,15 @@ impl VariablesSystem {
         T: IntoName,
     {
         let name = name.into_name()?;
+        // Only a *root* name can be confused with a unit: reaching a
+        // namespaced variable requires writing its qualified name, and `K`
+        // in an expression can never mean `globals.electricity.K`. So
+        // Coulomb's constant may be called `K` where it belongs, and only a
+        // bare `K` — which would silently retune every expression using
+        // kelvin — is refused.
+        if namespace.is_root() && quantity::lookup(name.as_str()).is_ok() {
+            return Err(VariablesError::ShadowsUnit { name });
+        }
         let key = namespace.qualified(&name);
         let key_text = key.to_string();
         if self.index.contains_key(&key_text) {
@@ -140,7 +166,7 @@ impl VariablesSystem {
     /// Compute `id`'s current value, resolving any variables it depends on,
     /// however deep the chain. Recomputed on every call (no caching across
     /// calls; within one call each variable is evaluated once).
-    pub fn value(&self, id: VariableId) -> Result<f64, VariablesError> {
+    pub fn value(&self, id: VariableId) -> Result<Quantity, VariablesError> {
         if self.variables.get(id.0 as usize).is_none() {
             return Err(VariablesError::UnknownHandle);
         }
@@ -178,7 +204,11 @@ impl VariablesSystem {
     /// explicit stack rather than by recursing once per link, so a chain
     /// only as deep as the heap allows still resolves. Every variable
     /// reached is evaluated exactly once and memoized in `scratch.state`.
-    fn resolve(&self, root: VariableId, scratch: &mut EvalScratch) -> Result<f64, ExprEvalError> {
+    fn resolve(
+        &self,
+        root: VariableId,
+        scratch: &mut EvalScratch,
+    ) -> Result<Quantity, ExprEvalError> {
         if let Some(&Some(value)) = scratch.state.get(&root) {
             return Ok(value);
         }
@@ -212,10 +242,13 @@ impl VariablesSystem {
             let ast = &self.variables[id.0 as usize].expression.ast;
             let state = &scratch.state;
             let value = eval_ast(ast, &mut |raw: &str| {
-                let target = self.resolve_symbol(raw)?;
-                // Every symbol of this expression was pushed as a dependency
-                // and evaluated above, so this lookup always hits; treating a
-                // miss as a cycle keeps an unforeseen gap an error, not a panic.
+                let Some(target) = self.symbol_variable(raw) else {
+                    return unit_quantity(raw);
+                };
+                // Every symbol of this expression that named a variable was
+                // pushed as a dependency and evaluated above, so this lookup
+                // always hits; treating a miss as a cycle keeps an unforeseen
+                // gap an error, not a panic.
                 state
                     .get(&target)
                     .copied()
@@ -251,8 +284,13 @@ impl VariablesSystem {
             .ast
             .collect_symbol_refs(symbols);
         for raw in symbols.iter() {
-            let dependency = self.resolve_symbol(raw)?;
-            scratch.deps.push(dependency);
+            // A symbol no variable defines may still be a unit, which has no
+            // dependencies of its own. Resolving it here would report an
+            // unknown variable for `kg`.
+            match self.symbol_variable(raw) {
+                Some(dependency) => scratch.deps.push(dependency),
+                None => unit_quantity(raw).map(|_| ())?,
+            }
         }
         scratch.state.insert(id, None);
         scratch.stack.push(Frame {
@@ -265,13 +303,16 @@ impl VariablesSystem {
 
     /// Parse and evaluate an ad-hoc expression against this system's
     /// currently defined variables, without registering it as a variable.
-    pub fn eval(&self, expr_source: &str) -> Result<f64, VariablesError> {
+    pub fn eval(&self, expr_source: &str) -> Result<Quantity, VariablesError> {
         let compiled = CompiledExpression::parse(expr_source)?;
         let mut scratch = self.take_scratch();
-        let value = eval_ast(&compiled.ast, &mut |raw: &str| {
-            let target = self.resolve_symbol(raw)?;
-            self.resolve(target, &mut scratch)
-        });
+        let value = eval_ast(
+            &compiled.ast,
+            &mut |raw: &str| match self.symbol_variable(raw) {
+                Some(target) => self.resolve(target, &mut scratch),
+                None => unit_quantity(raw),
+            },
+        );
         self.return_scratch(scratch);
         value.map_err(VariablesError::from)
     }
@@ -285,6 +326,14 @@ impl VariablesSystem {
             .get(raw)
             .copied()
             .ok_or_else(|| ExprEvalError::UnknownVariable(raw.to_owned()))
+    }
+
+    /// The variable a raw dotted symbol names, if one is defined.
+    ///
+    /// Distinct from [`Self::resolve_symbol`] because a symbol that names no
+    /// variable is not necessarily an error: it may be a unit.
+    pub fn symbol_variable(&self, raw: &str) -> Option<VariableId> {
+        self.index.get(raw).copied()
     }
 
     /// Resolve an already-split namespace and name to its handle. Builds a
@@ -360,6 +409,16 @@ impl VariablesSystem {
     }
 }
 
+/// The quantity a bare unit symbol denotes: its SI factor, in its dimension.
+///
+/// `kg` is 1 kilogram, `km` is 1000 metres. That is what makes `2.7 g` an
+/// ordinary product and keeps units out of the grammar.
+fn unit_quantity(symbol: &str) -> Result<Quantity, ExprEvalError> {
+    let unit =
+        quantity::lookup(symbol).map_err(|_| ExprEvalError::UnknownVariable(symbol.to_owned()))?;
+    Quantity::new(unit.si_factor(), unit.dimension()).map_err(ExprEvalError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,7 +442,7 @@ mod tests {
                 VariableOptions::default(),
             )
             .unwrap();
-        assert_eq!(vars.value(id).unwrap(), 8.99e9);
+        assert_eq!(vars.value(id).unwrap().magnitude(), 8.99e9);
     }
 
     #[test]
@@ -397,7 +456,7 @@ mod tests {
                 VariableOptions::default(),
             )
             .unwrap();
-        assert_eq!(vars.value(id).unwrap(), 12.375);
+        assert_eq!(vars.value(id).unwrap().magnitude(), 12.375);
     }
 
     #[test]
@@ -420,7 +479,7 @@ mod tests {
                 VariableOptions::default(),
             )
             .unwrap();
-        assert_eq!(vars.value(b).unwrap(), 6.0);
+        assert_eq!(vars.value(b).unwrap().magnitude(), 6.0);
     }
 
     #[test]
@@ -436,7 +495,7 @@ mod tests {
             .unwrap();
         vars.set(id, CompiledExpression::parse("2").unwrap())
             .unwrap();
-        assert_eq!(vars.value(id).unwrap(), 2.0);
+        assert_eq!(vars.value(id).unwrap().magnitude(), 2.0);
     }
 
     #[test]
@@ -476,10 +535,10 @@ mod tests {
                 VariableOptions::default(),
             )
             .unwrap();
-        assert_eq!(vars.value(b).unwrap(), 2.0);
+        assert_eq!(vars.value(b).unwrap().magnitude(), 2.0);
         vars.set(a, CompiledExpression::parse("10").unwrap())
             .unwrap();
-        assert_eq!(vars.value(b).unwrap(), 11.0);
+        assert_eq!(vars.value(b).unwrap().magnitude(), 11.0);
     }
 
     #[test]
@@ -529,8 +588,8 @@ mod tests {
             )
             .unwrap();
         assert_ne!(a, b);
-        assert_eq!(vars.value(a).unwrap(), 1.0);
-        assert_eq!(vars.value(b).unwrap(), 2.0);
+        assert_eq!(vars.value(a).unwrap().magnitude(), 1.0);
+        assert_eq!(vars.value(b).unwrap().magnitude(), 2.0);
     }
 
     #[test]
@@ -643,14 +702,17 @@ mod tests {
     fn deep_dependency_chain_does_not_overflow_the_stack() {
         let mut vars = VariablesSystem::default();
         let tail = build_chain(&mut vars, 100_000);
-        assert_eq!(vars.value(tail).unwrap(), 99_999.0);
+        assert_eq!(vars.value(tail).unwrap().magnitude(), 99_999.0);
     }
 
     #[test]
     fn deep_dependency_chain_is_resolvable_through_eval() {
         let mut vars = VariablesSystem::default();
         build_chain(&mut vars, 100_000);
-        assert_eq!(vars.eval("chain.v99999 + 1").unwrap(), 100_000.0);
+        assert_eq!(
+            vars.eval("chain.v99999 + 1").unwrap().magnitude(),
+            100_000.0
+        );
     }
 
     #[test]
@@ -693,7 +755,7 @@ mod tests {
                 .unwrap(),
             );
         }
-        assert_eq!(vars.value(tail.unwrap()).unwrap(), 1.0);
+        assert_eq!(vars.value(tail.unwrap()).unwrap().magnitude(), 1.0);
     }
 
     #[test]
@@ -806,7 +868,7 @@ mod tests {
     #[test]
     fn eval_ad_hoc_constant_expression() {
         let vars = VariablesSystem::default();
-        assert_eq!(vars.eval("2 + 2 * 2").unwrap(), 6.0);
+        assert_eq!(vars.eval("2 + 2 * 2").unwrap().magnitude(), 6.0);
     }
 
     #[test]
@@ -820,7 +882,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            vars.eval("globals.electricity.K * 2").unwrap(),
+            vars.eval("globals.electricity.K * 2").unwrap().magnitude(),
             8.99e9 * 2.0
         );
     }
@@ -930,7 +992,7 @@ mod tests {
                 VariableOptions::default(),
             )
             .unwrap();
-        assert_eq!(vars.value(id).unwrap(), 1.0);
+        assert_eq!(vars.value(id).unwrap().magnitude(), 1.0);
     }
 
     #[test]

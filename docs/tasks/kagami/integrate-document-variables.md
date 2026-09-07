@@ -1,7 +1,8 @@
 # Integrate document variables and expressions
 
-Status: **specified**; gated on [K1](implement-experiment-document-model.md)
-and [S-VARIABLES](../migrate-and-integrate-variables-subsystem.md) slice 2  
+Status: **slices 1–3 implemented** in `crates/kagami-document`; slice 4's
+document half (namespaces) is landed, and its plugin and catalog *sources*
+wait on X-PLUGIN and [K5](instantiate-catalog-templates.md)  
 Work package: **K-DOCUMENT** × **S-VARIABLES** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0005](../../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../../adr/0007-share-expression-semantics-with-workload-resources.md),
@@ -34,11 +35,12 @@ of them is a defect.
 ## Consumed contracts
 
 - `orishu_variables::{VariablesSystem, Namespace, Name, FQName, VariableId}`
-  plus the dimension-aware value layer from S-VARIABLES slice 2. **This task
-  cannot start before that layer exists**: without it, dimensions are
-  *declared* rather than derived, and `mass / radius` declared as `kg` would be
-  accepted (the limitation `kagami-catalog`'s crate documentation already
-  records).
+  plus the dimension-aware value layer from S-VARIABLES slice 2, which has
+  landed: evaluation is `Quantity`-valued, so `2.7 g / cm^3` derives a density
+  and `1 kg + 1 m` is refused. What remains for this task is the *document*
+  side — an expression with no units of its own is still read in whatever
+  dimension the property's schema declares, so a dimensionless ratio assigned
+  to a mass is accepted until document variables give it a real dimension.
 - K1's `Experiment`, `ExperimentCommand`, `update`, `Rejection`, and `Limits`.
 
 ## Source assessment
@@ -60,7 +62,7 @@ of them is a defect.
 
 ## Implementation slices
 
-### 1. Variable definitions as document intent
+### 1. Variable definitions as document intent — **implemented**
 
 - A definition has a stable document-local identity independent of its
   editable name, an explicit namespace, the authored expression source, an
@@ -70,7 +72,7 @@ of them is a defect.
 - Persisted identity is the stable handle, never the display name, so a rename
   is presentation work over an unchanged graph.
 
-### 2. Compile and evaluate the affected closure
+### 2. Compile and evaluate the affected closure — **implemented**
 
 - Compile the document's definitions and expression-capable property sources
   into one dependency graph over `VariablesSystem`.
@@ -84,7 +86,7 @@ of them is a defect.
 - Expose deterministic evaluation-work counters in tests so "affected closure"
   is proved by visited definitions/expressions, not by a wall-clock benchmark.
 
-### 3. Refactoring and referential safety
+### 3. Refactoring and referential safety — **implemented**
 
 - One accepted variable edit is one revision and one undo entry, however many
   dependants it repriced.
@@ -96,7 +98,7 @@ of them is a defect.
   zero, non-finite results, and limit breaches report with stable source spans
   where the failure belongs to source text.
 
-### 4. Namespaces for plugin and catalog symbols
+### 4. Namespaces for plugin and catalog symbols — **partially implemented**
 
 - Document variables, plugin-exported constants, and catalog-qualified
   bindings share one namespace resolution, so a user writes `G` or
@@ -125,6 +127,46 @@ of them is a defect.
   unaffected part of the graph grows.
 - `make fmt-check`, `make lint`, `make test`, `make docs`, and
   `make docs-check` pass.
+
+## Implementation record
+
+Landed in `crates/kagami-document` as the `variable` module plus a two-phase
+transition, taking the crate from 107 to 134 tests (19 of them K2 acceptance
+cases in `tests/variables.rs`).
+
+Slice 4's *resolution rule* is in place — definitions live in namespaces, a
+qualified name is what an expression writes, and the root namespace is where an
+experiment's own variables go. What is not here is the other two **sources** of
+symbols: plugin-exported constants need X-PLUGIN's inventory to exist, and
+catalog-qualified bindings are [K5](instantiate-catalog-templates.md)'s to
+introduce. Neither needs a second resolution rule when it arrives.
+
+Four decisions are worth carrying forward:
+
+- **The transition runs in two phases.** A batch can define a variable and use
+  it in the same breath, and changing a definition reprices every property
+  that reads it; neither works if a property is priced when its command is
+  applied. Phase 1 applies structure and *collects* authored values, phase 2
+  builds one `VariablesSystem` from the candidate and prices everything. This
+  replaced pricing-inside-`apply` and is why `CreateObject` no longer resolves
+  anything itself.
+- **Only the affected closure is evaluated.** Every definition is *declared*
+  into the system, because any expression may reference any of them, but only
+  those the batch changed — transitively — are *evaluated*. A definition whose
+  inputs did not move resolved at the previous revision and resolves
+  identically now. `CommitReport::work` reports the counts so this is
+  observable rather than asserted: the test grows the graph to 41 definitions
+  and 41 objects and still pays for one of each.
+- **Repricing a stored value re-resolves its retained source.** A stored
+  quantity keeps its expression and display unit, so repricing is resolving
+  that same authored value again. There is no second form of the intent that
+  could drift from the first.
+- **A rename is a validated refactoring, not a rebind.** The identity never
+  moves; every expression that named the old one — in other definitions *and*
+  in property sources — is rewritten in the same edit through the shared
+  `orishu_variables::rewrite_symbols`, or the batch is refused whole. That
+  helper moved out of `kagami-catalog`, where its own documentation noted it
+  was mirroring the parser's lexer from another crate.
 
 ## Non-goals
 

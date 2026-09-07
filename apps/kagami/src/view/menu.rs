@@ -1,4 +1,4 @@
-use crate::message::Message;
+use crate::message::{Authoritative, ClientLocal, Message};
 use crate::model::{Menu as MenuId, Model};
 use iced::widget::{Space, button, column, container, mouse_area, row, text};
 use iced::{Element, Fill, Length, Padding};
@@ -25,26 +25,41 @@ pub fn view(model: &Model) -> Element<'_, Message> {
 /// click-catcher that closes it, meant to be layered on top of the rest of
 /// the UI in a `stack!` rather than pushing it down.
 pub fn overlay(model: &Model) -> Option<Element<'_, Message>> {
+    // Replacing a document with unsaved changes is a question, and the
+    // authority refuses until it is answered. The window answers it by asking
+    // the user here; an MCP caller answers it as a request field (ADR 0006).
+    let discard = |model: &Model| !model.document.is_dirty() || confirm_discard();
+
     let (left, items): (f32, Vec<(&'static str, Message)>) = match model.open_menu? {
         MenuId::File => (
             FILE_LEFT,
             vec![
-                ("New", Message::FileNew),
-                ("Open", Message::FileOpen),
-                ("Save", Message::FileSave),
-                ("Save As", Message::FileSaveAs),
-                ("Settings", Message::FileSettings),
-                ("Exit", Message::FileExit),
+                (
+                    "New",
+                    Authoritative::New {
+                        discard_unsaved: discard(model),
+                    }
+                    .into(),
+                ),
+                ("Open", open_message(discard(model))),
+                ("Save", Authoritative::Save { path: None }.into()),
+                ("Save As", save_as_message()),
+                ("Settings", ClientLocal::OpenSettings.into()),
+                ("Exit", Message::Exit),
             ],
         ),
         MenuId::Edit => (
             EDIT_LEFT,
-            vec![("Undo", Message::EditUndo), ("Redo", Message::EditRedo)],
+            vec![
+                ("Undo", Authoritative::Undo.into()),
+                ("Redo", Authoritative::Redo.into()),
+            ],
         ),
-        MenuId::Help => (HELP_LEFT, vec![("About", Message::HelpAbout)]),
+        MenuId::Help => (HELP_LEFT, vec![("About", ClientLocal::CloseMenu.into())]),
     };
 
-    let catcher = mouse_area(Space::new().width(Fill).height(Fill)).on_press(Message::MenuClosed);
+    let catcher =
+        mouse_area(Space::new().width(Fill).height(Fill)).on_press(ClientLocal::CloseMenu.into());
 
     let panel = container(dropdown(items))
         .width(Fill)
@@ -67,7 +82,7 @@ fn menu_button(label: &'static str, id: MenuId, open: Option<MenuId>) -> Element
     };
 
     button(text(label))
-        .on_press(Message::MenuToggled(id))
+        .on_press(ClientLocal::ToggleMenu(id).into())
         .style(style)
         .into()
 }
@@ -85,4 +100,38 @@ fn dropdown(items: Vec<(&'static str, Message)>) -> Element<'static, Message> {
     }
 
     container(list).style(container::bordered_box).into()
+}
+
+/// Ask the user whether to discard unsaved changes.
+///
+/// The window's way of answering a question the authority refuses to answer
+/// for anyone. A native dialog, because this is the imperative shell and that
+/// is what it is for.
+fn confirm_discard() -> bool {
+    rfd::MessageDialog::new()
+        .set_title("Unsaved changes")
+        .set_description("This experiment has unsaved changes. Discard them?")
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+/// Pick a file to open, or do nothing.
+fn open_message(discard_unsaved: bool) -> Message {
+    match rfd::FileDialog::new().pick_file() {
+        Some(path) => Authoritative::Open {
+            path,
+            discard_unsaved,
+        }
+        .into(),
+        None => ClientLocal::CloseMenu.into(),
+    }
+}
+
+/// Pick a file to save to, or do nothing.
+fn save_as_message() -> Message {
+    match rfd::FileDialog::new().save_file() {
+        Some(path) => Authoritative::Save { path: Some(path) }.into(),
+        None => ClientLocal::CloseMenu.into(),
+    }
 }

@@ -27,6 +27,7 @@ use kagami_catalog::ComponentTypeId;
 use crate::id::{Counters, ExperimentRevision, ObjectId};
 use crate::object::{Object, ObjectComponent};
 use crate::setup::Setup;
+use crate::variable::{Variable, VariableId};
 
 /// The contents of an experiment at one revision.
 ///
@@ -42,6 +43,7 @@ use crate::setup::Setup;
 pub(crate) struct ExperimentState {
     pub(crate) revision: ExperimentRevision,
     pub(crate) objects: Arc<BTreeMap<ObjectId, Object>>,
+    pub(crate) variables: Arc<BTreeMap<VariableId, Variable>>,
     pub(crate) setup: Arc<Setup>,
 }
 
@@ -50,6 +52,7 @@ impl ExperimentState {
         Self {
             revision: ExperimentRevision::INITIAL,
             objects: Arc::new(BTreeMap::new()),
+            variables: Arc::new(BTreeMap::new()),
             setup: Arc::new(Setup::default()),
         }
     }
@@ -98,6 +101,26 @@ impl Experiment {
     pub fn counters(&self) -> Counters {
         self.counters
     }
+
+    /// These contents, placed at the revision after `previous`.
+    ///
+    /// What opening a document needs: the decoded contents are adopted into a
+    /// *running* session, whose revision must keep moving forward. The
+    /// revision a file recorded is provenance about the session that saved it
+    /// and never permission to rewind this one — an event consumer, a cache or
+    /// a view that had already seen r47 must not be told it is now at r3.
+    ///
+    /// Deliberately expressed as "after `previous`" rather than "at `revision`"
+    /// so a caller cannot place contents anywhere else.
+    #[must_use]
+    pub fn adopted_after(&self, previous: ExperimentRevision) -> Self {
+        let mut state = (*self.state).clone();
+        state.revision = previous.next();
+        Self {
+            state: Arc::new(state),
+            counters: self.counters,
+        }
+    }
 }
 
 impl Default for Experiment {
@@ -114,6 +137,11 @@ impl ExperimentSnapshot {
     /// The revision this view describes.
     pub fn revision(&self) -> ExperimentRevision {
         self.0.revision
+    }
+
+    /// The contents behind this view, for the crate's own transitions.
+    pub(crate) fn state(&self) -> &ExperimentState {
+        &self.0
     }
 
     /// Every object, in identity order.
@@ -149,6 +177,34 @@ impl ExperimentSnapshot {
     /// The numerical setup and plugin composition.
     pub fn setup(&self) -> &Setup {
         &self.0.setup
+    }
+
+    /// Every variable definition, in identity order.
+    pub fn variables(&self) -> &BTreeMap<VariableId, Variable> {
+        &self.0.variables
+    }
+
+    /// One variable definition, if it exists.
+    pub fn variable(&self, id: VariableId) -> Option<&Variable> {
+        self.0.variables.get(&id)
+    }
+
+    /// How many variables the experiment defines.
+    pub fn variable_count(&self) -> usize {
+        self.0.variables.len()
+    }
+
+    /// Turn a raw identity — one an MCP client sent, or a persisted document
+    /// carried — into a [`VariableId`] that names a definition in this view.
+    ///
+    /// The parse boundary for variable identities, exactly as
+    /// [`Self::resolve_object`] is for objects.
+    pub fn resolve_variable(&self, raw: u64) -> Option<VariableId> {
+        let candidate = VariableId::from_raw(raw);
+        self.0
+            .variables
+            .contains_key(&candidate)
+            .then_some(candidate)
     }
 
     /// Every object carrying `component`, with that component's values.

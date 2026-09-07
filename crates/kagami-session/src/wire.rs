@@ -72,6 +72,12 @@ pub enum WireSessionCommand {
     BeginInteractiveEdit,
     /// Close the open interactive edit.
     EndInteractiveEdit,
+    /// Replace the experiment with a new, empty one.
+    New {
+        /// Whether the caller has decided to discard unsaved changes.
+        #[serde(default)]
+        discard_unsaved: bool,
+    },
 }
 
 /// A command together with the guards and attribution it was submitted with.
@@ -94,9 +100,15 @@ pub struct WireEnvelope {
 }
 
 impl WireEnvelope {
-    /// Encode an envelope.
-    pub fn of(envelope: &ExperimentCommandEnvelope) -> Self {
-        Self {
+    /// Encode an envelope, if it has a wire form.
+    ///
+    /// Returns `None` for [`SessionCommand::Open`], which carries a whole
+    /// decoded document rather than request fields. An adapter that wants to
+    /// open a file names the *file* to the shell; the shell reads it, decodes
+    /// it through [`crate::document`], and submits the candidate. Encoding it
+    /// as anything else here would quietly change what the caller asked for.
+    pub fn of(envelope: &ExperimentCommandEnvelope) -> Option<Self> {
+        Some(Self {
             command_id: envelope.command_id.clone(),
             actor: envelope.actor.clone(),
             expected_revision: envelope.expected_revision,
@@ -109,8 +121,18 @@ impl WireEnvelope {
                 SessionCommand::Redo => WireSessionCommand::Redo,
                 SessionCommand::BeginInteractiveEdit => WireSessionCommand::BeginInteractiveEdit,
                 SessionCommand::EndInteractiveEdit => WireSessionCommand::EndInteractiveEdit,
+                SessionCommand::New { discard_unsaved } => WireSessionCommand::New {
+                    discard_unsaved: *discard_unsaved,
+                },
+                // Instantiation resolves against a catalog snapshot the
+                // authority holds, and carries catalog identities an adapter
+                // does have. It is a natural wire command; giving it one is
+                // K-MCP's slice, not this module's to guess at.
+                SessionCommand::Open { .. } | SessionCommand::InstantiateObjectTemplate(_) => {
+                    return None;
+                }
             },
-        }
+        })
     }
 
     /// Decode into an envelope, resolving identities against `snapshot`.
@@ -140,6 +162,7 @@ impl WireEnvelope {
             WireSessionCommand::Redo => SessionCommand::Redo,
             WireSessionCommand::BeginInteractiveEdit => SessionCommand::BeginInteractiveEdit,
             WireSessionCommand::EndInteractiveEdit => SessionCommand::EndInteractiveEdit,
+            WireSessionCommand::New { discard_unsaved } => SessionCommand::New { discard_unsaved },
         };
         Ok(ExperimentCommandEnvelope {
             command_id: self.command_id,
@@ -192,6 +215,11 @@ pub enum WireChange {
         /// `true` when the authority closed it rather than the adapter.
         implicit: bool,
     },
+    /// The experiment was replaced wholesale.
+    Replaced {
+        /// `true` when the replacement came from a document.
+        opened: bool,
+    },
     /// The installed component schemas were replaced.
     CapabilityChanged {
         /// Gaps before.
@@ -234,6 +262,7 @@ impl WireChange {
                 gesture: gesture.get(),
                 implicit: *implicit,
             },
+            ExperimentChange::Replaced { opened } => Self::Replaced { opened: *opened },
             ExperimentChange::CapabilityChanged { before, after } => Self::CapabilityChanged {
                 before: WireCapabilitySummary::of(*before),
                 after: WireCapabilitySummary::of(*after),

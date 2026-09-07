@@ -169,6 +169,24 @@ pub enum InvalidReason {
         expected: Dimension,
         found: Dimension,
     },
+    /// A quantity declared its unit both inside the expression and in the
+    /// `unit:` field.
+    ///
+    /// The shared grammar carries units, so `2.7 g` is a complete quantity.
+    /// Declaring `unit:` as well would scale the magnitude a second time, and
+    /// the two can disagree; saying it once is always possible.
+    #[error(
+        "expression `{source_text}` already resolves to {found}, so it must not also declare \
+         `unit: {unit}`"
+    )]
+    UnitDeclaredTwice {
+        /// The authored expression.
+        source_text: String,
+        /// The unit that was also declared.
+        unit: String,
+        /// The dimension the expression itself derived.
+        found: Dimension,
+    },
     /// A computed expression was annotated with a non-canonical unit.
     ///
     /// Catalog bindings are published in canonical SI, so scaling the result

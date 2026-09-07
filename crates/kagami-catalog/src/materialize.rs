@@ -31,9 +31,7 @@ use crate::schema::{PropertyKind, SchemaRegistry, SchemaVersion};
 use crate::source::{ContentFingerprint, TemplateIdentity, TemplateProvenance};
 use crate::template::{PropertyValue, Template};
 
-mod rewrite;
-
-pub use rewrite::rewrite_symbols;
+pub use orishu_variables::rewrite_symbols;
 
 /// What the caller asks for when instantiating a template.
 #[derive(Clone, Debug, PartialEq)]
@@ -173,7 +171,7 @@ impl ObjectCandidate {
                         .map_err(|_| InstantiationError::UnresolvedReference {
                             reference: source.clone(),
                         })?;
-                values.insert(key, resolved);
+                values.insert(key, resolved.magnitude());
             }
         }
         Ok(values)
@@ -498,15 +496,12 @@ impl<'a> Closure<'a> {
             let handle = system
                 .lookup_in(scope, name)
                 .expect("every definition was just defined");
+            // A `Quantity` is finite by construction, so a non-finite result
+            // is reported by the evaluator rather than re-checked here.
             let value = system
                 .value(handle)
                 .map_err(|error| evaluation_error(name.as_str(), error))?;
-            if !value.is_finite() {
-                return Err(InstantiationError::NonFinite {
-                    reference: name.to_string(),
-                });
-            }
-            definition.si_value = value;
+            definition.si_value = value.magnitude();
         }
 
         Ok(Definitions {
@@ -532,12 +527,7 @@ impl Definitions {
             .system
             .eval(&rewritten)
             .map_err(|error| evaluation_error(&rewritten, error))?;
-        if !value.is_finite() {
-            return Err(InstantiationError::NonFinite {
-                reference: rewritten,
-            });
-        }
-        Ok((rewritten, value))
+        Ok((rewritten, value.magnitude()))
     }
 }
 

@@ -511,6 +511,31 @@ fn validate_quantity(
     };
     let expression = compile(path, &document.expression, limits, diagnostics)?;
 
+    // The shared grammar carries units, so an authored expression may already
+    // be a complete quantity. Declaring `unit:` as well states it twice: at
+    // best redundantly, at worst scaling the magnitude a second time or
+    // contradicting it outright. Saying it once is always possible, so this is
+    // refused rather than resolved by a precedence rule nobody would remember.
+    //
+    // Only a constant can be checked here — a computed expression reads
+    // bindings that are not resolved yet, and the rule below already refuses
+    // the scaling case for those.
+    if let Some(unit) = unit
+        && expression.is_const()
+        && let Ok(quantity) = orishu_variables::VariablesSystem::default().eval(expression.source())
+        && !quantity.is_dimensionless()
+    {
+        diagnostics.push(Diagnostic::at(
+            path,
+            InvalidReason::UnitDeclaredTwice {
+                source_text: document.expression.clone(),
+                unit: unit.symbol().to_owned(),
+                found: quantity.dimension(),
+            },
+        ));
+        None?
+    }
+
     let factor = unit.map_or(1.0, |unit| unit.si_factor());
     let si_expression = if factor == 1.0 {
         expression.clone()
@@ -548,8 +573,10 @@ fn scale_constant(
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<CompiledExpression> {
     debug_assert!(expression.is_const(), "only constants are folded");
-    let magnitude = match orishu_variables::VariablesSystem::default().eval(expression.source()) {
-        Ok(magnitude) => magnitude,
+    // Dimensionless by the time it gets here: `validate_quantity` refuses an
+    // expression that carries its own unit alongside a declared one.
+    let quantity = match orishu_variables::VariablesSystem::default().eval(expression.source()) {
+        Ok(quantity) => quantity,
         Err(orishu_variables::VariablesError::Eval(source)) => {
             diagnostics.push(Diagnostic::at(
                 path,
@@ -562,7 +589,7 @@ fn scale_constant(
             None?
         }
     };
-    let si = magnitude * factor;
+    let si = quantity.magnitude() * factor;
     if !si.is_finite() {
         diagnostics.push(Diagnostic::at(path, InvalidReason::NonFiniteValue));
         None?
@@ -713,8 +740,44 @@ spec:
         assert_eq!(mass.expression().source(), "1.989e33");
         let si = orishu_variables::VariablesSystem::default()
             .eval(mass.si_expression().source())
-            .unwrap();
+            .unwrap()
+            .magnitude();
         assert!((si - 1.989e30).abs() < 1.0e15, "{si}");
+    }
+
+    #[test]
+    fn a_unit_declared_both_ways_is_refused_rather_than_scaled_twice() {
+        // The shared grammar now carries units, so `2.7 g` is already a
+        // complete quantity. Applying `unit: kg` as well would publish
+        // 2.7e-6 kg without anyone noticing.
+        let text = MINIMAL.replace(
+            r#"mass: {quantity: {expression: "1.989e30", unit: kg}}"#,
+            r#"mass: {quantity: {expression: "2.7 g", unit: kg}}"#,
+        );
+        let diagnostics = template(&text).unwrap_err();
+        assert!(
+            diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.reason,
+                InvalidReason::UnitDeclaredTwice { .. }
+            )),
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn an_expression_carrying_its_own_unit_publishes_canonical_si() {
+        let text = MINIMAL.replace(
+            r#"mass: {quantity: {expression: "1.989e30", unit: kg}}"#,
+            r#"mass: {quantity: "1.989e33 g"}"#,
+        );
+        let template = template(&text).unwrap();
+        let mass = quantity_of(&template, 0, "mass");
+        assert_eq!(mass.expression().source(), "1.989e33 g");
+        let si = orishu_variables::VariablesSystem::default()
+            .eval(mass.si_expression().source())
+            .unwrap();
+        assert_eq!(si.dimension(), orishu_variables::Dimension::MASS);
+        assert!((si.magnitude() - 1.989e30).abs() < 1.0e15, "{si}");
     }
 
     #[test]

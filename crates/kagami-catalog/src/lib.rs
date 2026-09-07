@@ -74,15 +74,10 @@
 //! property's schema asked for, that an unknown unit is an error rather than
 //! a fabricated factor, and that a value resolves finitely.
 //!
-//! Two limits are deliberate and gated on the shared variables subsystem,
-//! which owns the dimension-aware value layer over the shared grammar:
-//!
-//! 1. Units are declared *beside* the expression, not written inside it:
-//!    there is no `1e32 kg` literal yet.
-//! 2. A dimension is therefore *declared*, not *inferred* through the
-//!    arithmetic. `mass / radius` declared as `kg` is accepted here; derived
-//!    dimension checking belongs to the shared subsystem, and this crate will
-//!    delegate to it rather than grow a second implementation.
+//! An expression may also carry its units directly — `2.7 g / cm^3` is a
+//! density because `orishu-variables` derives it from the arithmetic. Saying
+//! it both ways is refused
+//! ([`InvalidReason::UnitDeclaredTwice`]) rather than scaled twice.
 //!
 //! Because bindings are published in canonical SI, an expression that
 //! references another binding may only carry a canonical unit — otherwise the
@@ -100,7 +95,6 @@ pub mod limits;
 pub mod load;
 pub mod materialize;
 pub mod name;
-pub mod quantity;
 pub mod resolve;
 pub mod schema;
 pub mod source;
@@ -126,7 +120,17 @@ pub use name::{
     CatalogName, ComponentName, ComponentTypeId, HelperName, NameError, ParameterName, PluginId,
     PropertyName, TemplateName,
 };
-pub use quantity::{Dimension, Unit, UnitError};
+/// Physical dimensions, units, and the values evaluation produces.
+///
+/// Re-exported from `orishu-variables`, which owns them: dimensions are
+/// derived by the shared expression engine, so the table that says what a
+/// gram is has to be the same one the evaluator reads. A copy here would be a
+/// second answer.
+pub mod quantity {
+    pub use orishu_variables::quantity::*;
+}
+
+pub use orishu_variables::{Dimension, Quantity, Unit, UnitError};
 pub use resolve::{ParsedDocument, resolve};
 pub use schema::{ComponentSchema, PropertyKind, PropertySchema, SchemaRegistry, SchemaVersion};
 pub use source::{

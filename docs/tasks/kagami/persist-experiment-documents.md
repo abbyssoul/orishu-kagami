@@ -1,9 +1,9 @@
 # Persist and recover experiment documents
 
-Status: **specified**; gated on [K2](integrate-document-variables.md). The
-[K1/K3 boundary follow-up](harden-document-boundaries.md) this task also needed
-has landed, so `DocumentAuthority::acknowledge_save` and the capability
-projection are available  
+Status: **implemented**; slices 1–5 landed across
+`kagami_session::{document, store}`, `kagami_document::hydrate` and
+`DocumentAuthority`. ADR 0022's `default_view` section waits on the authoring
+view [K11](implement-kagami-viewport-workflows.md) owns  
 Work package: **K-DOCUMENT** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0012](../../adr/0012-start-with-file-sharing-and-preserve-collaborative-authoring.md),
 [ADR 0019](../../adr/0019-kagami-experiment-document-model.md),
@@ -70,7 +70,8 @@ remain excluded.
 
 ## Implementation slices
 
-### 1. The versioned envelope and evolution policy
+### 1. The versioned envelope and evolution policy — **implemented**, except
+ADR 0022's `default_view` section, which waits on the authoring view K11 owns
 
 - `format: "kagami.experiment"` and numeric `format_version: 1`, checked in
   that order before any content is interpreted. Do not encode version twice in
@@ -93,7 +94,7 @@ remain excluded.
   presentation bounds and is excluded from experiment revision and workload
   compilation (ADR 0022).
 
-### 2. The pure codec
+### 2. The pure codec — **implemented** for the experiment section
 
 - A versioned persisted DTO separates the public file contract from
   `Experiment`'s private `Arc` layout. `encode` receives an immutable
@@ -114,7 +115,7 @@ remain excluded.
   structured unavailable diagnostic; a file cannot inject a cached SI value
   into the authority.
 
-### 3. Absent plugins and forward compatibility
+### 3. Absent plugins and forward compatibility — **implemented**
 
 - A document naming a component type this installation does not have loads
   successfully and reports that component as *unavailable*, preserving all
@@ -131,7 +132,7 @@ remain excluded.
   ahead, and hostile inputs (truncated, oversized, wrong format id, wrong
   types, deep nesting).
 
-### 4. The durable write and recovery shell
+### 4. The durable write and recovery shell — **implemented**
 
 - Implement the sibling-temp/fsync/verified-backup/atomic-replace protocol and
   the primary/backup/temp load fallback described above, confined to one
@@ -147,7 +148,7 @@ remain excluded.
   if stale-file and link behavior are explicitly bounded; otherwise use a
   bounded set of unique sibling candidates.
 
-### 5. Document lifecycle through the authority
+### 5. Document lifecycle through the authority — **implemented**
 
 - `new` and replacing the current experiment with a decoded candidate are
   attributed authority operations. File selection, reads, writes, and clocks
@@ -165,6 +166,75 @@ remain excluded.
 - Where an interactive user would be asked a question — replacing an experiment
   with unsaved changes — an MCP caller supplies that decision explicitly as a
   request field (ADR 0006). The authority never resolves it silently.
+
+## Implementation record for slices 1–3
+
+`kagami_session::document` owns the `kagami.experiment` format and its codec;
+`kagami_document::hydrate` owns the one validated ingress from a decoded
+document into an `Experiment`. 14 acceptance tests in
+`crates/kagami-session/tests/document.rs`, with golden fixtures.
+
+Four decisions are worth carrying forward:
+
+- **A quantity can be stored unpriced.** Loading a document whose component
+  schema is absent cannot produce a magnitude or a dimension — both come from
+  a declaration this machine does not have — so `PropertyValue::Unresolved`
+  retains the expression and admits it has no number. Inventing a default
+  would have been the one thing slice 3 forbids. Installing the plugin later
+  reports `value_not_priced`, and the next edit that *touches the component*
+  prices it, which makes an ordinary edit the repair rather than a migration.
+- **The saved revision is metadata, not experiment content.** It was
+  originally inside the experiment section, and the byte-identity test caught
+  the consequence: opening establishes a fresh history, so a re-save changed
+  that field and every shared file churned. It now sits beside the generator
+  and the timestamps, as provenance about the *save*, and the authored section
+  re-encodes byte-identically.
+- **Counters are the identity parse boundary for a file.** A document may name
+  an identity only if the counters it also carries say that identity was
+  allocated. Otherwise a file could claim an object the session would later
+  mint, and two different objects would end up sharing a handle.
+- **Unknown fields are refused.** A producer that added a field without
+  advancing the version would otherwise have it silently dropped on the next
+  re-save — the failure a send-someone-a-file workflow can least afford.
+
+Slice 5 followed, adding `SessionCommand::New` and `SessionCommand::Open` as
+attributed submissions. Three decisions there:
+
+- **Opening rebases forward.** A decoded document arrives at the initial
+  revision, and is adopted onto the running session's *next* one through
+  `Experiment::adopted_after`. A view or cache that had already caught up to
+  r47 must never be told it is now at r3, so the revision a file recorded
+  stays provenance about the session that saved it.
+- **Discarding unsaved work is always the caller's decision.** A replacement
+  while dirty is refused with `unsaved_changes` unless the request says to
+  discard. Where a UI shows a dialog, an MCP caller states the answer
+  (ADR 0006); the authority resolves it in neither direction.
+- **`Open` has no wire form.** It carries a whole decoded experiment rather
+  than request fields, so `WireEnvelope::of` returns `None` for it. An adapter
+  names the *file* to the shell, which reads and decodes it and submits the
+  candidate — encoding it as anything else would quietly change the request.
+
+Slice 4 followed as `kagami_session::store`, behind a `FileStore` seam so
+every step's failure is reachable in a test — 11 of them in
+`tests/store.rs`. Three decisions:
+
+- **The backup is a copy of the last *verified* document.** Step 4 moves the
+  existing primary aside only if it independently decodes. Promoting
+  unreadable bytes would replace a backup that might still have been good.
+- **One window is unavoidable, and it is documented rather than hidden.**
+  Because the previous document is *moved* aside rather than copied, a failure
+  between that move and the final rename leaves the document only in the
+  backup. It survives whole, and the next open reports `LoadedFrom::Backup` so
+  the user is told. A test asserts exactly this rather than claiming the
+  primary is always intact — which is what the first draft of that test
+  wrongly asserted.
+- **Temporaries are a bounded set of unique siblings, not a fixed `.tmp`.**
+  Recovering a fixed name safely means bounding stale-file and link
+  behaviour; trying a few exclusively-created candidates needs no such rules.
+
+The bookkeeping it reports into — which revision is on disk and where —
+landed earlier with the [boundary follow-up](harden-document-boundaries.md) as
+`DocumentAuthority::acknowledge_save`.
 
 ## Acceptance criteria
 

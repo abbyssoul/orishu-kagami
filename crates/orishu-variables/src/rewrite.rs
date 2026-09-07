@@ -1,16 +1,18 @@
 //! Renaming the symbols in an authored expression.
 //!
-//! Instantiation copies definitions into object-local identities, which means
-//! rewriting the references in the expressions that used them. The rewrite is
-//! textual because the authored source is what is retained and persisted, but
-//! it is *tokenised* textually rather than pattern-matched: a naive
-//! search-and-replace would corrupt `mass_of_sun` while renaming `mass`, or
-//! rewrite the `e30` inside `1.989e30`.
+//! Two callers need this and both need it to agree with the parser: renaming
+//! a document variable rewrites the expressions that referred to it by name,
+//! and catalog instantiation copies definitions into object-local identities.
+//! The rewrite is textual because the authored source is what is retained and
+//! persisted (ADR 0005), but it is *tokenised* rather than pattern-matched: a
+//! naive search-and-replace would corrupt `mass_of_sun` while renaming
+//! `mass`, or rewrite the `e30` inside `1.989e30`.
 //!
-//! The scanner mirrors `orishu-variables`' own lexer exactly — a symbol
-//! starts with a letter or `_`, continues with alphanumerics and `_`, and a
-//! `.` continues it only when another identifier character follows — so a
-//! rewritten expression tokenises to the same shape the evaluator will see.
+//! It lives beside [`crate::expression`]'s lexer rather than in either
+//! consumer for exactly that reason — a symbol starts with a letter or `_`,
+//! continues with alphanumerics and `_`, and a `.` continues it only when
+//! another identifier character follows. A copy elsewhere would be a second
+//! definition of what a symbol is, free to drift from the one that parses.
 
 use std::collections::BTreeMap;
 
@@ -103,7 +105,7 @@ fn scan_symbol(bytes: &[u8], start: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orishu_variables::CompiledExpression;
+    use crate::CompiledExpression;
 
     fn renames(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs

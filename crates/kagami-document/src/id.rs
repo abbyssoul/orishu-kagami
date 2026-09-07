@@ -91,6 +91,7 @@ impl fmt::Display for ExperimentRevision {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Counters {
     object: u64,
+    variable: u64,
 }
 
 impl Counters {
@@ -101,10 +102,60 @@ impl Counters {
         id
     }
 
+    /// Rebuild the counters a persisted document recorded.
+    ///
+    /// Crate-private: the only caller is [`crate::hydrate`], which is the one
+    /// place a document's own history is adopted. Everywhere else, counters
+    /// only ever move forward by minting.
+    pub(crate) const fn restored(objects: u64, variables: u64) -> Self {
+        Self {
+            object: objects,
+            variable: variables,
+        }
+    }
+
+    /// Turn a persisted raw value into an object identity, if these counters
+    /// say it was ever allocated.
+    ///
+    /// The parse boundary for a *document's* identities. An identity beyond
+    /// the counter was never minted by this experiment's history, so accepting
+    /// it would let a file name an object that could later collide with one
+    /// the session mints.
+    pub(crate) const fn restored_object(&self, raw: u64) -> Option<ObjectId> {
+        if raw < self.object {
+            Some(ObjectId::from_raw(raw))
+        } else {
+            None
+        }
+    }
+
+    /// Turn a persisted raw value into a variable identity, if these counters
+    /// say it was ever allocated.
+    pub(crate) const fn restored_variable(&self, raw: u64) -> Option<crate::variable::VariableId> {
+        if raw < self.variable {
+            Some(crate::variable::VariableId::from_raw(raw))
+        } else {
+            None
+        }
+    }
+
+    /// Allocate the next variable identity.
+    pub(crate) fn next_variable(&mut self) -> crate::variable::VariableId {
+        let id = crate::variable::VariableId::from_raw(self.variable);
+        self.variable += 1;
+        id
+    }
+
     /// How many object identities have been allocated over this experiment's
     /// whole history, including those since removed.
     pub const fn objects_minted(&self) -> u64 {
         self.object
+    }
+
+    /// How many variable identities have been allocated over this
+    /// experiment's whole history, including those since removed.
+    pub const fn variables_minted(&self) -> u64 {
+        self.variable
     }
 }
 

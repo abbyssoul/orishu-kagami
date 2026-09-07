@@ -48,6 +48,7 @@ use crate::id::ObjectId;
 use crate::limits::Limits;
 use crate::model::ExperimentState;
 use crate::object::{AuthoredValue, PropertyValue};
+use crate::variable::VariableId;
 
 /// Which component of which object a diagnostic is about.
 ///
@@ -72,7 +73,10 @@ impl fmt::Display for ComponentPath {
 ///
 /// Rendered as `object-3/kagami.mass_sources/inertial_mass.mass`, so a
 /// rejection names one addressable thing rather than describing it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Ordered by object, component type, then property, so a collection of paths
+/// has one deterministic order everywhere.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PropertyPath {
     /// The component this property belongs to.
     pub component: ComponentPath,
@@ -205,6 +209,35 @@ pub enum Rejection {
         /// The kind that was supplied.
         found: &'static str,
     },
+    /// The expression's own dimension is not the one the schema declares.
+    ///
+    /// Distinct from [`Self::UnitDimensionMismatch`]: that reports a unit
+    /// *declared* beside an expression, while this reports the dimension the
+    /// shared engine *derived* from the expression itself, so
+    /// `mass = 2.7 m` is caught without anyone annotating anything.
+    #[error("{path} is declared in {expected}, but its expression resolves to {found}")]
+    ExpressionDimensionMismatch {
+        /// The property.
+        path: PropertyPath,
+        /// The dimension the schema declares.
+        expected: Dimension,
+        /// The dimension the expression resolved to.
+        found: Dimension,
+    },
+    /// The unit was written inside the expression and declared beside it.
+    ///
+    /// `2.7 g` is already a complete quantity. Applying a declared unit as
+    /// well would scale the magnitude twice, and the two can disagree; saying
+    /// it once is always possible.
+    #[error("{path} resolves to {found} on its own, so it must not also declare unit `{unit}`")]
+    UnitDeclaredTwice {
+        /// The property.
+        path: PropertyPath,
+        /// The unit that was also declared.
+        unit: &'static str,
+        /// The dimension the expression itself derived.
+        found: Dimension,
+    },
     /// The authored unit does not measure the dimension the schema declares.
     #[error("{path} is declared in {expected}, but unit `{unit}` measures {found}")]
     UnitDimensionMismatch {
@@ -280,6 +313,101 @@ pub enum Rejection {
         /// The limit it exceeded.
         limit: usize,
     },
+    /// A command named a variable definition this experiment does not have.
+    #[error("no {variable} in this experiment")]
+    UnknownVariable {
+        /// The identity that was named.
+        variable: VariableId,
+    },
+    /// Another definition already answers to that qualified name.
+    ///
+    /// A name is how an expression reaches a definition, so two definitions
+    /// sharing one would make every reference ambiguous.
+    #[error("a variable named `{name}` is already defined")]
+    VariableNameTaken {
+        /// The qualified name that was asked for.
+        name: String,
+    },
+    /// The experiment would hold more variables than the limits allow.
+    #[error("experiment would define {found} variables, over the limit of {limit}")]
+    TooManyVariables {
+        /// The resulting count.
+        found: usize,
+        /// The limit it exceeded.
+        limit: usize,
+    },
+    /// A variable's expression source exceeded the limits.
+    #[error("expression for `{name}` is {found} bytes, over the limit of {limit}")]
+    VariableExpressionTooLong {
+        /// The definition's qualified name.
+        name: String,
+        /// The submitted length.
+        found: usize,
+        /// The limit it exceeded.
+        limit: usize,
+    },
+    /// A description exceeded the limits.
+    #[error("description for `{name}` is {found} bytes, over the limit of {limit}")]
+    DescriptionTooLong {
+        /// The definition's qualified name.
+        name: String,
+        /// The submitted length.
+        found: usize,
+        /// The limit it exceeded.
+        limit: usize,
+    },
+    /// A variable's expression did not parse.
+    #[error("expression for `{name}` could not be parsed: {source}")]
+    VariableInvalid {
+        /// The definition's qualified name.
+        name: String,
+        /// The parse failure, carrying the byte span it occurred at.
+        #[source]
+        source: Box<ExprParsingError>,
+    },
+    /// A variable's expression parsed but could not be evaluated.
+    ///
+    /// A cycle, a reference to a definition that does not exist (or was just
+    /// removed), a dimension mismatch, or a non-finite result all arrive here
+    /// naming the definition that could not be priced.
+    #[error("`{name}` could not be evaluated: {source}")]
+    VariableUnresolved {
+        /// The definition's qualified name.
+        name: String,
+        /// The evaluation failure.
+        #[source]
+        source: ExprEvalError,
+    },
+    /// A root-namespace definition would shadow a unit symbol.
+    ///
+    /// A variable called `m` would silently change what every expression
+    /// using metres means. Putting it in a namespace makes it unambiguous.
+    #[error("`{name}` is a unit symbol, so it cannot also be a root variable name")]
+    VariableShadowsUnit {
+        /// The name that was refused.
+        name: String,
+    },
+    /// A document named an identity its own counters never allocated.
+    ///
+    /// The counters are an experiment's record of what its history minted, so
+    /// an identity beyond them belongs to no object or definition this
+    /// experiment ever had — and accepting it would let the file collide with
+    /// something the session mints later.
+    #[error("{kind} identity {identity} was never allocated by this experiment")]
+    UnallocatedIdentity {
+        /// What kind of identity: `object` or `variable`.
+        kind: &'static str,
+        /// The raw value that was supplied.
+        identity: u64,
+    },
+    /// A document named the same identity twice.
+    #[error("{kind} identity {identity} appears more than once")]
+    DuplicateIdentity {
+        /// What kind of identity: `object` or `variable`.
+        kind: &'static str,
+        /// The raw value that was repeated.
+        identity: u64,
+    },
     /// More simulation plugins were enabled than the limits allow.
     #[error("{found} simulation plugins would be enabled, over the limit of {limit}")]
     TooManyEnabledPlugins {
@@ -308,6 +436,8 @@ impl Rejection {
             Self::PropertyNotDeclared { .. } => "property_not_declared",
             Self::RequiredPropertyMissing { .. } => "required_property_missing",
             Self::PropertyKindMismatch { .. } => "property_kind_mismatch",
+            Self::ExpressionDimensionMismatch { .. } => "expression_dimension_mismatch",
+            Self::UnitDeclaredTwice { .. } => "unit_declared_twice",
             Self::UnitDimensionMismatch { .. } => "unit_dimension_mismatch",
             Self::ExpressionTooLong { .. } => "expression_too_long",
             Self::TooManyExpressionReferences { .. } => "too_many_expression_references",
@@ -316,6 +446,16 @@ impl Rejection {
             Self::NonFiniteValue { .. } => "non_finite_value",
             Self::TextTooLong { .. } => "text_too_long",
             Self::TooManyEnabledPlugins { .. } => "too_many_enabled_plugins",
+            Self::UnknownVariable { .. } => "unknown_variable",
+            Self::VariableNameTaken { .. } => "variable_name_taken",
+            Self::TooManyVariables { .. } => "too_many_variables",
+            Self::VariableExpressionTooLong { .. } => "variable_expression_too_long",
+            Self::DescriptionTooLong { .. } => "description_too_long",
+            Self::VariableInvalid { .. } => "variable_invalid",
+            Self::VariableUnresolved { .. } => "variable_unresolved",
+            Self::VariableShadowsUnit { .. } => "variable_shadows_unit",
+            Self::UnallocatedIdentity { .. } => "unallocated_identity",
+            Self::DuplicateIdentity { .. } => "duplicate_identity",
         }
     }
 }
@@ -406,7 +546,7 @@ fn resolve_quantity(
         None => (1.0, None),
     };
 
-    let magnitude = match variables.eval(expression) {
+    let resolved = match variables.eval(expression) {
         Ok(value) => value,
         Err(VariablesError::Parsing(source)) => {
             return Err(Rejection::ExpressionInvalid {
@@ -427,7 +567,40 @@ fn resolve_quantity(
         }
     };
 
-    let si_value = magnitude * factor;
+    // The expression may carry its own units, in which case the shared engine
+    // has *derived* its dimension and already produced canonical SI. That is
+    // the authoritative answer, so it is checked against what the schema asked
+    // for, and the declared unit must not scale it a second time.
+    if !resolved.is_dimensionless() {
+        if resolved.dimension() != dimension {
+            return Err(Rejection::ExpressionDimensionMismatch {
+                path,
+                expected: dimension,
+                found: resolved.dimension(),
+            });
+        }
+        if let Some(unit) = unit {
+            return Err(Rejection::UnitDeclaredTwice {
+                path,
+                unit: unit.symbol(),
+                found: resolved.dimension(),
+            });
+        }
+        return Ok(PropertyValue::Quantity {
+            source: expression.to_owned(),
+            display_unit: None,
+            si_value: resolved.magnitude(),
+            dimension,
+        });
+    }
+
+    // A bare number carries no dimension of its own, so it is read in the unit
+    // declared beside it, or as canonical SI in the dimension the schema
+    // declares. This is what lets `mass: 5.972e24` mean kilograms — and it is
+    // also the reason a *dimensionless expression* cannot be checked: K2's
+    // document variables will let an author write `mass_of_sun / 2` and get a
+    // real dimension instead.
+    let si_value = resolved.magnitude() * factor;
     if !si_value.is_finite() {
         return Err(Rejection::NonFiniteValue { path });
     }
@@ -668,6 +841,53 @@ mod tests {
         let rejection = resolve(&mass_schema(), &AuthoredValue::in_unit("1", unit))
             .expect_err("a length is not a mass");
         assert_eq!(rejection.code(), "unit_dimension_mismatch");
+    }
+
+    #[test]
+    fn an_expression_carrying_its_own_unit_is_checked_against_the_schema() {
+        // The shared engine derives the dimension, so nothing had to declare
+        // it — and the magnitude that reaches the model is canonical SI.
+        let value = resolve(&mass_schema(), &AuthoredValue::si("2.7 g")).expect("a mass");
+        assert_eq!(value.si_value(), Some(2.7e-3));
+        assert_eq!(value.source(), Some("2.7 g"));
+
+        let value = resolve(&mass_schema(), &AuthoredValue::si("1.989e30 kg / 2")).expect("a mass");
+        assert_eq!(value.si_value(), Some(9.945e29));
+    }
+
+    #[test]
+    fn an_expression_resolving_to_the_wrong_dimension_is_refused() {
+        // The check the declared-unit form could never make: nothing here is
+        // annotated, and `2.7 m` is still not a mass.
+        let rejection = resolve(&mass_schema(), &AuthoredValue::si("2.7 m")).expect_err("a length");
+        assert_eq!(rejection.code(), "expression_dimension_mismatch");
+        assert!(
+            rejection.to_string().contains("declared in kg"),
+            "the rejection must name both dimensions: {rejection}"
+        );
+    }
+
+    #[test]
+    fn a_unit_written_twice_is_refused_rather_than_applied_twice() {
+        let gram = *kagami_catalog::quantity::lookup("g").expect("known unit");
+        let rejection = resolve(&mass_schema(), &AuthoredValue::in_unit("2.7 g", gram))
+            .expect_err("the unit is stated in both places");
+        assert_eq!(rejection.code(), "unit_declared_twice");
+    }
+
+    #[test]
+    fn a_bare_number_is_still_read_in_the_dimension_the_schema_declares() {
+        // The established contract, unchanged: a dimensionless expression is
+        // canonical SI in whatever the schema asked for.
+        let value = resolve(&mass_schema(), &AuthoredValue::si("5.972e24")).expect("a mass");
+        assert_eq!(value.si_value(), Some(5.972e24));
+    }
+
+    #[test]
+    fn adding_unlike_quantities_is_refused_by_the_shared_engine() {
+        let rejection =
+            resolve(&mass_schema(), &AuthoredValue::si("1 kg + 1 m")).expect_err("not a quantity");
+        assert_eq!(rejection.code(), "expression_unresolved");
     }
 
     #[test]

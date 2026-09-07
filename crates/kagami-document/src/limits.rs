@@ -29,6 +29,10 @@ pub struct Limits {
     pub max_expression_references: usize,
     /// Largest text length accepted for a text-valued property.
     pub max_text_bytes: usize,
+    /// Largest number of variable definitions one experiment may hold.
+    pub max_variables: usize,
+    /// Largest description accepted for a variable definition, in bytes.
+    pub max_description_bytes: usize,
     /// Largest number of enabled simulation plugins.
     pub max_enabled_plugins: usize,
     /// Largest number of retained undo entries.
@@ -56,6 +60,8 @@ impl Limits {
         max_expression_bytes: 1_024,
         max_expression_references: 64,
         max_text_bytes: 4_096,
+        max_variables: 4_096,
+        max_description_bytes: 4_096,
         max_enabled_plugins: 64,
         max_undo_depth: 128,
     };
@@ -86,6 +92,8 @@ mod tests {
         assert!(limits.max_expression_bytes > 0);
         assert!(limits.max_expression_references > 0);
         assert!(limits.max_text_bytes > 0);
+        assert!(limits.max_variables > 0);
+        assert!(limits.max_description_bytes > 0);
         assert!(limits.max_enabled_plugins > 0);
         assert!(limits.max_undo_depth > 0);
     }

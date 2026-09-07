@@ -1,15 +1,7 @@
-mod launch;
-mod message;
-mod model;
-mod scene_model;
-mod subscription;
-mod update;
-mod view;
-mod viewport;
-
 use clap::Parser;
-use launch::LaunchOptions;
-use model::Model;
+use kagami::launch::LaunchOptions;
+use kagami::model::Model;
+use kagami::{subscription, update, view};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;

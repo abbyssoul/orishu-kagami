@@ -6,6 +6,11 @@ ARGS ?=
 PROMTOOL ?= promtool
 PROMETHEUS ?= prometheus
 
+.PHONY: test-formation-release-guard
+test-formation-release-guard:
+	python3 scripts/test_formation_release.py
+	python3 scripts/check-formation-release.py --cargo "$(CARGO)"
+
 .DEFAULT_GOAL := build
 
 .PHONY: build test test-docs test-formation test-formation-lost-ack test-formation-issuer-loss test-formation-source-loss test-formation-dead-assignment test-formation-removed-assignment test-formation-blocked-assignment test-formation-excluded-restart test-formation-peer-ejection test-formation-lost-departure test-formation-lost-leave-response check ci fmt fmt-check lint docs docs-check clean \
@@ -27,6 +32,12 @@ test-docs:
 test-worker-prometheus:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability
 	python3 scripts/check-worker-prometheus.py --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+
+# Local mTLS proxy/worker/Prometheus journey; requires pinned external tools.
+.PHONY: test-worker-monitoring-proxy
+test-worker-monitoring-proxy:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability
+	python3 scripts/check-worker-monitoring-proxy.py --nginx "$(NGINX)" --worker target/debug/orishu-worker --ctl target/debug/orishuctl --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
 
 # Unix process/QUIC journey with explicit per-worker diagnostic scrapes.
 .PHONY: test-formation-observability
@@ -82,6 +93,11 @@ test-formation-lost-ack:
 test-formation-issuer-loss:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/formation-fault-test --target-dir target/formation-faults
 	python3 scripts/check-formation-cli.py --worker target/formation-faults/debug/orishu-worker --ctl target/formation-faults/debug/orishuctl --issuer-loss
+
+.PHONY: test-formation-issuer-ejection
+test-formation-issuer-ejection:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/formation-fault-test --target-dir target/formation-faults
+	python3 scripts/check-formation-cli.py --worker target/formation-faults/debug/orishu-worker --ctl target/formation-faults/debug/orishuctl --issuer-ejection
 
 test-formation-source-loss:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/formation-fault-test --target-dir target/formation-faults

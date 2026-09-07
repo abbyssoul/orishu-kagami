@@ -117,11 +117,13 @@ fn the_document_server_has_no_transport_ui_or_runtime_dependency() {
 
 #[test]
 fn the_dependency_graph_stays_small_enough_to_audit() {
-    // This crate adds nothing to `kagami-document`'s own graph. A jump past
-    // this bound means something with a genuinely new capability arrived.
+    // Beyond `kagami-document`'s own graph this crate adds one thing: a JSON
+    // codec, for the experiment file (task K4). A jump past this bound means
+    // something with a genuinely new *capability* arrived — a transport, a
+    // runtime — rather than another leaf of the same encoding.
     let resolved = runtime_dependency_names();
     assert!(
-        resolved.len() <= 32,
+        resolved.len() <= 36,
         "the document server resolved {} runtime dependencies, which is more than can be \
          reviewed by hand: {resolved:?}",
         resolved.len()
@@ -133,7 +135,13 @@ fn the_expected_direct_dependencies_are_present() {
     // A guard against this test silently passing because metadata resolution
     // returned nothing.
     let resolved = runtime_dependency_names();
-    for expected in ["kagami-document", "kagami-catalog", "serde", "thiserror"] {
+    for expected in [
+        "kagami-document",
+        "kagami-catalog",
+        "serde",
+        "serde_json",
+        "thiserror",
+    ] {
         assert!(
             resolved.contains(expected),
             "expected `{expected}` in the resolved graph, got {resolved:?}"

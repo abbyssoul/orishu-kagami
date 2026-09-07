@@ -55,13 +55,16 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use kagami_catalog::SchemaRegistry;
+use kagami_catalog::materialize::{InstantiationRequest, ObjectCandidate, materialize};
+use kagami_catalog::{CatalogSet, SchemaRegistry};
 use kagami_document::{
-    CapabilityReport, CommitReport, EditHistory, Experiment, ExperimentCommand, ExperimentRevision,
-    ExperimentSnapshot, GestureId, Limits, restore, update,
+    AuthoredValue, CapabilityReport, CommitReport, ComponentProperties, EditHistory, Experiment,
+    ExperimentCommand, ExperimentRevision, ExperimentSnapshot, GestureId, Limits, ObjectSpec,
+    VariableSpec, resolve_variables, restore, update,
 };
+use orishu_variables::Namespace;
 
-use crate::command::{ExperimentCommandEnvelope, SessionCommand};
+use crate::command::{ExperimentCommandEnvelope, InstantiationSpec, SessionCommand};
 use crate::identity::{ActorId, CommandId};
 use crate::outcome::{Acceptance, EventSeq, ExperimentChange, ExperimentEvent, SessionRejection};
 use crate::persist::{DocumentTarget, SaveAcknowledgement};
@@ -111,6 +114,7 @@ impl AcceptedRecord {
 pub struct DocumentAuthority {
     experiment: Experiment,
     schemas: SchemaRegistry,
+    catalog: Option<Arc<CatalogSet>>,
     capabilities: Arc<CapabilityReport>,
     limits: Limits,
     history: EditHistory,
@@ -137,6 +141,7 @@ impl DocumentAuthority {
         Self {
             experiment,
             schemas,
+            catalog: None,
             // An empty experiment has nothing for a schema to govern.
             capabilities: Arc::new(CapabilityReport::default()),
             history: EditHistory::new(limits.max_undo_depth),
@@ -190,6 +195,20 @@ impl DocumentAuthority {
             SessionCommand::Redo => self.apply_redo()?,
             SessionCommand::BeginInteractiveEdit => self.open_gesture(),
             SessionCommand::EndInteractiveEdit => self.close_gesture()?,
+            SessionCommand::InstantiateObjectTemplate(spec) => self.instantiate(spec, gesture)?,
+            SessionCommand::New { discard_unsaved } => {
+                self.replace(Experiment::new(), None, *discard_unsaved, false)?
+            }
+            SessionCommand::Open {
+                experiment,
+                target,
+                discard_unsaved,
+            } => self.replace(
+                (**experiment).clone(),
+                target.clone(),
+                *discard_unsaved,
+                true,
+            )?,
         };
 
         Ok(self.record(envelope, change))
@@ -230,8 +249,10 @@ impl DocumentAuthority {
                 let candidate = update(&self.experiment, commands, &self.schemas, &self.limits)?;
                 Ok(candidate.report().clone())
             }
-            // Undo, redo and gesture brackets have no batch to check; whether
-            // they are available is a read, not a validation.
+            // Undo, redo, gesture brackets and lifecycle operations have no
+            // batch to check; whether they are available is a read, not a
+            // validation. A decoded document was already validated on the way
+            // out of the codec.
             other => Err(SessionRejection::NotPreflightable { kind: other.kind() }),
         }
     }
@@ -239,6 +260,17 @@ impl DocumentAuthority {
     /// The experiment's contents, and the revision they are.
     pub fn snapshot(&self) -> ExperimentSnapshot {
         self.experiment.snapshot()
+    }
+
+    /// The experiment itself, for a caller that needs its identity counters.
+    ///
+    /// Encoding a document needs them, because an identity that was minted
+    /// and removed must never be handed out again. A snapshot deliberately
+    /// does not carry them: they span the whole history rather than describing
+    /// one revision. This hands out a value, so it is still no way to mutate
+    /// anything.
+    pub fn experiment(&self) -> &Experiment {
+        &self.experiment
     }
 
     /// The revision in force.
@@ -267,6 +299,26 @@ impl DocumentAuthority {
             depth: self.history.len(),
             capacity: self.history.depth(),
         }
+    }
+
+    /// The catalog snapshot instantiation resolves against.
+    ///
+    /// `None` until one is adopted: an installation with no catalog can still
+    /// author everything by hand.
+    pub fn catalog(&self) -> Option<&CatalogSet> {
+        self.catalog.as_deref()
+    }
+
+    /// Adopt a catalog snapshot for instantiation to resolve against.
+    ///
+    /// Like [`Self::adopt_schemas`], this is not an edit: reloading a catalog
+    /// changes what can be *instantiated next* and nothing about what has
+    /// already been materialised. It publishes no event because it alters no
+    /// projection over the experiment — an object that came from a template
+    /// carries a copy, not a link (ADR 0008), so the catalog moving cannot
+    /// change it.
+    pub fn adopt_catalog(&mut self, catalog: CatalogSet) {
+        self.catalog = Some(Arc::new(catalog));
     }
 
     /// The installed component schemas an edit is validated against.
@@ -558,6 +610,80 @@ impl DocumentAuthority {
         })
     }
 
+    /// Materialise a catalog template into the experiment.
+    ///
+    /// Resolution happens *here*, at the session boundary, and never inside
+    /// the pure transition: giving the sans-IO model a catalog authority as a
+    /// hidden input is precisely what ADR 0019 keeps it free of. What reaches
+    /// the model is an ordinary command batch over one immutable snapshot's
+    /// answer, so an instantiation is validated exactly as a hand-authored
+    /// object would be.
+    fn instantiate(
+        &mut self,
+        spec: &InstantiationSpec,
+        gesture: Option<GestureId>,
+    ) -> Result<ExperimentChange, SessionRejection> {
+        let catalog = self
+            .catalog
+            .clone()
+            .ok_or(SessionRejection::NoCatalogLoaded)?;
+
+        // The object's own scope has to be known before it exists, because the
+        // copied definitions are rewritten into it. The next identity the
+        // counters will mint is the one this batch is about to use.
+        let scope = Namespace::new(format!(
+            "objects.object_{}",
+            self.experiment.counters().objects_minted()
+        ));
+
+        // Instantiation *materialises*: a document variable an override reads
+        // is captured as the literal it resolves to now, not as a live
+        // reference (ADR 0018).
+        let document_values = resolve_variables(&self.experiment.snapshot(), &self.limits)?;
+
+        let request = InstantiationRequest {
+            identity: spec.template.clone(),
+            expected_fingerprint: spec.expected_fingerprint,
+            bindings: spec.bindings.clone(),
+            object_scope: scope.clone(),
+            document_values,
+        };
+        let candidate = materialize(&catalog, &self.schemas, &request)
+            .map_err(|source| SessionRejection::Instantiation(Box::new(source)))?;
+
+        let commands = instantiation_commands(spec, &scope, &candidate)?;
+        self.apply_edit(&commands, gesture)
+    }
+
+    /// Replace the whole document, atomically.
+    ///
+    /// The three things that make this a lifecycle operation rather than an
+    /// edit: the revision moves *forward* onto the running session's next one,
+    /// so a file cannot rewind what a view has already seen; the history is
+    /// cleared, because the opening undo of a session must not empty the
+    /// workspace someone just opened; and the result is clean, because what is
+    /// here is exactly what is on disk.
+    fn replace(
+        &mut self,
+        experiment: Experiment,
+        target: Option<DocumentTarget>,
+        discard_unsaved: bool,
+        opened: bool,
+    ) -> Result<ExperimentChange, SessionRejection> {
+        if self.is_dirty() && !discard_unsaved {
+            return Err(SessionRejection::UnsavedChanges);
+        }
+
+        self.experiment = experiment.adopted_after(self.experiment.revision());
+        self.history.clear();
+        self.open_gesture = None;
+        self.clean_revision = self.experiment.revision();
+        self.acknowledged_revision = None;
+        self.target = target;
+        self.rebuild_capabilities();
+        Ok(ExperimentChange::Replaced { opened })
+    }
+
     fn open_gesture(&mut self) -> ExperimentChange {
         // `resolve_gesture` has already closed any previous one, because a
         // `BeginInteractiveEdit` never names a gesture.
@@ -652,6 +778,57 @@ impl DocumentAuthority {
         let mut capabilities = (*self.capabilities).clone();
         capabilities.retain_present(&self.experiment.snapshot());
         self.capabilities = Arc::new(capabilities);
+    }
+}
+
+/// Turn a materialised candidate into the document commands that commit it.
+///
+/// Two kinds of command, in one batch: the copied definitions become variable
+/// definitions in the object's own scope, and the components become one
+/// object. Going through the ordinary command path is what makes an
+/// instantiated object validated, undoable and revisioned exactly like a
+/// hand-authored one — and what stops this becoming a second way to put
+/// objects in an experiment.
+fn instantiation_commands(
+    spec: &InstantiationSpec,
+    scope: &Namespace,
+    candidate: &ObjectCandidate,
+) -> Result<Vec<ExperimentCommand>, SessionRejection> {
+    let mut commands = Vec::with_capacity(candidate.definitions.len() + 1);
+    for (name, definition) in &candidate.definitions {
+        commands.push(ExperimentCommand::DefineVariable(Box::new(
+            VariableSpec::new(name.clone(), definition.source.clone()).in_namespace(scope.clone()),
+        )));
+    }
+
+    let mut object = ObjectSpec::new(spec.name.clone())
+        .with_transform(spec.transform)
+        .with_velocity(spec.velocity)
+        .from_template(candidate.provenance.clone());
+    for component in &candidate.components {
+        let mut properties = ComponentProperties::new();
+        for (property, value) in &component.properties {
+            properties.insert(property.clone(), authored_value(value));
+        }
+        object = object.with_component(component.type_id.clone(), properties);
+    }
+    commands.push(ExperimentCommand::CreateObject(Box::new(object)));
+    Ok(commands)
+}
+
+/// A materialised value as the authoring command that reproduces it.
+///
+/// The catalog already resolved these, but the document re-derives every
+/// magnitude from the source it is given — that invariant is the reason a
+/// value cannot enter an experiment except through validation, and an
+/// instantiation is not an exception to it.
+fn authored_value(value: &kagami_catalog::ObjectPropertyValue) -> AuthoredValue {
+    match value {
+        kagami_catalog::ObjectPropertyValue::Quantity { source, .. } => {
+            AuthoredValue::si(source.clone())
+        }
+        kagami_catalog::ObjectPropertyValue::Boolean(value) => AuthoredValue::Boolean(*value),
+        kagami_catalog::ObjectPropertyValue::Text(value) => AuthoredValue::Text(value.clone()),
     }
 }
 

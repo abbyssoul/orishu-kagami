@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "Native authoring and visualization client for Orishu"
 
+[lib]
+name = "kagami"
+path = "src/lib.rs"
+
 [[bin]]
 name = "kagami"
 path = "src/main.rs"
@@ -16,6 +20,9 @@ iced = { workspace = true, features = ["wgpu", "debug", "tokio"] }
 clap.workspace = true
 rfd.workspace = true
 kagami-renderer.workspace = true
+kagami-catalog.workspace = true
+kagami-document.workspace = true
+kagami-session.workspace = true
 orishu.workspace = true
 env_logger = "0.11"
 log = "0.4"

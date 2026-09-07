@@ -1,84 +1,100 @@
-use crate::message::Message;
-use crate::model::Model;
-use crate::scene_model::{SceneNode, SceneTree};
+//! The object list, rendered from the authority's read projection.
+//!
+//! There is no scene model here any more. What the tree shows is a snapshot at
+//! one revision, so it can never display half of an edit, and the only state
+//! it adds is which rows are open and which are hidden — both client-local.
+
 use iced::widget::{Space, button, column, container, row, scrollable, text, text_input};
 use iced::{Element, Length};
+use kagami_document::{Object, ObjectId, Participation};
 
-const INDENT: f32 = 16.0;
+use crate::message::{Authoritative, ClientLocal, Message};
+use crate::model::Model;
 
 pub fn view(model: &Model) -> Element<'_, Message> {
-    let search = text_input("Search...", &model.search_query)
-        .on_input(Message::SearchChanged)
-        .width(Length::Fill);
+    let snapshot = model.document.snapshot();
+    let query = model.search_query.to_lowercase();
 
-    let query = model.search_query.trim();
-    let mut tree = column![].spacing(2);
-
-    for root in model.scene.filtered_roots(query) {
-        tree = tree.push(view_node(root, model, query, 0));
+    let mut rows = column![].spacing(2);
+    let mut shown = 0usize;
+    for (id, object) in snapshot.objects() {
+        if !matches(object, &query) {
+            continue;
+        }
+        shown += 1;
+        rows = rows.push(object_row(model, *id, object));
     }
 
+    let heading = text(format!("Objects ({shown})")).size(14);
+    let empty: Element<'_, Message> = if shown == 0 {
+        text(if snapshot.object_count() == 0 {
+            "No objects yet."
+        } else {
+            "Nothing matches."
+        })
+        .size(12)
+        .into()
+    } else {
+        Space::new().into()
+    };
+
     container(
-        column![search, scrollable(tree).height(Length::Fill)]
-            .spacing(8)
-            .padding(8),
+        column![
+            row![
+                text_input("Search", &model.search_query)
+                    .on_input(|query| ClientLocal::Search(query).into())
+                    .width(Length::Fill),
+                button(text("+"))
+                    .on_press(Authoritative::CreateObject.into())
+                    .padding(4),
+            ]
+            .spacing(6),
+            heading,
+            scrollable(column![rows, empty].spacing(4)).height(Length::Fill),
+        ]
+        .spacing(8),
     )
-    .width(Length::Fixed(280.0))
+    .width(Length::Fixed(260.0))
     .height(Length::Fill)
+    .padding(8)
     .into()
 }
 
-fn view_node<'a>(
-    node: &'a SceneNode,
-    model: &Model,
-    query: &str,
-    depth: u16,
-) -> Element<'a, Message> {
-    let is_expanded = model.expanded.contains(&node.id);
-    let is_selected = model.selected == Some(node.id);
-    let has_children = !node.children.is_empty();
+fn object_row<'a>(model: &'a Model, id: ObjectId, object: &'a Object) -> Element<'a, Message> {
+    let selected = model.selected == Some(id);
+    let hidden = model.hidden.contains(&id);
 
-    let expand_icon = if !has_children {
-        " "
-    } else if is_expanded {
-        "\u{25be}"
-    } else {
-        "\u{25b8}"
+    // What an object *does* in a run comes from the installed schemas, not
+    // from anything the window knows about it.
+    let participation = match object.participation(model.document.schemas()) {
+        Participation::Inert => "",
+        Participation::Participating => " ·",
+        Participation::Unavailable => " !",
     };
+    let label = format!(
+        "{}{}{}",
+        if selected { "▸ " } else { "  " },
+        object.name.as_str(),
+        participation
+    );
 
-    let eye_icon = if node.visible { "\u{1f441}" } else { "-" };
-
-    let row = row![
-        Space::new().width(Length::Fixed(depth as f32 * INDENT)),
-        button(text(expand_icon))
-            .on_press_maybe(has_children.then_some(Message::NodeExpandToggled(node.id)))
-            .style(button::text)
-            .width(Length::Fixed(20.0)),
-        button(text(eye_icon))
-            .on_press(Message::NodeVisibilityToggled(node.id))
-            .style(button::text)
-            .width(Length::Fixed(24.0)),
-        button(text(node.name.clone()).width(Length::Fill))
-            .on_press(Message::NodeSelected(node.id))
-            .style(if is_selected {
-                button::secondary
-            } else {
-                button::text
-            })
-            .width(Length::Fill),
+    row![
+        button(text(label).size(13))
+            .on_press(ClientLocal::Select(Some(id)).into())
+            .width(Length::Fill)
+            .padding(4),
+        button(text(if hidden { "○" } else { "●" }).size(12))
+            .on_press(ClientLocal::ToggleHidden(id).into())
+            .padding(4),
+        button(text("×").size(12))
+            .on_press(Authoritative::RemoveObject(id).into())
+            .padding(4),
     ]
     .spacing(2)
-    .align_y(iced::Alignment::Center);
+    .into()
+}
 
-    let mut column = column![row];
-
-    if has_children && is_expanded {
-        for child in &node.children {
-            if SceneTree::node_matches(child, query) {
-                column = column.push(view_node(child, model, query, depth + 1));
-            }
-        }
-    }
-
-    column.into()
+/// Whether an object survives the search filter.
+fn matches(object: &Object, query: &str) -> bool {
+    query.is_empty() || object.name.as_str().to_lowercase().contains(query)
 }

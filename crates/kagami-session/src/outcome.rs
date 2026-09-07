@@ -77,6 +77,16 @@ pub enum ExperimentChange {
         /// sees this dropped an `EndInteractiveEdit`.
         implicit: bool,
     },
+    /// The experiment was replaced wholesale — a new document, or an opened
+    /// one.
+    ///
+    /// The revision moved *forward*, like every other change: the revision a
+    /// file recorded describes the session that saved it.
+    Replaced {
+        /// `true` when the replacement came from a document rather than from
+        /// starting afresh.
+        opened: bool,
+    },
     /// The installed component schemas were replaced, so what the experiment's
     /// existing content *means here* changed.
     ///
@@ -101,6 +111,7 @@ impl ExperimentChange {
             Self::Redone { .. } => "redone",
             Self::GestureOpened { .. } => "gesture_opened",
             Self::GestureClosed { .. } => "gesture_closed",
+            Self::Replaced { .. } => "replaced",
             Self::CapabilityChanged { .. } => "capability_changed",
         }
     }
@@ -112,6 +123,8 @@ impl ExperimentChange {
             Self::Undone { label } | Self::Redone { label } => label,
             Self::GestureOpened { .. } => "Begin interactive edit",
             Self::GestureClosed { .. } => "End interactive edit",
+            Self::Replaced { opened: true } => "Open experiment",
+            Self::Replaced { opened: false } => "New experiment",
             Self::CapabilityChanged { .. } => "Installed physics changed",
         }
     }
@@ -189,6 +202,24 @@ pub enum SessionRejection {
         /// The identity that was reused.
         command_id: CommandId,
     },
+    /// The submission would discard unsaved changes without saying so.
+    ///
+    /// Where an interactive user would be asked, an automation client states
+    /// the answer in the request (ADR 0006). The authority refuses rather than
+    /// choosing for either of them.
+    #[error("the experiment has unsaved changes; the request must say whether to discard them")]
+    UnsavedChanges,
+    /// An instantiation was submitted with no catalog loaded.
+    #[error("no catalog is loaded, so there is no template to instantiate")]
+    NoCatalogLoaded,
+    /// The catalog refused the instantiation.
+    ///
+    /// Reported with the catalog's own structured reason — an unknown or
+    /// unavailable template, a stale fingerprint, an unbound parameter —
+    /// because it is the authority on why, and restating it here would be a
+    /// second vocabulary to keep in step.
+    #[error(transparent)]
+    Instantiation(Box<kagami_catalog::InstantiationError>),
     /// The submission named an interactive edit that is not open.
     ///
     /// Refused rather than treated as ungestured, because a stale identity
@@ -240,6 +271,9 @@ impl SessionRejection {
         match self {
             Self::RevisionConflict { .. } => "revision_conflict",
             Self::CommandIdentityConflict { .. } => "command_identity_conflict",
+            Self::UnsavedChanges => "unsaved_changes",
+            Self::NoCatalogLoaded => "no_catalog_loaded",
+            Self::Instantiation(_) => "instantiation_refused",
             Self::GestureNotOpen { .. } => "gesture_not_open",
             Self::NoGestureOpen => "no_gesture_open",
             Self::EmptyBatch => "empty_batch",

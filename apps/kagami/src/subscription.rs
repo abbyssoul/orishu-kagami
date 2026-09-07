@@ -25,5 +25,5 @@ fn exit_shortcut(event: Event, status: event::Status, _window: window::Id) -> Op
         return None;
     };
 
-    (key.as_ref() == Key::Character("q") && modifiers.command()).then_some(Message::FileExit)
+    (key.as_ref() == Key::Character("q") && modifiers.command()).then_some(Message::Exit)
 }

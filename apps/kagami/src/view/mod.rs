@@ -4,7 +4,7 @@ mod scene_tree;
 mod section;
 mod toolbar;
 
-use crate::message::Message;
+use crate::message::{ClientLocal, Message};
 use crate::model::Model;
 use crate::viewport;
 use iced::widget::{Space, button, column, container, row, stack, text};
@@ -39,7 +39,7 @@ fn settings_panel() -> Element<'static, Message> {
             text("Settings").size(16),
             text("Show help on startup"),
             text("Show diagnostics on startup"),
-            button(text("Close")).on_press(Message::SettingsClosed),
+            button(text("Close")).on_press(ClientLocal::CloseSettings.into()),
         ]
         .spacing(8),
     )

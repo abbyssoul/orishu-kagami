@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::quantity::{Dimension, Quantity, QuantityError};
+
 /// A half-open byte range into the source text an error or token came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceSpan {
@@ -246,7 +248,11 @@ impl Expr {
     fn is_const(&self) -> bool {
         match self {
             Expr::Literal(_) => true,
-            Expr::Symbol(_) => false,
+            // A unit is part of the language, not a value someone else has to
+            // supply: `2.7 g` is as computable standalone as `2.7`. Treating
+            // it as a reference would make every unit-bearing literal look
+            // like it depends on an external definition.
+            Expr::Symbol(name) => crate::quantity::lookup(name).is_ok(),
             Expr::Unary { expr, .. } => expr.is_const(),
             Expr::Binary { lhs, rhs, .. } => lhs.is_const() && rhs.is_const(),
         }
@@ -325,6 +331,33 @@ impl<'a> Parser<'a> {
         Ok(lhs)
     }
 
+    /// Turn `1e32 kg` and `2.7 g` into an ordinary multiplication.
+    ///
+    /// Writing a unit after a magnitude is how people write quantities, and
+    /// treating the juxtaposition as a product is what lets one grammar carry
+    /// units without a second, unit-aware parser: `kg` is a symbol like any
+    /// other, and the evaluator resolves it to a quantity.
+    ///
+    /// Deliberately the *only* implicit product in the grammar. `a b` stays a
+    /// syntax error, because two adjacent names are far more likely to be a
+    /// typo than an intended product, and the reading of `2 m` is not in
+    /// doubt.
+    ///
+    /// The right operand is parsed at the exponent's binding power, so
+    /// `2.7 g / cm^3` groups as `(2.7 * g) / (cm^3)` and `2 m^2` as
+    /// `2 * (m^2)` rather than `(2 * m)^2`.
+    fn parse_unit_annotation(&mut self, magnitude: f64) -> Result<Expr, ExprParsingError> {
+        if !matches!(self.peek().kind, TokenKind::Symbol(_)) {
+            return Ok(Expr::Literal(magnitude));
+        }
+        let unit = self.parse_expr(4)?;
+        Ok(Expr::Binary {
+            op: BinaryOp::Mul,
+            lhs: Box::new(Expr::Literal(magnitude)),
+            rhs: Box::new(unit),
+        })
+    }
+
     fn parse_prefix(&mut self) -> Result<Expr, ExprParsingError> {
         if matches!(self.peek().kind, TokenKind::Minus) {
             self.advance()?;
@@ -340,7 +373,7 @@ impl<'a> Parser<'a> {
     fn parse_primary(&mut self) -> Result<Expr, ExprParsingError> {
         let token = self.advance()?;
         match token.kind {
-            TokenKind::Number(value) => Ok(Expr::Literal(value)),
+            TokenKind::Number(value) => self.parse_unit_annotation(value),
             TokenKind::Symbol(name) => Ok(Expr::Symbol(name)),
             TokenKind::LParen => {
                 let inner = self.parse_expr(0)?;
@@ -411,9 +444,12 @@ impl CompiledExpression {
 }
 
 /// What went wrong while evaluating an already-parsed expression.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
+///
+/// Not `Eq`: [`Self::FractionalExponent`] reports the exponent the author
+/// wrote, and a float has no equivalence relation worth deriving.
+#[derive(Clone, Debug, Error, PartialEq)]
 pub enum ExprEvalError {
-    /// A referenced symbol has no matching variable.
+    /// A referenced symbol names neither a variable nor a known unit.
     #[error("unknown variable `{0}`")]
     UnknownVariable(String),
     /// The variable's dependency graph, walked lazily, referenced itself.
@@ -425,48 +461,133 @@ pub enum ExprEvalError {
     /// The computed value was not finite (e.g. overflow).
     #[error("expression evaluated to a non-finite value")]
     NonFinite,
+    /// Addition or subtraction combined quantities measuring different
+    /// things.
+    ///
+    /// The check the whole value layer exists for: `1 kg + 1 m` is not a
+    /// number that happens to be wrong, it is not a quantity at all.
+    #[error("cannot add or subtract {left} and {right}")]
+    DimensionMismatch {
+        /// The left operand's dimension.
+        left: Dimension,
+        /// The right operand's dimension.
+        right: Dimension,
+    },
+    /// A dimensioned base was raised to a power that is not a whole number.
+    ///
+    /// `m^0.5` would be a fractional base exponent, which
+    /// [`Dimension`] cannot represent and which no schema in this product
+    /// declares. A *dimensionless* base may be raised to any power.
+    #[error("a dimensioned value can only be raised to a whole-number power, not {0}")]
+    FractionalExponent(f64),
+    /// An exponent carried a dimension of its own.
+    #[error("an exponent must be a pure number, not {0}")]
+    DimensionedExponent(Dimension),
+    /// Combining dimensions left the representable exponent range.
+    #[error("dimension exponent is out of range")]
+    DimensionOverflow,
+}
+
+impl From<QuantityError> for ExprEvalError {
+    fn from(value: QuantityError) -> Self {
+        match value {
+            QuantityError::NonFinite => Self::NonFinite,
+            QuantityError::DimensionMismatch { expected, found } => Self::DimensionMismatch {
+                left: expected,
+                right: found,
+            },
+            QuantityError::DimensionOverflow => Self::DimensionOverflow,
+        }
+    }
 }
 
 pub(crate) fn eval_ast(
     ast: &Expr,
-    resolve: &mut dyn FnMut(&str) -> Result<f64, ExprEvalError>,
-) -> Result<f64, ExprEvalError> {
+    resolve: &mut dyn FnMut(&str) -> Result<Quantity, ExprEvalError>,
+) -> Result<Quantity, ExprEvalError> {
     match ast {
-        Expr::Literal(value) => Ok(*value),
+        Expr::Literal(value) => Ok(Quantity::dimensionless(*value)?),
         Expr::Symbol(name) => resolve(name),
         Expr::Unary { op, expr } => {
             let value = eval_ast(expr, resolve)?;
             Ok(match op {
-                UnaryOp::Neg => -value,
+                UnaryOp::Neg => Quantity::new(-value.magnitude(), value.dimension())?,
             })
         }
         Expr::Binary { op, lhs, rhs } => {
             let lhs = eval_ast(lhs, resolve)?;
             let rhs = eval_ast(rhs, resolve)?;
-            let value = match op {
-                BinaryOp::Add => lhs + rhs,
-                BinaryOp::Sub => lhs - rhs,
-                BinaryOp::Mul => lhs * rhs,
+            match op {
+                BinaryOp::Add | BinaryOp::Sub => {
+                    if lhs.dimension() != rhs.dimension() {
+                        return Err(ExprEvalError::DimensionMismatch {
+                            left: lhs.dimension(),
+                            right: rhs.dimension(),
+                        });
+                    }
+                    let magnitude = match op {
+                        BinaryOp::Add => lhs.magnitude() + rhs.magnitude(),
+                        _ => lhs.magnitude() - rhs.magnitude(),
+                    };
+                    Ok(Quantity::new(magnitude, lhs.dimension())?)
+                }
+                BinaryOp::Mul => {
+                    let dimension = lhs
+                        .dimension()
+                        .multiply(rhs.dimension())
+                        .ok_or(ExprEvalError::DimensionOverflow)?;
+                    Ok(Quantity::new(lhs.magnitude() * rhs.magnitude(), dimension)?)
+                }
                 BinaryOp::Div => {
-                    if rhs == 0.0 {
+                    if rhs.magnitude() == 0.0 {
                         return Err(ExprEvalError::DivisionByZero);
                     }
-                    lhs / rhs
+                    let dimension = lhs
+                        .dimension()
+                        .divide(rhs.dimension())
+                        .ok_or(ExprEvalError::DimensionOverflow)?;
+                    Ok(Quantity::new(lhs.magnitude() / rhs.magnitude(), dimension)?)
                 }
-                BinaryOp::Pow => lhs.powf(rhs),
-            };
-            if value.is_finite() {
-                Ok(value)
-            } else {
-                Err(ExprEvalError::NonFinite)
+                BinaryOp::Pow => eval_pow(lhs, rhs),
             }
         }
     }
 }
 
+/// Raise `base` to `exponent`, deriving the resulting dimension.
+///
+/// An exponent is always a pure number. A *dimensioned* base additionally
+/// needs a whole-number exponent, because a dimension is a vector of integer
+/// base exponents and `m^0.5` names nothing this product can represent.
+fn eval_pow(base: Quantity, exponent: Quantity) -> Result<Quantity, ExprEvalError> {
+    if !exponent.is_dimensionless() {
+        return Err(ExprEvalError::DimensionedExponent(exponent.dimension()));
+    }
+    let power = exponent.magnitude();
+    let magnitude = base.magnitude().powf(power);
+
+    if base.is_dimensionless() {
+        return Ok(Quantity::dimensionless(magnitude)?);
+    }
+    if power.fract() != 0.0 {
+        return Err(ExprEvalError::FractionalExponent(power));
+    }
+    let whole = i8::try_from(power as i64).map_err(|_| ExprEvalError::DimensionOverflow)?;
+    let dimension = base
+        .dimension()
+        .power(whole)
+        .ok_or(ExprEvalError::DimensionOverflow)?;
+    Ok(Quantity::new(magnitude, dimension)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Evaluate an expression that references no symbols.
+    fn eval_const(expr: &CompiledExpression) -> Quantity {
+        eval_ast(&expr.ast, &mut |_| unreachable!("no symbols")).expect("evaluates")
+    }
 
     #[test]
     fn parse_integer_and_float_literals() {
@@ -478,15 +599,13 @@ mod tests {
     fn parse_scientific_notation_literal() {
         let expr = CompiledExpression::parse("3.1e-3").unwrap();
         assert!(expr.is_const());
-        let mut resolve = |_: &str| -> Result<f64, ExprEvalError> { unreachable!() };
-        assert_eq!(eval_ast(&expr.ast, &mut resolve).unwrap(), 3.1e-3);
+        assert_eq!(eval_const(&expr).magnitude(), 3.1e-3);
     }
 
     #[test]
     fn parse_arithmetic_respects_precedence_and_parens() {
         let expr = CompiledExpression::parse("(21 - 1) * (0.15 + 0.1) + 7.3e2").unwrap();
-        let mut resolve = |_: &str| -> Result<f64, ExprEvalError> { unreachable!() };
-        let value = eval_ast(&expr.ast, &mut resolve).unwrap();
+        let value = eval_const(&expr).magnitude();
         assert!((value - (20.0 * 0.25 + 730.0)).abs() < 1e-9);
     }
 

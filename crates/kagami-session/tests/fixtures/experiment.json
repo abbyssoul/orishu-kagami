@@ -1,0 +1,129 @@
+{
+  "format": "kagami.experiment",
+  "formatVersion": 1,
+  "metadata": {
+    "generator": "kagami 0.1.0",
+    "created": "2026-09-07T10:00:00Z",
+    "saved": "2026-09-07T11:30:00Z",
+    "savedRevision": 1
+  },
+  "experiment": {
+    "counters": {
+      "objects": 2,
+      "variables": 1
+    },
+    "setup": {
+      "domain": {
+        "lower": [
+          -0.5,
+          -0.5,
+          -0.5
+        ],
+        "upper": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "cells": [
+          32,
+          32,
+          32
+        ],
+        "boundary": [
+          "periodic",
+          "periodic",
+          "periodic"
+        ]
+      },
+      "timeStep": 0.001,
+      "plugins": []
+    },
+    "variables": [
+      {
+        "id": 0,
+        "name": "mass_of_sun",
+        "expression": "1.989e30 kg",
+        "description": "IAU nominal solar mass"
+      }
+    ],
+    "objects": [
+      {
+        "id": 0,
+        "name": "Half a sun",
+        "transform": {
+          "translation": [
+            1.0,
+            2.0,
+            3.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "velocity": {
+          "linear": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "angular": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "shape": {
+          "shape": "sphere",
+          "radius": 696340000.0
+        },
+        "components": [
+          {
+            "component": {
+              "plugin": "kagami.mass_sources",
+              "name": "inertial_mass"
+            },
+            "schemaVersion": 1,
+            "properties": {
+              "mass": {
+                "kind": "quantity",
+                "expression": "mass_of_sun / 2"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 1,
+        "name": "Marker",
+        "transform": {
+          "translation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        },
+        "velocity": {
+          "linear": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "angular": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      }
+    ]
+  }
+}

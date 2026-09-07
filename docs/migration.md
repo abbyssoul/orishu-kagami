@@ -19,7 +19,6 @@ clear in the combined product.
 | Field CAD/Orishu Maxwell profile | Retain the narrow profile only as a proposal requiring revalidation because Kagami supersedes Field CAD and submission ownership changed. | ADR 0016 |
 | Kagami Iced application shell | Reuse as the basis of the native client. | `apps/kagami` |
 | Kagami Iced/wgpu scene renderer | Reuse as a deep rendering module. | `libs/kagami-renderer` |
-| Kagami demo scene tree | Keep app-local until an authoritative experiment model replaces it. Retired by the [Kagami capability programme](tasks/kagami/README.md). | `apps/kagami/src/scene_model.rs` |
 | Kagami GPUI experiment | Do not adopt; it duplicates the shell and has a conflicting graphics graph. | Historical reference only |
 | Field CAD egui desktop | Do not adopt; Kagami replaces this presentation implementation. | Historical reference only |
 | Field CAD server and MCP transport | Do not adopt as a second compute/control plane; Orishu owns remote execution. | Rebuild against Orishu where needed |

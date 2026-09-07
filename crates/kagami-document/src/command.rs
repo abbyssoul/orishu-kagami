@@ -23,12 +23,14 @@
 //! format would freeze it as a second protocol nobody decided to publish.
 
 use kagami_catalog::{ComponentTypeId, PluginId, PropertyName};
+use orishu_variables::Name;
 
 use crate::geometry::{ObjectShape, Transform, Velocity};
 use crate::id::ObjectId;
 use crate::name::DisplayName;
 use crate::object::{AuthoredValue, ComponentProperties, ObjectSpec};
 use crate::setup::{Domain, TimeStep};
+use crate::variable::{VariableId, VariableSpec};
 
 /// One authoring intent.
 #[derive(Clone, Debug, PartialEq)]
@@ -97,6 +99,41 @@ pub enum ExperimentCommand {
         /// Its new authored value.
         value: AuthoredValue,
     },
+    /// Define a named value this experiment's expressions may use.
+    ///
+    /// Boxed for the reason [`Self::CreateObject`] is: a spec carries authored
+    /// text and is far larger than every other variant.
+    DefineVariable(Box<VariableSpec>),
+    /// Replace a definition's expression, repricing everything that reads it.
+    SetVariableExpression {
+        /// Which definition.
+        variable: VariableId,
+        /// Its new expression source.
+        expression: String,
+    },
+    /// Change a definition's name, rewriting every expression that referred to
+    /// it by the old one.
+    ///
+    /// Never a delete-and-recreate: the identity survives, so anything keyed
+    /// by it — and every dependant's meaning — survives with it.
+    RenameVariable {
+        /// Which definition.
+        variable: VariableId,
+        /// Its new name.
+        name: Name,
+    },
+    /// Remove a definition.
+    ///
+    /// Refused while anything still refers to it, unless the same batch clears
+    /// those references.
+    RemoveVariable(VariableId),
+    /// Change what a definition says it is for. Never affects resolution.
+    SetVariableDescription {
+        /// Which definition.
+        variable: VariableId,
+        /// The new description, or `None` to clear it.
+        description: Option<String>,
+    },
     /// Replace the computational region and grid.
     SetDomain(Domain),
     /// Replace the fixed simulation time step.
@@ -123,6 +160,11 @@ impl ExperimentCommand {
             Self::AttachComponent { .. } => "Attach component",
             Self::DetachComponent { .. } => "Remove component",
             Self::SetComponentProperty { .. } => "Edit property",
+            Self::DefineVariable(_) => "Define variable",
+            Self::SetVariableExpression { .. } => "Edit variable",
+            Self::RenameVariable { .. } => "Rename variable",
+            Self::RemoveVariable(_) => "Remove variable",
+            Self::SetVariableDescription { .. } => "Describe variable",
             Self::SetDomain(_) => "Reconfigure domain",
             Self::SetTimeStep(_) => "Set time step",
             Self::SetPluginEnabled { .. } => "Change active physics",

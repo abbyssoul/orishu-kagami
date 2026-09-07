@@ -1,14 +1,27 @@
-//! Physical dimensions and the authored-unit table.
+//! Physical dimensions, the authored-unit table, and the values evaluation
+//! produces.
 //!
-//! ADR 0005 requires authored numeric values to be unit-aware and checked
-//! against the dimension their schema declares. The shared expression engine
-//! (`orishu-variables`) is deliberately dimensionless today; the dimension
-//! layer that will eventually sit over it belongs to the shared variables
-//! subsystem task, not here. Until it exists, the catalog declares a unit
-//! *alongside* each expression and checks that unit's dimension against the
-//! property schema, rather than forking the parser into a second, unit-aware
-//! grammar. See the crate-level documentation for exactly which checks that
-//! does and does not buy.
+//! ADR 0005 requires authored numeric values to be unit-aware. This module is
+//! the *one* place in the product that decides what a unit symbol means and
+//! how dimensions combine, which is why it lives beside the parser rather than
+//! in either of its consumers: a second table would be a second answer to
+//! "what is a gram", and the two would drift.
+//!
+//! # Dimensions are derived, not declared
+//!
+//! Evaluation is [`Quantity`]-valued, so `2.7 g / cm^3` resolves to a density
+//! because the arithmetic says so, not because something asserted it. A
+//! consumer that knows what dimension it *wanted* — a property schema, a
+//! workload field — compares the two and reports the mismatch. That is the
+//! whole reason the value layer sits over the shared grammar instead of each
+//! consumer annotating a unit beside an expression it cannot check.
+//!
+//! # Canonical SI at every boundary
+//!
+//! A [`Quantity`]'s magnitude is always canonical SI. Authored units scale on
+//! the way in and a preferred display unit is presentation the consumer keeps
+//! separately, so no two parts of the product have to agree on a convention
+//! beyond "SI".
 
 use std::fmt;
 
@@ -134,6 +147,109 @@ impl fmt::Display for Dimension {
     }
 }
 
+/// A resolved physical value: a finite canonical-SI magnitude and the
+/// dimension the arithmetic that produced it derived.
+///
+/// The value type every evaluation produces. A pure number is a `Quantity`
+/// whose dimension is [`Dimension::DIMENSIONLESS`], so there is one value
+/// type rather than a dimensionless path and a dimensioned one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Quantity {
+    magnitude: f64,
+    dimension: Dimension,
+}
+
+impl Quantity {
+    /// A quantity of `dimension` whose canonical-SI magnitude is `magnitude`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuantityError::NonFinite`] for a NaN or infinite magnitude.
+    /// A non-finite value is never a physical quantity, and admitting one here
+    /// would let it reach a solver as though it had been authored.
+    pub fn new(magnitude: f64, dimension: Dimension) -> Result<Self, QuantityError> {
+        if !magnitude.is_finite() {
+            return Err(QuantityError::NonFinite);
+        }
+        Ok(Self {
+            magnitude,
+            dimension,
+        })
+    }
+
+    /// A pure number.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn dimensionless(magnitude: f64) -> Result<Self, QuantityError> {
+        Self::new(magnitude, Dimension::DIMENSIONLESS)
+    }
+
+    /// The canonical-SI magnitude.
+    pub const fn magnitude(&self) -> f64 {
+        self.magnitude
+    }
+
+    /// The dimension the arithmetic derived.
+    pub const fn dimension(&self) -> Dimension {
+        self.dimension
+    }
+
+    /// `true` for a pure number.
+    pub fn is_dimensionless(&self) -> bool {
+        self.dimension.is_dimensionless()
+    }
+
+    /// This magnitude expressed in `unit`, for redisplaying a value the way it
+    /// was authored.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuantityError::DimensionMismatch`] when `unit` does not
+    /// measure this quantity's dimension.
+    pub fn magnitude_in(&self, unit: &Unit) -> Result<f64, QuantityError> {
+        if unit.dimension() != self.dimension {
+            return Err(QuantityError::DimensionMismatch {
+                expected: unit.dimension(),
+                found: self.dimension,
+            });
+        }
+        Ok(self.magnitude / unit.si_factor())
+    }
+}
+
+impl fmt::Display for Quantity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.dimension.is_dimensionless() {
+            return write!(formatter, "{}", self.magnitude);
+        }
+        match canonical_for(self.dimension) {
+            Some(unit) => write!(formatter, "{} {unit}", self.magnitude),
+            None => write!(formatter, "{} {}", self.magnitude, self.dimension),
+        }
+    }
+}
+
+/// Why a quantity could not be produced.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum QuantityError {
+    /// The magnitude was NaN or infinite.
+    #[error("value is not finite")]
+    NonFinite,
+    /// Two quantities that had to measure the same thing did not.
+    #[error("expected {expected}, found {found}")]
+    DimensionMismatch {
+        /// The dimension required.
+        expected: Dimension,
+        /// The dimension found.
+        found: Dimension,
+    },
+    /// A base or derived exponent left the representable range.
+    #[error("dimension exponent is out of range")]
+    DimensionOverflow,
+}
+
 /// An authored unit: the symbol a user writes, the dimension it carries, and
 /// the factor converting a magnitude in this unit to canonical SI.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -160,9 +276,12 @@ impl Unit {
     }
 
     /// `true` when a magnitude in this unit already *is* its canonical SI
-    /// magnitude. Catalog bindings are published in canonical SI, so an
-    /// expression that references another binding may only be annotated with
-    /// a canonical unit — see [`crate::template::QuantityValue`].
+    /// magnitude.
+    ///
+    /// A consumer that publishes values in canonical SI uses this to refuse a
+    /// *scaling* unit on an expression that reads an already-canonical value:
+    /// annotating `km` there would rescale a magnitude that is already in
+    /// metres. `kagami-catalog` applies exactly that rule to its bindings.
     pub fn is_canonical(&self) -> bool {
         self.si_factor == 1.0
     }
@@ -239,6 +358,9 @@ pub const UNITS: &[Unit] = &[
 ];
 
 /// Resolve an authored unit symbol.
+///
+/// Also the fallback the evaluator uses for a bare symbol no variable
+/// defines, which is what makes `2.7 g / cm^3` mean what it looks like.
 pub fn lookup(symbol: &str) -> Result<&'static Unit, UnitError> {
     UNITS
         .iter()
@@ -338,6 +460,49 @@ mod tests {
                 unit.symbol()
             );
         }
+    }
+
+    #[test]
+    fn a_quantity_is_never_non_finite() {
+        assert_eq!(
+            Quantity::dimensionless(f64::NAN),
+            Err(QuantityError::NonFinite)
+        );
+        assert_eq!(
+            Quantity::new(f64::INFINITY, Dimension::MASS),
+            Err(QuantityError::NonFinite)
+        );
+    }
+
+    #[test]
+    fn a_quantity_reports_its_magnitude_in_an_authored_unit() {
+        let mass = Quantity::new(2.7e-3, Dimension::MASS).unwrap();
+        assert_eq!(mass.magnitude_in(lookup("g").unwrap()).unwrap(), 2.7);
+        assert_eq!(mass.magnitude_in(lookup("kg").unwrap()).unwrap(), 2.7e-3);
+        // A unit that measures something else cannot redisplay it.
+        assert_eq!(
+            mass.magnitude_in(lookup("m").unwrap()),
+            Err(QuantityError::DimensionMismatch {
+                expected: Dimension::LENGTH,
+                found: Dimension::MASS,
+            })
+        );
+    }
+
+    #[test]
+    fn a_quantity_displays_in_its_canonical_unit() {
+        assert_eq!(
+            Quantity::new(2.5, Dimension::MASS).unwrap().to_string(),
+            "2.5 kg"
+        );
+        assert_eq!(Quantity::dimensionless(0.5).unwrap().to_string(), "0.5");
+        // A dimension with no tabled canonical unit still renders readably.
+        assert_eq!(
+            Quantity::new(1.0, Dimension::new([2, 0, -1, 0, 0, 0, 0]))
+                .unwrap()
+                .to_string(),
+            "1 m^2·s^-1"
+        );
     }
 
     #[test]

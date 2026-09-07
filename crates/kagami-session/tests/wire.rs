@@ -72,7 +72,10 @@ fn envelope() -> ExperimentCommandEnvelope {
 
 #[test]
 fn a_guarded_submission_pins_its_shape() {
-    assert_fixture("envelope", &WireEnvelope::of(&envelope()));
+    assert_fixture(
+        "envelope",
+        &WireEnvelope::of(&envelope()).expect("a guarded edit has a wire form"),
+    );
 }
 
 #[test]
@@ -139,7 +142,7 @@ fn every_submission_kind_survives_a_round_trip() {
     ];
 
     for envelope in envelopes {
-        let encoded = WireEnvelope::of(&envelope);
+        let encoded = WireEnvelope::of(&envelope).expect("every one of these has a wire form");
         let json = serde_json::to_string(&encoded).expect("encodes");
         let decoded: WireEnvelope = serde_json::from_str(&json).expect("decodes");
         assert_eq!(decoded, encoded, "the JSON form must round-trip");

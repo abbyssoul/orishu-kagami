@@ -17,9 +17,82 @@
 //! identity is compared against when a submission is resent: an envelope
 //! identifies a *request*, not just a correlation string.
 
-use kagami_document::{ExperimentCommand, ExperimentRevision, GestureId};
+use std::collections::BTreeMap;
+
+use kagami_catalog::{ContentFingerprint, ParameterName, TemplateIdentity};
+use kagami_document::{
+    DisplayName, Experiment, ExperimentCommand, ExperimentRevision, GestureId, Transform, Velocity,
+};
 
 use crate::identity::{ActorId, CommandId};
+use crate::persist::DocumentTarget;
+
+/// What an instantiation asks for: which template, and the placement the
+/// template does not own.
+///
+/// The parameter bindings are authored expressions, so an override may itself
+/// read a document variable or a public catalog binding. What the template
+/// *does* own — its components and their values — is not repeated here.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InstantiationSpec {
+    /// Which template to materialise.
+    pub template: TemplateIdentity,
+    /// The content fingerprint the caller believes it is instantiating.
+    ///
+    /// A mismatch is a refusal, never a silent upgrade to content the caller
+    /// never saw: what they picked in a browser may have been edited since.
+    pub expected_fingerprint: Option<ContentFingerprint>,
+    /// Parameter overrides, as authored expressions.
+    pub bindings: BTreeMap<ParameterName, String>,
+    /// What to call the new object.
+    pub name: DisplayName,
+    /// Where to put it.
+    pub transform: Transform,
+    /// How it starts moving.
+    pub velocity: Velocity,
+}
+
+impl InstantiationSpec {
+    /// Materialise `template` as an object called `name`, at the origin.
+    pub fn new(template: TemplateIdentity, name: DisplayName) -> Self {
+        Self {
+            template,
+            expected_fingerprint: None,
+            bindings: BTreeMap::new(),
+            name,
+            transform: Transform::IDENTITY,
+            velocity: Velocity::ZERO,
+        }
+    }
+
+    /// Refuse the instantiation unless the template still hashes to this.
+    #[must_use]
+    pub fn expecting(mut self, fingerprint: ContentFingerprint) -> Self {
+        self.expected_fingerprint = Some(fingerprint);
+        self
+    }
+
+    /// Override one template parameter with an authored expression.
+    #[must_use]
+    pub fn binding(mut self, parameter: ParameterName, expression: impl Into<String>) -> Self {
+        self.bindings.insert(parameter, expression.into());
+        self
+    }
+
+    /// Place it.
+    #[must_use]
+    pub fn at(mut self, transform: Transform) -> Self {
+        self.transform = transform;
+        self
+    }
+
+    /// Give it an initial velocity.
+    #[must_use]
+    pub fn moving(mut self, velocity: Velocity) -> Self {
+        self.velocity = velocity;
+        self
+    }
+}
 
 /// One thing an adapter can ask the document authority to do.
 ///
@@ -44,6 +117,41 @@ pub enum SessionCommand {
     /// The accepted outcome carries the [`GestureId`] to put in the following
     /// submissions' [`ExperimentCommandEnvelope::gesture`].
     BeginInteractiveEdit,
+    /// Replace the experiment with a new, empty one.
+    ///
+    /// An attributed authority operation, not a shell action: what is being
+    /// discarded is the document, and only the authority knows whether it had
+    /// unsaved changes.
+    New {
+        /// Whether the caller has decided to discard unsaved changes.
+        ///
+        /// Where a UI would show a dialog, an MCP caller states the answer
+        /// (ADR 0006). The authority never resolves the question silently, in
+        /// either direction.
+        discard_unsaved: bool,
+    },
+    /// Replace the experiment with a decoded document.
+    ///
+    /// The candidate arrives as a value: reading and decoding a file is the
+    /// shell's, and a successful read is not an acceptance.
+    Open {
+        /// The decoded experiment.
+        experiment: Box<Experiment>,
+        /// Where it was read from, once the read succeeded.
+        target: Option<DocumentTarget>,
+        /// Whether the caller has decided to discard unsaved changes.
+        discard_unsaved: bool,
+    },
+    /// Materialise a catalog template into the experiment.
+    ///
+    /// Resolved against one immutable catalog snapshot the authority holds,
+    /// then committed as an ordinary document edit. The resulting object is
+    /// *self-contained* (ADR 0008): it carries the definitions its expressions
+    /// need, copied local, and resolves with no catalog in scope. The template
+    /// it came from is recorded as historical evidence and nothing more —
+    /// there is no tracking link, no propagation, and no command that
+    /// refreshes an object from its template.
+    InstantiateObjectTemplate(Box<InstantiationSpec>),
     /// Close the open interactive edit.
     ///
     /// A gesture that commits nothing costs nothing. An adapter that fails to
@@ -65,6 +173,9 @@ impl SessionCommand {
             Self::Redo => "redo",
             Self::BeginInteractiveEdit => "begin_interactive_edit",
             Self::EndInteractiveEdit => "end_interactive_edit",
+            Self::New { .. } => "new",
+            Self::Open { .. } => "open",
+            Self::InstantiateObjectTemplate(_) => "instantiate_object_template",
         }
     }
 
@@ -73,7 +184,20 @@ impl SessionCommand {
     /// Opening and closing a gesture cannot: they bracket edits without being
     /// one, which is why they do not advance the revision.
     pub const fn changes_contents(&self) -> bool {
-        matches!(self, Self::Edit(_) | Self::Undo | Self::Redo)
+        matches!(
+            self,
+            Self::Edit(_)
+                | Self::Undo
+                | Self::Redo
+                | Self::New { .. }
+                | Self::Open { .. }
+                | Self::InstantiateObjectTemplate(_)
+        )
+    }
+
+    /// `true` when this submission would discard the current document.
+    pub const fn replaces_document(&self) -> bool {
+        matches!(self, Self::New { .. } | Self::Open { .. })
     }
 }
 

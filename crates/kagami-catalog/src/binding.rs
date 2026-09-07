@@ -349,7 +349,9 @@ impl CatalogProjection {
 
     /// Evaluate a binding to its canonical SI magnitude.
     pub fn value(&self, reference: BindingRef) -> Result<f64, VariablesError> {
-        self.variables.value(self.variable_ids[reference.0])
+        self.variables
+            .value(self.variable_ids[reference.0])
+            .map(|quantity| quantity.magnitude())
     }
 
     /// The variable environment the catalog publishes into, for a caller

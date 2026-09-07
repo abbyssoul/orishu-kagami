@@ -1,5 +1,5 @@
-use crate::message::Message;
-use crate::model::{Model, Playback, Tool};
+use crate::message::{Authoritative, ClientLocal, Message};
+use crate::model::{Model, Tool};
 use iced::widget::{button, container, row, rule, text};
 use iced::{Element, Length};
 
@@ -10,13 +10,20 @@ pub fn view(model: &Model) -> Element<'_, Message> {
             tool_button("Move", Tool::Move, model.active_tool),
             tool_button("Draw fields", Tool::DrawFields, model.active_tool),
             rule::vertical(1),
-            action_button("Undo", Message::EditUndo),
-            action_button("Redo", Message::EditRedo),
+            history_button(
+                model.document.view().history.undo.as_deref(),
+                "Undo",
+                Authoritative::Undo
+            ),
+            history_button(
+                model.document.view().history.redo.as_deref(),
+                "Redo",
+                Authoritative::Redo
+            ),
             rule::vertical(1),
-            action_button("Play", Message::PlaybackPlay),
-            action_button("Pause", Message::PlaybackPause),
-            action_button("Step", Message::PlaybackStep),
-            text(playback_label(model.playback)),
+            // No run authority exists yet, so these say so rather than
+            // pretending (K-RUN owns them).
+            text("Run: unavailable"),
             rule::vertical(1),
             text(format!("Queue {}", model.queue_len)),
             rule::vertical(1),
@@ -31,13 +38,6 @@ pub fn view(model: &Model) -> Element<'_, Message> {
     .into()
 }
 
-fn playback_label(playback: Playback) -> &'static str {
-    match playback {
-        Playback::Playing => "• Playing",
-        Playback::Paused => "• Paused",
-    }
-}
-
 fn tool_button(label: &'static str, tool: Tool, active: Tool) -> Element<'static, Message> {
     let style = if tool == active {
         button::secondary
@@ -46,14 +46,28 @@ fn tool_button(label: &'static str, tool: Tool, active: Tool) -> Element<'static
     };
 
     button(text(label))
-        .on_press(Message::ToolSelected(tool))
+        .on_press(ClientLocal::SelectTool(tool).into())
         .style(style)
         .into()
 }
 
-fn action_button(label: &'static str, message: Message) -> Element<'static, Message> {
-    button(text(label))
-        .on_press(message)
-        .style(button::text)
-        .into()
+/// An undo or redo button, labelled with what it will do.
+///
+/// Disabled honestly when there is nothing to reverse: the label comes from
+/// the authority's `HistoryStatus`, so the button cannot offer something the
+/// authority would refuse.
+fn history_button(
+    entry: Option<&str>,
+    verb: &'static str,
+    intent: Authoritative,
+) -> Element<'static, Message> {
+    let label = match entry {
+        Some(edit) => format!("{verb} {edit}"),
+        None => verb.to_owned(),
+    };
+    let mut control = button(text(label)).style(button::text);
+    if entry.is_some() {
+        control = control.on_press(intent.into());
+    }
+    control.into()
 }

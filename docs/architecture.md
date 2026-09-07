@@ -29,7 +29,11 @@ result and checkpoint artifacts
 
 - `apps/orishu-worker` runs a node and owns cluster/runtime behaviour.
 - `apps/orishu-ctl` provides scriptable operator administration.
-- `apps/orishu-monitor` is the more coprehensive TUI interactive terminal operator client.
+- `apps/orishu-monitor` is the interactive admin-TUI counterpart of
+  `orishuctl`. Its end state offers the same operator outcomes except raw
+  formation-admission secret output; its current implementation is the
+  P-MONITOR terminal shell, with no worker API integration yet and client-API
+  adapters still to come.
 - `apps/kagami` is the native experiment-authoring and visualization client.
 
 Applications compose library modules; other applications do not depend on an

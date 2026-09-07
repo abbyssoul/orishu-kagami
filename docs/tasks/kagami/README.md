@@ -39,11 +39,11 @@ crates/kagami-document  -- pure sans-IO model, commands, transition, history
 | --- | --- | --- | --- |
 | K1 | [Implement the experiment document model](implement-experiment-document-model.md) | Implemented as `crates/kagami-document` | ADR 0019 |
 | K1/K3 follow-up | [Harden the landed document and session boundaries](harden-document-boundaries.md) | Implemented; capability projection, schema adoption, replay binding, save acknowledgement, wire boundary | K1, K3 |
-| K2 | [Integrate document variables and expressions](integrate-document-variables.md) | Specified | K1; [S-VARIABLES](../migrate-and-integrate-variables-subsystem.md) slice 2 |
+| K2 | [Integrate document variables and expressions](integrate-document-variables.md) | Slices 1–3 implemented; slice 4 needs X-PLUGIN and K5 symbol sources | K1; [S-VARIABLES](../migrate-and-integrate-variables-subsystem.md) slice 2 |
 | K3 | [Implement the document authority](implement-document-authority.md) | Implemented as `crates/kagami-session` | K1 |
-| K4 | [Persist and recover experiment documents](persist-experiment-documents.md) | Specified; ready once K2 lands | K2 |
-| K5 | [Instantiate catalog templates into the document](instantiate-catalog-templates.md) | Specified; ready once K2 lands | K2, [K-CATALOG](../implement-kagami-object-catalog.md) |
-| K6 | [Adopt the document authority in the Kagami app](adopt-document-authority-in-kagami.md) | Specified; blocked | K2, K4, K5; X-PLUGIN schema inventory contract |
+| K4 | [Persist and recover experiment documents](persist-experiment-documents.md) | Implemented; ADR 0022's default-view section waits on K11 | none |
+| K5 | [Instantiate catalog templates into the document](instantiate-catalog-templates.md) | Slices 1–2 implemented: the command, the bridge, no tracking link; slice 3's live-dependency half needs K2 slice 4 | [K-CATALOG](../implement-kagami-object-catalog.md) |
+| K6 | [Adopt the document authority in the Kagami app](adopt-document-authority-in-kagami.md) | Slices 1–3, 5–6 implemented: no demo state, split queues, schema-driven inspector, lifecycle; gestures wait on K11's viewport | X-PLUGIN schema inventory for a real registry |
 | K7 | [Capture the missing authoring user stories](capture-authoring-user-stories.md) | Partially implemented; core capability stories captured | none |
 | K8 | [Model requested observations](implement-requested-observations.md) | Specified; blocked | K4; X-PLUGIN observation-channel schema contract (K7 probe story satisfied) |
 | K9 | [Define composed object execution](define-composed-object-execution.md) | Specified; topology accepted, implementation blocked | X-PLUGIN, S-WORKLOAD, O-WASM, X-FIELDS |
@@ -52,12 +52,11 @@ crates/kagami-document  -- pure sans-IO model, commands, transition, history
 | K12 | [Implement particle emitters](implement-particle-emitters.md) | Specified; cross-lane | K5, K9, S-WORKLOAD, O-RUNTIME; N-CLUSTER for distributed proof |
 | K13 | [Define fields and computational-model selection](define-fields-and-model-selection.md) | Specified; cross-lane | K-DOCUMENT, X-PLUGIN, S-WORKLOAD, S-OBSERVE |
 
-K7's remaining documentation work can proceed alongside any code task. K1, K3
-and the [boundary follow-up](harden-document-boundaries.md) their first
-downstream consumers exposed are all landed, so the immediate code path is
-**S-VARIABLES slice 2 → K2**. K4 and K5 may then proceed independently; K6
-integrates both into the app after the simulation-plugin schema-inventory
-contract is stable.
+K7's remaining documentation work can proceed alongside any code task. K1, K3,
+the [boundary follow-up](harden-document-boundaries.md) their first downstream
+consumers exposed, S-VARIABLES slice 2, and K2's document work have all landed,
+so **K4 and K5 may now proceed independently**. K6 integrates both into the app
+after the simulation-plugin schema-inventory contract is stable.
 
 K9–K13 preserve the Field CAD capabilities that cross the document boundary:
 component-composed execution, compiled observation instruments, explicit

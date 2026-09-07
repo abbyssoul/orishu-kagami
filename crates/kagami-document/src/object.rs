@@ -38,7 +38,9 @@
 
 use std::collections::BTreeMap;
 
-use kagami_catalog::{ComponentTypeId, Dimension, PropertyName, SchemaVersion, Unit};
+use kagami_catalog::{
+    ComponentTypeId, Dimension, PropertyName, SchemaVersion, TemplateProvenance, Unit,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::{ObjectShape, Transform, Velocity};
@@ -104,15 +106,14 @@ impl AuthoredValue {
 pub enum PropertyValue {
     /// A dimensioned physical value.
     ///
-    /// # What the dimension check does and does not buy
+    /// # Where the dimension comes from
     ///
-    /// The dimension is *declared* by the property's schema and checked
-    /// against the authored unit, not *inferred* through the expression's
-    /// arithmetic. `mass / radius` annotated `kg` is therefore accepted here.
-    /// Derived-dimension inference belongs to the shared variables subsystem,
-    /// which owns the one dimension-aware value layer over the shared grammar;
-    /// this crate will delegate to it rather than grow a second one. The
-    /// catalog records the identical limitation for the identical reason.
+    /// An expression that carries its own units has its dimension *derived*
+    /// by the shared engine and checked against the one the schema declares,
+    /// so `2.7 m` is not accepted as a mass. An expression with no units is
+    /// read in the schema's dimension, which is what makes a bare
+    /// `5.972e24` mean kilograms. The stored dimension is the schema's
+    /// either way, because that is the one every reader must agree on.
     Quantity {
         /// Expression source, retained verbatim. This is the intent.
         source: String,
@@ -129,19 +130,39 @@ pub enum PropertyValue {
     Boolean(bool),
     /// Free-form text.
     Text(String),
+    /// A quantity this installation has not been able to price.
+    ///
+    /// Loading a document whose component schema is not installed produces
+    /// this: the author's expression is preserved exactly, and no dimension or
+    /// magnitude is invented for it, because both come from a declaration
+    /// nobody here has. It is *not* a failure state — the document is fine,
+    /// this machine is missing a plugin.
+    ///
+    /// It never comes out of [`crate::validate`]: a value resolved against a
+    /// schema is always priced. Installing the plugin and then editing the
+    /// component prices it, which is what makes an ordinary edit the repair.
+    Unresolved {
+        /// Expression source, retained verbatim. This is the intent.
+        source: String,
+        /// The unit symbol the magnitude was authored in, if any.
+        display_unit: Option<String>,
+    },
 }
 
 impl PropertyValue {
     /// A short name for this value's kind, for diagnostics.
+    ///
+    /// An unpriced value still reports `quantity`: what it is missing is a
+    /// magnitude, not a kind.
     pub fn kind_label(&self) -> &'static str {
         match self {
-            Self::Quantity { .. } => "quantity",
+            Self::Quantity { .. } | Self::Unresolved { .. } => "quantity",
             Self::Boolean(_) => "boolean",
             Self::Text(_) => "text",
         }
     }
 
-    /// The canonical SI magnitude, for a quantity.
+    /// The canonical SI magnitude, for a priced quantity.
     pub fn si_value(&self) -> Option<f64> {
         match self {
             Self::Quantity { si_value, .. } => Some(*si_value),
@@ -149,11 +170,51 @@ impl PropertyValue {
         }
     }
 
-    /// The retained authored source, for a quantity.
+    /// The retained authored source, priced or not.
     pub fn source(&self) -> Option<&str> {
         match self {
-            Self::Quantity { source, .. } => Some(source),
+            Self::Quantity { source, .. } | Self::Unresolved { source, .. } => Some(source),
             _ => None,
+        }
+    }
+
+    /// The unit symbol this value was authored in, if any.
+    pub fn display_unit(&self) -> Option<&str> {
+        match self {
+            Self::Quantity { display_unit, .. } | Self::Unresolved { display_unit, .. } => {
+                display_unit.as_deref()
+            }
+            _ => None,
+        }
+    }
+
+    /// `true` when this installation has priced the value.
+    pub fn is_priced(&self) -> bool {
+        !matches!(self, Self::Unresolved { .. })
+    }
+
+    /// The authored value that would reproduce this one.
+    ///
+    /// Repricing is resolving the same intent again, so there is no second
+    /// form of it to keep in step. A unit symbol that is somehow not in the
+    /// shared table is dropped rather than guessed at; it could only have
+    /// come from that table in the first place.
+    pub fn authored(&self) -> AuthoredValue {
+        match self {
+            Self::Quantity {
+                source,
+                display_unit,
+                ..
+            }
+            | Self::Unresolved {
+                source,
+                display_unit,
+            } => match display_unit.as_deref().map(orishu_variables::lookup) {
+                Some(Ok(unit)) => AuthoredValue::in_unit(source.clone(), *unit),
+                _ => AuthoredValue::si(source.clone()),
+            },
+            Self::Boolean(value) => AuthoredValue::Boolean(*value),
+            Self::Text(value) => AuthoredValue::Text(value.clone()),
         }
     }
 }
@@ -186,6 +247,15 @@ pub struct Object {
     pub shape: Option<ObjectShape>,
     /// Attached components, keyed by their plugin-qualified type.
     pub components: BTreeMap<ComponentTypeId, ObjectComponent>,
+    /// The catalog template this object was materialised from, if any.
+    ///
+    /// **Historical evidence, never a live link** (ADR 0008). It records what
+    /// was copied and from where, so a reader can say "this came from
+    /// planets/sun at fingerprint abc". It is not a pointer: no propagation,
+    /// no compare-and-apply, and no command refreshes an object from its
+    /// template. Editing or deleting that template leaves this object exactly
+    /// as it is — creating from changed content is a *new* instantiation.
+    pub provenance: Option<TemplateProvenance>,
 }
 
 impl Object {
@@ -215,6 +285,8 @@ pub struct ObjectSpec {
     pub shape: Option<ObjectShape>,
     /// Components to attach at creation, keyed by type.
     pub components: BTreeMap<ComponentTypeId, ComponentProperties>,
+    /// The catalog template this object is being materialised from, if any.
+    pub provenance: Option<TemplateProvenance>,
 }
 
 impl ObjectSpec {
@@ -227,6 +299,7 @@ impl ObjectSpec {
             velocity: Velocity::ZERO,
             shape: None,
             components: BTreeMap::new(),
+            provenance: None,
         }
     }
 
@@ -248,6 +321,16 @@ impl ObjectSpec {
     #[must_use]
     pub fn with_shape(mut self, shape: ObjectShape) -> Self {
         self.shape = Some(shape);
+        self
+    }
+
+    /// Record which catalog template this object was materialised from.
+    ///
+    /// Evidence about where the values came from, not a relationship to
+    /// maintain.
+    #[must_use]
+    pub fn from_template(mut self, provenance: TemplateProvenance) -> Self {
+        self.provenance = Some(provenance);
         self
     }
 

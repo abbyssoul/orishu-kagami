@@ -43,9 +43,10 @@ timeline
                                     : Probe queries, field visualization, deterministic emitters
                                     : Runtime and storage observability
     section Form and distribute
-      M4 — Cluster formation PoC   : N-FORMATION is in progress
+      M4 — Cluster formation PoC   : N-FORMATION accepted; telemetry handoff open
                                     : Real peer IO and operator controls
                                     : Formation observability and three-worker proof
+                                    : P-MONITOR shell may proceed independently
       M5 — Distributed execution  : N-CLUSTER, N-TRANSFER, N-PURGE
                                     : N-ARTIFACT and scientific profile evidence
                                     : Initial staged scaling and P-MONITOR
@@ -121,7 +122,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | V-LIVE | M3–M6 | Ready after shared types | Implement minimal snapshots in M3, then resume/delta/multi-client behavior in M6 |
 | V-REPLAY | M6 | Ready after stored observations | Implement exact time-addressable persisted playback |
 | N-MEMBERSHIP | M1–M2 | **Accepted** | Feed the accepted sans-IO core into N-FORMATION |
-| N-FORMATION | M4 | **In progress** | Complete remaining preflight, worker integration, operator surface, observability, and real three-process proof |
+| N-FORMATION | M4 | **Accepted for source-built Linux** | Preserve accepted formation evidence; finish P-OBSERVABILITY/P-OBS-DOCS for combined M4 |
 | N-CLUSTER | M5 | Planned | Specify component-partition placement, reliable cross-component channels and distributed commit after formation and single-node semantics are proven |
 | N-TRANSFER | M5 | Planned | Specify bounded verified QUIC artifact transfer |
 | N-PURGE | M5 | Planned | Specify persisted tombstones and inventory suppression |
@@ -130,7 +131,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | P-INSTALL | M8 | In progress | Candidate archives, Debian builds, Cargo-path install tests, staged checksums/provenance, and Homebrew handoff exist; next define crates.io graph, lifecycle tests, SBOM/signing, and supported M8 publication |
 | P-OBSERVABILITY | M0–M8 | Ready by owning slice | Implement worker/formation instrumentation first, then extend with each service |
 | P-OBS-DOCS | M4–M8 | Planned | Ship tested operator guidance alongside each observability slice |
-| P-MONITOR | M5–M8 | Planned | Specify after real membership and operational projection models stabilize |
+| P-MONITOR | M4–M8 | Shell implemented; live integration backlog | The API-independent shell is implemented; next grow live views and safe actions to CLI parity as their owning contracts land, excluding raw admission-secret output |
 
 ## Immediate assignment
 

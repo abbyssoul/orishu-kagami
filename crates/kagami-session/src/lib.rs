@@ -24,7 +24,9 @@
 //! | [`command`] | what an adapter submits, and the guards it submits with |
 //! | [`outcome`] | what the authority decided, and what a view can catch up on |
 //! | [`authority`] | the current revision, the decision, the history, the events |
+//! | [`document`] | the versioned `kagami.experiment` file, and its pure codec |
 //! | [`persist`] | which revision is on disk, and where |
+//! | [`store`] | writing a document without ever costing the previous one |
 //! | [`view`] | what an adapter reads |
 //! | [`wire`] | the explicit, versioned shape an adapter converts through |
 //!
@@ -102,18 +104,25 @@
 
 pub mod authority;
 pub mod command;
+pub mod document;
 pub mod identity;
 pub mod outcome;
 pub mod persist;
+pub mod store;
 pub mod view;
 pub mod wire;
 
 pub use authority::{
     DocumentAuthority, MAX_COMMAND_HISTORY, MAX_EVENT_HISTORY, MAX_REPLAY_COMMANDS,
 };
-pub use command::{ExperimentCommandEnvelope, SessionCommand};
+pub use command::{ExperimentCommandEnvelope, InstantiationSpec, SessionCommand};
+pub use document::{DocumentError, DocumentMetadata, ExperimentDocument, FORMAT, FORMAT_VERSION};
 pub use identity::{ActorId, CommandId, IdentityError, MAX_IDENTITY_BYTES};
 pub use outcome::{Acceptance, EventSeq, ExperimentChange, ExperimentEvent, SessionRejection};
 pub use persist::{DocumentTarget, MAX_TARGET_BYTES, SaveAcknowledgement, TargetError};
+pub use store::{
+    FileStore, LoadError, Loaded, LoadedFrom, MAX_DOCUMENT_BYTES, RealFileStore, SaveError, load,
+    save,
+};
 pub use view::{HistoryStatus, SessionView};
 pub use wire::{WireAcceptance, WireEnvelope, WireEvent, WireRejection, WireSessionCommand};

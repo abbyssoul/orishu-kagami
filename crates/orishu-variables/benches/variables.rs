@@ -132,7 +132,7 @@ fn bench_value_flat(c: &mut Criterion) {
             b.iter(|| {
                 let mut sum = 0.0;
                 for &id in &ids {
-                    sum += vars.value(id).unwrap();
+                    sum += vars.value(id).unwrap().magnitude();
                 }
                 std::hint::black_box(sum)
             })
@@ -154,7 +154,7 @@ fn bench_eval_adhoc(c: &mut Criterion) {
             b.iter(|| {
                 let mut sum = 0.0;
                 for i in 0..count {
-                    sum += vars.eval(&format!("bench.v{i} * 2")).unwrap();
+                    sum += vars.eval(&format!("bench.v{i} * 2")).unwrap().magnitude();
                 }
                 std::hint::black_box(sum)
             })

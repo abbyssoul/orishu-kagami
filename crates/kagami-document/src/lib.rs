@@ -23,10 +23,12 @@
 //! | [`name`] | human labels, which are not identities |
 //! | [`object`] | objects as entities composed from plugin-contributed components |
 //! | [`setup`] | the numerical domain, time step, and plugin composition |
+//! | [`variable`] | named values the experiment's expressions may use |
 //! | [`command`] | the closed set of authoring intents |
 //! | [`mod@update`] | the pure transition, and the candidate it produces |
 //! | [`validate`] | the decision, and precisely why not |
 //! | [`capability`] | what the installed schemas can govern, which the experiment is not |
+//! | [`mod@hydrate`] | rebuilding an experiment from what a document persisted |
 //! | [`history`] | undo and redo, as captured experiments |
 //! | [`limits`] | declared bounds on what one batch may ask for |
 //! | [`wire`] | the explicit, versioned shape an adapter converts through |
@@ -85,16 +87,21 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! # Units, and what is deferred
+//! # Units, and what is still deferred
 //!
-//! An authored quantity names its unit *beside* the expression rather than
-//! inside it, and a property's dimension is *declared* by its schema rather
-//! than inferred through the expression's arithmetic. Both are the same
-//! deliberate limitation `kagami-catalog` records, for the same reason: the
-//! dimension-aware value layer belongs to the shared variables subsystem, and
-//! this crate will delegate to it rather than grow a second implementation.
-//! Until then an expression must be self-contained — a symbol reference is an
-//! explicit `expression_unresolved` rejection, never a silent zero.
+//! An authored quantity may write its unit *inside* the expression, and
+//! `orishu-variables` derives the dimension from the arithmetic: `2.7 g` is a
+//! mass, `2.7 m` assigned to a mass property is refused, and `1 kg + 1 m` is
+//! not a value at all. A unit may still be named beside the expression for a
+//! bare magnitude, which is how `mass: 5.972e24` means kilograms; declaring it
+//! both ways is refused rather than applied twice.
+//!
+//! One limitation remains, and it is K2's to close: an expression with *no*
+//! units of its own is read as canonical SI in whatever dimension the schema
+//! declares, so a dimensionless ratio assigned to a mass is still accepted.
+//! Until document variables exist there is nothing for such an expression to
+//! reference, so it can only be a literal — a symbol reference is an explicit
+//! `expression_unresolved` rejection, never a silent zero.
 
 #![deny(missing_docs)]
 
@@ -102,6 +109,7 @@ pub mod capability;
 pub mod command;
 pub mod geometry;
 pub mod history;
+pub mod hydrate;
 pub mod id;
 pub mod limits;
 pub mod model;
@@ -110,6 +118,7 @@ pub mod object;
 pub mod setup;
 pub mod update;
 pub mod validate;
+pub mod variable;
 pub mod wire;
 
 pub use capability::{
@@ -118,6 +127,7 @@ pub use capability::{
 pub use command::ExperimentCommand;
 pub use geometry::{GeometryError, ObjectShape, Rotation, Transform, Vector3, Velocity};
 pub use history::{EditHistory, GestureId, Restoration};
+pub use hydrate::{ComponentRecord, DocumentRecord, ObjectRecord, VariableRecord, hydrate};
 pub use id::{Counters, ExperimentRevision, ObjectId};
 pub use limits::Limits;
 pub use model::{Experiment, ExperimentCheckpoint, ExperimentSnapshot};
@@ -126,6 +136,7 @@ pub use object::{
     AuthoredValue, ComponentProperties, Object, ObjectComponent, ObjectSpec, PropertyValue,
 };
 pub use setup::{BoundaryCondition, Domain, PluginComposition, Setup, SetupError, TimeStep};
-pub use update::{Candidate, CommitReport, restore, update};
+pub use update::{Candidate, CommitReport, EvaluationWork, resolve_variables, restore, update};
 pub use validate::{ComponentPath, PropertyPath, Rejection};
+pub use variable::{Variable, VariableId, VariableSpec};
 pub use wire::{WIRE_VERSION, WireCommand, WireError, WireSnapshot};

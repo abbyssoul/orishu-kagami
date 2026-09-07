@@ -44,6 +44,7 @@
 use std::collections::BTreeMap;
 
 use kagami_catalog::{ComponentTypeId, PluginId, PropertyName, SchemaVersion, UnitError, quantity};
+use orishu_variables::{Name, Namespace};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -54,6 +55,7 @@ use crate::model::ExperimentSnapshot;
 use crate::name::DisplayName;
 use crate::object::{AuthoredValue, ComponentProperties, ObjectSpec, PropertyValue};
 use crate::setup::{Domain, Setup, TimeStep};
+use crate::variable::{VariableId, VariableSpec};
 
 /// The version of the representation in this module.
 ///
@@ -79,6 +81,12 @@ pub enum WireError {
         /// The raw identity that was supplied.
         object: u64,
     },
+    /// The message named a variable definition this experiment does not have.
+    #[error("no variable {variable} in this experiment")]
+    UnknownVariable {
+        /// The raw identity that was supplied.
+        variable: u64,
+    },
     /// The message annotated a quantity with a unit the product does not know.
     ///
     /// The shared unit table is the one answer to what a symbol means, so this
@@ -96,6 +104,7 @@ impl WireError {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::UnknownObject { .. } => "unknown_object",
+            Self::UnknownVariable { .. } => "unknown_variable",
             Self::UnknownUnit { .. } => "unknown_unit",
         }
     }
@@ -317,6 +326,46 @@ pub enum WireCommand {
         /// Its new authored value.
         value: WireValue,
     },
+    /// Define a named value this experiment's expressions may use.
+    DefineVariable {
+        /// Where the definition lives. Absent is the root namespace.
+        #[serde(default, skip_serializing_if = "str::is_empty")]
+        namespace: String,
+        /// The editable name.
+        name: Name,
+        /// Expression source, exactly as authored.
+        expression: String,
+        /// What the author says it is for.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    /// Replace a definition's expression.
+    SetVariableExpression {
+        /// Which definition.
+        variable: u64,
+        /// Its new expression source.
+        expression: String,
+    },
+    /// Change a definition's name, rewriting the expressions that used it.
+    RenameVariable {
+        /// Which definition.
+        variable: u64,
+        /// Its new name.
+        name: Name,
+    },
+    /// Remove a definition.
+    RemoveVariable {
+        /// Which definition.
+        variable: u64,
+    },
+    /// Change what a definition says it is for.
+    SetVariableDescription {
+        /// Which definition.
+        variable: u64,
+        /// The new description, or absent to clear it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
     /// Replace the computational region and grid.
     SetDomain {
         /// The new domain.
@@ -391,6 +440,33 @@ impl WireCommand {
                 property: property.clone(),
                 value: WireValue::of(value),
             },
+            ExperimentCommand::DefineVariable(spec) => Self::DefineVariable {
+                namespace: spec.namespace.as_str().to_owned(),
+                name: spec.name.clone(),
+                expression: spec.expression.clone(),
+                description: spec.description.clone(),
+            },
+            ExperimentCommand::SetVariableExpression {
+                variable,
+                expression,
+            } => Self::SetVariableExpression {
+                variable: variable.get(),
+                expression: expression.clone(),
+            },
+            ExperimentCommand::RenameVariable { variable, name } => Self::RenameVariable {
+                variable: variable.get(),
+                name: name.clone(),
+            },
+            ExperimentCommand::RemoveVariable(variable) => Self::RemoveVariable {
+                variable: variable.get(),
+            },
+            ExperimentCommand::SetVariableDescription {
+                variable,
+                description,
+            } => Self::SetVariableDescription {
+                variable: variable.get(),
+                description: description.clone(),
+            },
             ExperimentCommand::SetDomain(domain) => Self::SetDomain { domain: *domain },
             ExperimentCommand::SetTimeStep(time_step) => Self::SetTimeStep {
                 time_step: *time_step,
@@ -460,6 +536,38 @@ impl WireCommand {
                 component,
                 property,
                 value: value.into_authored()?,
+            },
+            Self::DefineVariable {
+                namespace,
+                name,
+                expression,
+                description,
+            } => {
+                let mut spec =
+                    VariableSpec::new(name, expression).in_namespace(Namespace::new(namespace));
+                spec.description = description;
+                ExperimentCommand::DefineVariable(Box::new(spec))
+            }
+            Self::SetVariableExpression {
+                variable,
+                expression,
+            } => ExperimentCommand::SetVariableExpression {
+                variable: resolve_variable(snapshot, variable)?,
+                expression,
+            },
+            Self::RenameVariable { variable, name } => ExperimentCommand::RenameVariable {
+                variable: resolve_variable(snapshot, variable)?,
+                name,
+            },
+            Self::RemoveVariable { variable } => {
+                ExperimentCommand::RemoveVariable(resolve_variable(snapshot, variable)?)
+            }
+            Self::SetVariableDescription {
+                variable,
+                description,
+            } => ExperimentCommand::SetVariableDescription {
+                variable: resolve_variable(snapshot, variable)?,
+                description,
             },
             Self::SetDomain { domain } => ExperimentCommand::SetDomain(domain),
             Self::SetTimeStep { time_step } => ExperimentCommand::SetTimeStep(time_step),
@@ -548,6 +656,12 @@ impl WireSnapshot {
             setup: snapshot.setup().clone(),
         }
     }
+}
+
+fn resolve_variable(snapshot: &ExperimentSnapshot, variable: u64) -> Result<VariableId, WireError> {
+    snapshot
+        .resolve_variable(variable)
+        .ok_or(WireError::UnknownVariable { variable })
 }
 
 fn resolve(snapshot: &ExperimentSnapshot, object: u64) -> Result<ObjectId, WireError> {

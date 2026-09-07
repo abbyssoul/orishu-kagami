@@ -23,6 +23,11 @@ description = "Kagami's document server: the sole mechanism by which an experime
 # - kagami-catalog:   the installed component schemas an edit is validated
 #                     against, and (task K5) the materialised object candidates
 #                     an instantiation commits.
+# - orishu-variables: the shared identifier and unit types the experiment file
+#                     decodes through. The one grammar, not a second one.
+# - serde_json:       the experiment file's encoding. JSON matches the
+#                     repository's persisted-data convention; the
+#                     hand-authored YAML format stays the catalog's alone.
 # - serde:            the explicit, versioned shape an adapter converts
 #                     through (`wire`). Not a transport, and not the
 #                     experiment file: see that module for the boundary it is
@@ -31,7 +36,9 @@ description = "Kagami's document server: the sole mechanism by which an experime
 [dependencies]
 kagami-catalog = { workspace = true }
 kagami-document = { workspace = true }
+orishu-variables = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

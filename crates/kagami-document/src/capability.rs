@@ -97,6 +97,18 @@ pub enum CapabilityGap {
         /// The property the schema requires.
         property: PropertyName,
     },
+    /// A stored value was never priced here, though the schema to price it is
+    /// installed.
+    ///
+    /// Reached by loading a document without the plugin and installing it
+    /// afterwards. Adopting a schema deliberately does not reach into
+    /// authored state, so the value is priced by the next edit that touches
+    /// the component — an ordinary edit is the repair.
+    #[error("property `{property}` has not been priced against the installed schema")]
+    ValueNotPriced {
+        /// The property still holding an unpriced value.
+        property: PropertyName,
+    },
 }
 
 impl CapabilityGap {
@@ -108,6 +120,7 @@ impl CapabilityGap {
             Self::PropertyKindChanged { .. } => "property_kind_changed",
             Self::PropertyDimensionChanged { .. } => "property_dimension_changed",
             Self::RequiredPropertyMissing { .. } => "required_property_missing",
+            Self::ValueNotPriced { .. } => "value_not_priced",
         }
     }
 
@@ -316,6 +329,11 @@ pub(crate) fn gap_of(
                 property: name.clone(),
             });
         };
+        if !value.is_priced() {
+            return Some(CapabilityGap::ValueNotPriced {
+                property: name.clone(),
+            });
+        }
         match (&declared.kind, value) {
             (
                 PropertyKind::Quantity { dimension },

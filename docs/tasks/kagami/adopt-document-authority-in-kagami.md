@@ -1,10 +1,9 @@
 # Adopt the document authority in the Kagami app
 
-Status: **specified**; gated on [K2](integrate-document-variables.md),
-[K4](persist-experiment-documents.md),
-[K5](instantiate-catalog-templates.md), and the X-PLUGIN schema-inventory
-contract. The [K1/K3 boundary follow-up](harden-document-boundaries.md) this
-task also needed has landed  
+Status: **slices 1–3, 5 and 6 implemented**; slice 4 (interactive gestures)
+waits on the viewport interaction [K11](implement-kagami-viewport-workflows.md)
+owns, and the schema registry is a bundled stand-in until X-PLUGIN's inventory
+exists  
 Work package: **K-DOCUMENT** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0004](../../adr/0004-separate-authoring-commands-from-run-observations.md),
 [ADR 0006](../../adr/0006-mcp-ui-equivalence.md),
@@ -37,7 +36,7 @@ lives in `kagami-document`/`kagami-session`.
 
 ## Implementation slices
 
-### 1. Replace the demo state
+### 1. Replace the demo state — **implemented**
 
 - Delete `apps/kagami/src/scene_model.rs` and its `Model` fields. Hold a
   `DocumentAuthority` and the latest `ExperimentView` instead.
@@ -48,7 +47,7 @@ lives in `kagami-document`/`kagami-session`.
   `view/`); this is a change of *what the model holds*, not of the
   architecture.
 
-### 2. Separate the two command queues
+### 2. Separate the two command queues — **implemented**
 
 `TODO.md` records the Doom 3 framing that motivates this: a client produces
 commands, and the server is authoritative about whether they applied. There are
@@ -63,7 +62,7 @@ two queues, and conflating them is the failure mode.
   all Observation/replay view edits remain ephemeral (ADR 0022).
 - A test asserts that no client-local message path can produce an envelope.
 
-### 3. A schema-driven inspector
+### 3. A schema-driven inspector — **implemented**
 
 - Render an object's components from their registered `ComponentSchema`, and
   offer every registered-but-unattached schema for attachment. The inspector
@@ -74,7 +73,7 @@ two queues, and conflating them is the failure mode.
   authored source, and the resolved value is displayed beside it as derived
   output. Editing shows the resolution or the diagnostic (ADR 0005).
 
-### 4. Interactive edits
+### 4. Interactive edits — **not implemented**
 
 - A viewport drag or a held inspector control opens a gesture on the authority
   and commits it on release, so the whole gesture is one undo step (ADR 0019).
@@ -83,7 +82,8 @@ two queues, and conflating them is the failure mode.
   but it has no local effect — it reaches the authority through the same
   command boundary an MCP client would use.
 
-### 5. Document lifecycle and undo affordances
+### 5. Document lifecycle and undo affordances — **implemented**, except the
+default-view revision, which is K11's
 
 - File → New, Open, Save, Save As drive K4 through the authority; the window
   title and one dirty indicator derive from both experiment and default-view
@@ -99,7 +99,7 @@ two queues, and conflating them is the failure mode.
   unavailable component stays in the tree with its diagnostic and authored
   values; the app neither hides it nor substitutes a schema.
 
-### 6. Verification
+### 6. Verification — **implemented**
 
 - Headless tests over the app's message → envelope mapping, so the mapping is
   covered without a window.
@@ -107,6 +107,36 @@ two queues, and conflating them is the failure mode.
   `make smoke-kagami`: `make run-kagami`, create an object, attach a component,
   edit a property as an expression, undo, redo, save, reopen.
 - Update `apps/kagami/README.md`: the scene tree is no longer demo state.
+
+## Implementation record
+
+`apps/kagami/src/scene_model.rs` is gone. The window holds a
+`document::Document` — the authority plus the latest `SessionView` — and every
+other field is presentation. 12 headless tests in `tests/authoring.rs`; the app
+gained a `[lib]` target so they can exist at all.
+
+Five decisions are worth carrying forward:
+
+- **The two queues are two types.** `Authoritative` and `ClientLocal` are
+  separate enums, and `Message::intent()` is the only place either becomes a
+  candidate for an envelope. `no_client_local_message_can_produce_an_envelope`
+  is checkable *because* the mapping is a function rather than arms buried in
+  `update`.
+- **The view is cached, not re-read.** `Document` holds the `SessionView` and
+  refreshes it only on an accepted submission, so a frame is drawn from one
+  revision — and a refusal refreshes nothing, which is how "the view keeps
+  showing the last accepted revision" is structural rather than remembered.
+- **Attaching a component bare is refused, and that is correct.** The window
+  does not invent a mass to satisfy a required property. The refusal is
+  reported, and the value is authored in the inspector.
+- **The inspector branches on nothing.** It walks the registry, so a component
+  type this build has never heard of renders and is offered for attachment
+  with no change here. `Model::bundled_schemas` is the one place component
+  types are named, and it is *data* standing in for X-PLUGIN's inventory.
+- **Slice 4 is honestly not done.** Gestures need a viewport that produces
+  drags, which K11 owns; the authority's `BeginInteractiveEdit` bracket is
+  already there for it. Property editing is text committed on submit rather
+  than a held control, so nothing today needs a gesture to undo as one step.
 
 ## Acceptance criteria
 
