@@ -1,3 +1,4 @@
+mod credentials;
 mod formatter;
 
 use std::fmt;
@@ -19,10 +20,8 @@ use orishu::model::blocklist::{
     self, BlocklistAddRequest, BlocklistIdentityMatcher, BlocklistNetworkMatcher,
 };
 use orishu::model::checkpoint::{self, CheckpointId};
-use orishu::model::cluster::{
-    EventFilter, JoinIntent, JoinToken, LogFilter, LogLevel, MembersSelector,
-};
-use orishu::model::node::{InspectSource, MemberState, NodeId, RemoveMode};
+use orishu::model::cluster::{EventFilter, LogFilter, LogLevel, MembersSelector};
+use orishu::model::node::{InspectSource, NodeId, RemoveMode};
 use orishu::model::result::{self, ResultId};
 use orishu::model::tombstones;
 use orishu::model::workload::{
@@ -47,6 +46,10 @@ struct Cli {
     )]
     host: Option<ClusterAddress>,
 
+    /// Private file containing this worker's operator token (not a join token).
+    #[arg(long, global = true, env = "ORISHU_OPERATOR_TOKEN_FILE")]
+    operator_token_file: Option<PathBuf>,
+
     /// Output format.
     #[arg(short, long, global = true, value_enum, default_value_t = OutputMode::Table)]
     output: OutputMode,
@@ -55,7 +58,7 @@ struct Cli {
     #[arg(long, global = true, value_parser = humantime::parse_duration, default_value = "5s")]
     timeout: Duration,
 
-    /// Path to TLS certificate PEM file (enables TLS on TCP listeners).
+    /// Path to a trusted server certificate PEM file.
     #[arg(long)]
     tls_cert: Option<PathBuf>,
 
@@ -216,11 +219,9 @@ enum Commands {
     },
 
     // ── Token subcommand group ───────────────────────────────────────────────
-    /// Obtain and manage cluster join tokens.
+    /// Explicitly print secret, formation-bound join material. Store it privately.
     Token {
-        /// Rotate the cluster join token.
-        ///
-        /// Invalidates the current token and generates a new one.
+        /// Reserved; rotation is unsupported by the formation PoC.
         #[arg(long)]
         rotate: bool,
     },
@@ -243,7 +244,7 @@ enum Commands {
     Inspect {
         node_id: NodeId,
         /// Control where the node manifest is fetched from.
-        #[arg(long, value_enum, default_value_t = InspectSourceArg::BestEffort)]
+        #[arg(long, value_enum, default_value_t = InspectSourceArg::Indirect)]
         source: InspectSourceArg,
     },
 
@@ -276,21 +277,51 @@ enum Commands {
 
     /// Command the local worker to join an existing cluster.
     ///
-    /// Provide an introducer address and a join token obtained from the target cluster.
-    /// If the worker is already in a cluster, it will leave first and then join the new one.
+    /// Supply private JSON join material and the source worker's formation ID.
+    /// Never automatically leaves an existing formation. Returns processing status.
     Join {
-        /// Address of an introducer node (host:port).
-        address: String,
-        /// Join token obtained from the target cluster.
+        /// Private JSON output from the target's authenticated `token` command.
         #[arg(long)]
-        token: String,
+        join_material_file: PathBuf,
+        /// Expected current formation of the worker addressed by --host.
+        #[arg(long)]
+        formation_id: orishu::model::cluster::FormationId,
+        /// Stable retry identity; reuse it with the same request body.
+        #[arg(long)]
+        operation_id: orishu::model::cluster::OperationId,
+    },
+
+    /// Inspect a retained join operation on the directly addressed worker.
+    JoinStatus {
+        operation_id: orishu::model::cluster::OperationId,
+    },
+
+    /// Inspect retained admission evidence on the original introducer; never retries.
+    AdmissionInspect {
+        #[arg(long)]
+        formation_id: orishu::model::cluster::FormationId,
+        #[arg(long)]
+        attempt_id: orishu::model::node::NodeId,
+        #[arg(long)]
+        applicant_fingerprint: orishu::model::cluster::CertFingerprint,
+        #[arg(long)]
+        introducer_node_id: orishu::model::node::NodeId,
+        #[arg(long)]
+        introducer_fingerprint: orishu::model::cluster::CertFingerprint,
     },
 
     /// Command the local worker to leave its current cluster.
     ///
-    /// The node gracefully leaves (drains in-flight work, transfers data to
-    /// replicas, announces Leave to peers) and becomes a standalone cluster of one.
-    Leave,
+    /// The formation PoC announces departure best-effort and becomes a fresh
+    /// standalone formation. Compute drain and artifact transfer are not supported.
+    Leave {
+        /// Current formation of the directly addressed worker.
+        #[arg(long)]
+        formation_id: orishu::model::cluster::FormationId,
+        /// Reuse unchanged for exact retries after a lost response.
+        #[arg(long)]
+        operation_id: orishu::model::cluster::OperationId,
+    },
 
     // ── Observability ─────────────────────────────────────────────────────────
     /// Review recent administrative events with actor, target, and outcome.
@@ -377,12 +408,22 @@ enum ClusterCommands {
     ///
     /// Already-connected nodes are unaffected. Idempotent.
     /// Requires Tier 2 credentials.
-    Lock,
+    Lock(LockArguments),
 
     /// Unlock cluster membership, re-enabling new node admission.
     ///
     /// Idempotent. Requires Tier 2 credentials.
-    Unlock,
+    Unlock(LockArguments),
+}
+
+#[derive(Debug, clap::Args)]
+struct LockArguments {
+    /// Expected formation identity from cluster info; never inferred from a name.
+    #[arg(long)]
+    formation_id: orishu::model::cluster::FormationId,
+    /// Unique intent ID; reuse this and the same target/formation when retrying.
+    #[arg(long)]
+    operation_id: orishu::model::cluster::OperationId,
 }
 
 #[derive(Debug, Subcommand)]
@@ -733,10 +774,23 @@ async fn main() {
 
     let host = args.host.unwrap_or_default();
 
+    let credentials = match args
+        .operator_token_file
+        .as_deref()
+        .map(credentials::load)
+        .transpose()
+    {
+        Ok(credentials) => credentials,
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }
+    };
+
     let client_result = HttpClusterClient::new(
         host,
         HttClientOptions {
-            credentials: None,
+            credentials,
             timeout: Some(args.timeout),
             tls_cert: args.tls_cert,
             tls_key: args.tls_key,
@@ -772,22 +826,6 @@ fn load_manifest(source: &str) -> Result<workload::Manifest, Box<dyn std::error:
 }
 
 // ── Workload status formatting ────────────────────────────────────────────────
-
-fn format_manifest_metadata(m: &orishu::model::manifest::ObjectMeta) -> Value {
-    let mut v = json!({
-        "name": m.name,
-        "namespace": m.namespace.clone().unwrap_or("".to_string()),
-        "labels": m.labels,
-    });
-
-    if let Some(namespace) = m.namespace.as_ref() {
-        v.as_object_mut()
-            .unwrap()
-            .insert("namespace".into(), namespace.as_str().into());
-    }
-
-    v
-}
 
 fn format_workload_status(ws: Option<&WorkloadStatus>) -> Value {
     match ws {
@@ -859,14 +897,9 @@ async fn run(
                 })
                 .await?;
             let values: Vec<Value> = nodes
-                .iter()
-                .map(|n| {
-                    json!({
-                        "id": n.metadata.name,
-                        "state": format!("{:?}", n.status.as_ref().map_or(&MemberState::Removed, |s| &s.member)),
-                    })
-                })
-                .collect();
+                .into_iter()
+                .map(serde_json::to_value)
+                .collect::<Result<_, _>>()?;
             fmt.list(values);
         }
 
@@ -876,18 +909,7 @@ async fn run(
                 .membership()
                 .get(&node_id, Some(inspect_source))
                 .await?;
-            fmt.record(json!({
-                "id": node.metadata.name,
-                "host": node.spec.listen.clients,
-                "state": format!("{:?}", node.status.as_ref().map_or(&MemberState::Removed, |s| &s.member)),
-                "accepts.clients": node.spec.accepts.clients,
-                "accepts.peers": node.spec.accepts.peers,
-                "accepts.work": node.spec.accepts.work,
-                "limits.clients": node.spec.limits.clients.unwrap_or_default(),
-                "limits.peers": node.spec.limits.peers.unwrap_or_default(),
-                "connected.peers": node.status.as_ref().map_or(0, |s| s.connected.peers),
-                "connected.clients": node.status.as_ref().map_or(0, |s| s.connected.clients),
-            }));
+            fmt.record(serde_json::to_value(node)?);
         }
 
         Commands::Diagnose { node_id, from } => {
@@ -916,28 +938,62 @@ async fn run(
         }
 
         // ── Join / Leave ─────────────────────────────────────────────────────
-        Commands::Join { address, token } => {
-            let intent = JoinIntent {
-                addresses: vec![ClusterAddress::parse(&address)?],
-                token: JoinToken {
-                    token,
-                    expires_at: None,
-                },
+        Commands::Join {
+            join_material_file,
+            formation_id,
+            operation_id,
+        } => {
+            let request = orishu::model::cluster::JoinRequest {
+                schema_version: 1,
+                formation_id,
+                operation_id,
+                material: credentials::load_join_material(&join_material_file)?,
             };
-            let result = client.membership().join(&intent).await?;
-            fmt.record(json!({
-                "nodeId": result.node_id.to_string(),
-                "admittedBy": result.admitted_by.to_string(),
-                "cluster": result.cluster.metadata.name,
-            }));
+            fmt.record(serde_json::to_value(
+                client.membership().join(&request).await?,
+            )?);
         }
 
-        Commands::Leave => {
-            let result = client.membership().leave().await?;
-            fmt.record(json!({
-                "previousCluster": result.previous_cluster,
-                "previousNodeId": result.previous_node_id,
-            }));
+        Commands::AdmissionInspect {
+            formation_id,
+            attempt_id,
+            applicant_fingerprint,
+            introducer_node_id,
+            introducer_fingerprint,
+        } => {
+            let request = orishu::model::cluster::AdmissionInspectionRequest {
+                schema_version: 1,
+                formation_id,
+                reference: orishu::model::cluster::JoinRecoveryReference {
+                    attempt_id,
+                    applicant_fingerprint,
+                    introducer_node_id,
+                    introducer_fingerprint,
+                },
+            };
+            fmt.record(serde_json::to_value(
+                client.membership().inspect_admission(&request).await?,
+            )?);
+        }
+        Commands::JoinStatus { operation_id } => {
+            fmt.record(serde_json::to_value(
+                client.membership().join_status(&operation_id).await?,
+            )?);
+        }
+
+        Commands::Leave {
+            formation_id,
+            operation_id,
+        } => {
+            let result = client
+                .membership()
+                .leave(&orishu::model::cluster::LeaveRequest {
+                    schema_version: 1,
+                    formation_id,
+                    operation_id,
+                })
+                .await?;
+            fmt.record(serde_json::to_value(result)?);
         }
 
         // ── Cluster subcommands ───────────────────────────────────────────────
@@ -945,41 +1001,41 @@ async fn run(
             ClusterCommands::Info => {
                 let s = client.cluster().summary().await?;
                 fmt.record(json!({
-                    "nodes": s.status.map_or(0, |status| status.node_count),
-                    "locked": s.spec.membership_locked,
-                    "workload": if let Some(workload) = s.spec.workload {
-                        json!({
-                            "meta": format_manifest_metadata(&workload.metadata),
-                            "status": format_workload_status(workload.status.as_ref())
-                        })
-                    } else { format_workload_status(Some(&WorkloadStatus::NotLoaded)) },
+                    "formationId": s.formation_id,
+                    "clusterName": s.cluster_name,
+                    "sourceNodeId": s.source_node_id,
+                    "nodes": s.member_count,
+                    "alive": s.alive_count,
+                    "locked": s.membership_locked,
+                    "participation": s.participation,
+                    "introducerReady": s.introducer_ready,
+                    "workload": s.workload,
+                    "view": s.view,
                 }));
             }
-            ClusterCommands::Lock => {
-                client.membership().lock().await?;
-                fmt.message("Cluster membership locked.");
-            }
-            ClusterCommands::Unlock => {
-                client.membership().unlock().await?;
-                fmt.message("Cluster membership unlocked.");
+            command @ (ClusterCommands::Lock(_) | ClusterCommands::Unlock(_)) => {
+                let locked = matches!(&command, ClusterCommands::Lock(_));
+                let (ClusterCommands::Lock(args) | ClusterCommands::Unlock(args)) = command else {
+                    unreachable!()
+                };
+                let request = orishu::model::cluster::LockRequest {
+                    schema_version: 1,
+                    operation_id: args.operation_id,
+                    formation_id: args.formation_id,
+                    locked,
+                };
+                let receipt = client.membership().set_lock(&request).await?;
+                fmt.record(serde_json::to_value(receipt)?);
             }
         },
 
         // ── Token subcommands ────────────────────────────────────────────────
         Commands::Token { rotate } => {
             if rotate {
-                let token = client.create_join_token().await?;
-                fmt.message("Join token successfully rotated.");
-                fmt.record(json!({
-                    "token": token.token,
-                    "expiresAt": token.expires_at.map(|t| t.to_rfc3339()),
-                }));
+                return Err("token rotation is not supported by the formation PoC".into());
             } else {
                 let token = client.get_join_token().await?;
-                fmt.record(json!({
-                    "token": token.token,
-                    "expiresAt": token.expires_at.map(|t| t.to_rfc3339()),
-                }));
+                fmt.record(serde_json::to_value(token)?);
             }
         }
 
@@ -1491,5 +1547,55 @@ mod tests {
     #[test]
     fn verify_cli() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn join_requires_pinned_file_and_source_precondition_not_raw_token() {
+        assert!(
+            Cli::try_parse_from(["orishuctl", "join", "127.0.0.1:6655", "--token", "secret"])
+                .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "orishuctl",
+                "join",
+                "--join-material-file",
+                "/private/join.json",
+                "--formation-id",
+                "source-formation",
+                "--operation-id",
+                "attempt-1"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "orishuctl",
+                "join",
+                "--join-material-file",
+                "/private/join.json"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn operator_token_file_is_global_and_not_a_raw_token_option() {
+        let cli = Cli::try_parse_from([
+            "orishuctl",
+            "cluster",
+            "info",
+            "--operator-token-file",
+            "/private/operator.token",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.operator_token_file,
+            Some(PathBuf::from("/private/operator.token"))
+        );
+        assert!(
+            Cli::try_parse_from(["orishuctl", "--operator-token", "secret", "cluster", "info"])
+                .is_err()
+        );
     }
 }

@@ -29,3 +29,12 @@ serde_json = "1"
 serde_yaml = "0.9"
 tabled = "0.21"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-std"] }
+
+# Descriptor-based ownership checks match the worker's private credential format.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+# Encode adversarial fixtures with the same CBOR implementation as the client.
+ciborium = "=0.2.2"
+tempfile = "=3.27.0"
