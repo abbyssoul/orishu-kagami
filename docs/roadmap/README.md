@@ -152,7 +152,7 @@ slices and acceptance criteria before implementation begins.
 | ID | Work package | Lane | State | Depends on |
 | --- | --- | --- | --- | --- |
 | S-RESOURCE | [Shared Kubernetes-style resource envelope](../tasks/extract-shared-resource-envelope.md) | S | **Implemented and accepted**; both consumers migrated, wire compatibility pinned, and verification findings resolved | M0 complete; the deferred `metadata.id` vs `metadata.uid` spelling has since been settled in favour of `uid` (see O-API-SHAPE) |
-| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Partial: slice 1 and structural slice 3 accepted in `crates/orishu-workload` — manifest, artifact descriptors, component graph and step plan, deterministic CBOR codec with golden fixtures, streaming closure validator, and bounds. Slice 2 is complete except its before-allocation bound on collections, which needs a counting deserializer and is carried into O-CLIENT/slice 5. Kagami compilation, Orishu admission, distribution seams, and protocol/CLI migration remain | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
+| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Partial: slices 1–2 and structural slice 3 implemented and accepted in `crates/orishu-workload` — manifest, artifact descriptors, component graph and step plan, deterministic CBOR codec with golden fixtures, streaming closure validator, and bounds applied during authoring deserialization rather than after it. Slice 3's scientific-policy half, Kagami compilation, Orishu admission, distribution seams, and protocol/CLI migration remain | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
 | S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Partial: generic and dimensioned evaluation plus experiment integration through [K2](../tasks/kagami/integrate-document-variables.md) have landed; shared-engine resource bounds and slice 4 remain | S-WORKLOAD for slice 4 |
 | S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types landed in `orishu-identity`; cluster projection and run identity still require specification/reconciliation | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
@@ -442,11 +442,13 @@ to build independently.
 
 ### Focus areas
 
-- **S-WORKLOAD slices 1–2 and the structural portion of slice 3:** immutable
-  manifest/artifact types, canonical bytes/digests, bounded closure integrity
-  checks, and golden fixtures. Full expression, profile and component-policy
-  validation completes in M2 with the relevant validators; a structural
-  closure check alone cannot authorize execution.
+- **S-WORKLOAD slices 1–2 and the structural portion of slice 3** —
+  **implemented and accepted:** immutable manifest/artifact types, canonical
+  bytes/digests, bounded closure integrity checks, golden fixtures, and an
+  authoring boundary whose collection bounds apply while a document is read
+  rather than to the collection it produced. Full expression, profile and
+  component-policy validation completes in M2 with the relevant validators; a
+  structural closure check alone cannot authorize execution.
 - **S-VARIABLES:** the generic namespaced engine and dimension/unit semantics
   have landed. Add the declared source/node/dependency/evaluation bounds at the
   shared public engine boundary; integrate workload resources after S-WORKLOAD

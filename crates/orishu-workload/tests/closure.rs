@@ -1005,6 +1005,89 @@ fn an_oversized_text_value_is_refused_wherever_it_sits() {
     }
 }
 
+#[test]
+fn a_manifest_that_never_saw_the_authoring_reader_is_bounded_too() {
+    // The bounded authoring reader stops a *document* at its limits, and it is
+    // the only thing hostile input goes through. A manifest built in Rust —
+    // by Kagami's compiler, or decoded from canonical bytes — never meets it,
+    // so every collection bound has to hold here as well or the two ways of
+    // obtaining a workload would admit different workloads.
+    //
+    // Asserted against `UnreachableBlobs`, so each is also shown to be decided
+    // before any retrieval.
+    let mut shape = valid();
+    shape.spec.compute.channels[0].shape = vec![1; 40];
+
+    let mut constraint_instances = valid();
+    constraint_instances
+        .spec
+        .compute
+        .placement_constraints
+        .push(orishu_workload::PlacementConstraint {
+            constraint: name("co-locate"),
+            instances: (0..80)
+                .map(|index| name(&format!("instance-{index}")))
+                .collect(),
+            parameters: Default::default(),
+        });
+
+    let mut constraint_parameters = valid();
+    constraint_parameters
+        .spec
+        .compute
+        .placement_constraints
+        .push(orishu_workload::PlacementConstraint {
+            constraint: name("co-locate"),
+            instances: Vec::new(),
+            parameters: (0..80)
+                .map(|index| (name(&format!("parameter-{index}")), ScalarValue::Integer(1)))
+                .collect(),
+        });
+
+    let mut integration = valid();
+    integration.spec.domain.discretization.integration = Some(orishu_workload::Integration {
+        scheme: name("velocity-verlet"),
+        parameters: (0..80)
+            .map(|index| (name(&format!("parameter-{index}")), ScalarValue::Integer(1)))
+            .collect(),
+    });
+
+    let mut hardware = valid();
+    hardware.spec.requirements.hardware = (0..80)
+        .map(|index| (name(&format!("parameter-{index}")), ScalarValue::Integer(1)))
+        .collect();
+
+    let mut execution_profile = valid();
+    execution_profile.spec.requirements.execution_profile = (0..80)
+        .map(|index| (name(&format!("parameter-{index}")), ScalarValue::Integer(1)))
+        .collect();
+
+    for (expected, manifest) in [
+        ("a channel's shape rank", shape),
+        (
+            "a placement constraint's instance count",
+            constraint_instances,
+        ),
+        (
+            "a placement constraint's parameter count",
+            constraint_parameters,
+        ),
+        ("the integration parameter count", integration),
+        ("the hardware-requirement count", hardware),
+        ("the execution-profile count", execution_profile),
+    ] {
+        let report = closure::validate_closure(&manifest, &UnreachableBlobs, &Limits::DEFAULT)
+            .expect_err("over its bound");
+        assert!(
+            report.errors().iter().any(|error| matches!(
+                error,
+                ClosureError::LimitExceeded { what, .. } if *what == expected
+            )),
+            "{expected} should have been bounded, got {report}"
+        );
+    }
+}
+
 // ── verification streams rather than holding ────────────────────────────────
 
 /// A source that produces `size` bytes in small chunks without ever holding

@@ -678,7 +678,7 @@ pub fn validate_closure(
     if let Err(error) = manifest.spec.domain.validate(limits) {
         errors.push(error.into());
     }
-    check_text_bounds(manifest, limits, &mut errors);
+    check_scalar_bounds(manifest, limits, &mut errors);
     validate_graph(&manifest.spec.compute, limits, &mut errors);
     let declared = declared_artifacts(manifest, limits, &mut errors);
 
@@ -835,16 +835,42 @@ fn declared_artifacts(
     by_digest.into_values().collect()
 }
 
-/// Bounds every free-text value a manifest carries.
+/// Bounds the declared parameter maps a manifest carries, and the text in them.
+///
+/// The sizes are checked here rather than in [`validate_graph`] because these
+/// maps are what they are wherever they sit: a bounded map of already-resolved
+/// scalars, governed by [`Limits::max_parameter_entries`]. Component
+/// configuration is the exception and keeps its own, larger bound, applied with
+/// the rest of the graph.
 ///
 /// Names are bounded by their own types, which check length before allocating.
-/// What is left is [`ScalarValue::Text`], which any configuration or
-/// requirement map may hold and which nothing else constrains.
-fn check_text_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mut Errors) {
+/// What is left is [`ScalarValue::Text`], which any of these maps may hold and
+/// which nothing else constrains.
+fn check_scalar_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mut Errors) {
     check_limit(
         "the label count",
         manifest.metadata.labels.len(),
         limits.max_labels,
+        errors,
+    );
+    if let Some(integration) = &manifest.spec.domain.discretization.integration {
+        check_limit(
+            "the integration parameter count",
+            integration.parameters.len(),
+            limits.max_parameter_entries,
+            errors,
+        );
+    }
+    check_limit(
+        "the hardware-requirement count",
+        manifest.spec.requirements.hardware.len(),
+        limits.max_parameter_entries,
+        errors,
+    );
+    check_limit(
+        "the execution-profile count",
+        manifest.spec.requirements.execution_profile.len(),
+        limits.max_parameter_entries,
         errors,
     );
 
@@ -973,6 +999,12 @@ fn validate_graph(compute: &ComputeSpec, limits: &Limits, errors: &mut Errors) {
 
     let mut channels: BTreeMap<&StateChannelId, &StateChannel> = BTreeMap::new();
     for channel in &compute.channels {
+        check_limit(
+            "a channel's shape rank",
+            channel.shape.len(),
+            limits.max_channel_shape_rank,
+            errors,
+        );
         if channels.insert(&channel.channel_id, channel).is_some() {
             errors.push(ClosureError::DuplicateChannel {
                 channel: channel.channel_id.clone(),
@@ -1000,6 +1032,20 @@ fn validate_graph(compute: &ComputeSpec, limits: &Limits, errors: &mut Errors) {
     }
 
     for constraint in &compute.placement_constraints {
+        // A constraint names instances of the graph it constrains, so the
+        // graph's own bound is the one that applies.
+        check_limit(
+            "a placement constraint's instance count",
+            constraint.instances.len(),
+            limits.max_components,
+            errors,
+        );
+        check_limit(
+            "a placement constraint's parameter count",
+            constraint.parameters.len(),
+            limits.max_parameter_entries,
+            errors,
+        );
         for instance in &constraint.instances {
             if !instances.contains(instance) {
                 errors.push(ClosureError::UnknownInstance {

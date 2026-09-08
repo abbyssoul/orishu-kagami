@@ -134,7 +134,7 @@ pub mod manifest;
 pub mod value;
 
 pub use artifact::{ArtifactDescriptor, ArtifactRole, SchemaCompat};
-pub use authoring::AuthoringError;
+pub use authoring::{AuthoringError, CollectionLimit};
 pub use canonical::{
     CanonicalError, CanonicalMap, CanonicalValue, ToCanonical, manifest_from_canonical_bytes,
     workload_digest,

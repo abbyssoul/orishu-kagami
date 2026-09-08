@@ -16,9 +16,72 @@
 //! parsing, so an oversized document is refused without being deserialized into
 //! a tree of allocations. That ordering is the point of the check; moving it
 //! after the parse would make it decorative.
+//!
+//! The same is true one level down. Every collection in the model is read
+//! through a bounded seed that carries the caller's [`Limits`] into the
+//! document, so a list or map stops at the point where accepting its next entry
+//! *would* exceed its bound, and that entry is refused without being
+//! deserialized. A hostile document therefore cannot make a reader build a
+//! collection in order to be told it is too long. The machinery, and the two
+//! things that remain bounded only by the input length, are described in
+//! `authoring/seed.rs`.
+//!
+//! # This is the boundary hostile input crosses
+//!
+//! The model's types also have ordinary derived `Deserialize` implementations,
+//! which is what makes a manifest usable with any serde format — and what a
+//! caller building one itself, or reading one it produced, should use. They are
+//! *not* bounded by [`Limits`], because a `Deserialize` impl cannot see a
+//! runtime value. A document from a client, a peer, a plugin, or a file must
+//! therefore enter through [`parse_str`], [`parse_bytes`], or [`from_reader`];
+//! calling `serde_json::from_str::<WorkloadManifest>` on untrusted bytes gets
+//! the schema without the bounds.
 
 use crate::limits::Limits;
 use crate::manifest::WorkloadManifest;
+
+mod seed;
+
+/// A collection in an authored document that exceeded its bound.
+///
+/// Structured rather than only rendered, because the caller most likely to act
+/// on this is a submission client deciding what to tell an author, and reading
+/// the limit back out of an English sentence is how that becomes brittle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CollectionLimit {
+    /// Which collection, named as the corresponding count.
+    ///
+    /// The collection rather than the [`Limits`] field, because several
+    /// collections may share one bound and an author needs to know which part
+    /// of their document to shorten.
+    pub collection: &'static str,
+    /// The bound that applies, from the caller's [`Limits`].
+    pub limit: usize,
+    /// How many entries the document asked for, when that is known.
+    ///
+    /// A format that declares a collection's length up front supplies the real
+    /// figure. Otherwise reading stops one entry past the bound — which is all
+    /// that was learned, so `limit + 1` is what is reported rather than a total
+    /// nobody counted.
+    pub found: Option<usize>,
+}
+
+impl std::fmt::Display for CollectionLimit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.found {
+            Some(found) => write!(
+                formatter,
+                "{} is at least {found}, over the limit of {}",
+                self.collection, self.limit
+            ),
+            None => write!(
+                formatter,
+                "{} is over the limit of {}",
+                self.collection, self.limit
+            ),
+        }
+    }
+}
 
 /// Why an authored workload could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -33,6 +96,14 @@ pub enum AuthoringError {
         /// Length permitted.
         limit: u64,
     },
+    /// A collection is longer than the reader accepts.
+    ///
+    /// Reported instead of [`Self::Malformed`] when reading stopped because a
+    /// bound was reached, so the reason survives as a value rather than only as
+    /// a sentence inside a codec error. The rejected entry was not
+    /// deserialized.
+    #[error("the manifest declares too much: {0}")]
+    CollectionTooLarge(CollectionLimit),
     /// The bytes are not valid UTF-8.
     #[error("the manifest is not valid UTF-8: {0}")]
     InvalidUtf8(#[from] std::str::Utf8Error),
@@ -60,10 +131,13 @@ pub enum AuthoringError {
 /// [`crate::closure::validate_closure`] — because reading a manifest and having
 /// its artifacts are separate things a caller does at different times.
 ///
+/// Every collection is bounded as it is read; see the module documentation.
+///
 /// # Errors
 ///
-/// Returns [`AuthoringError`] when the input is oversized, malformed, or is not
-/// a workload of the supported version.
+/// Returns [`AuthoringError`] when the input is oversized, declares a
+/// collection over its bound, is malformed, or is not a workload of the
+/// supported version.
 pub fn parse_str(input: &str, limits: &Limits) -> Result<WorkloadManifest, AuthoringError> {
     let found = input.len() as u64;
     if found > limits.max_manifest_bytes {
@@ -74,7 +148,26 @@ pub fn parse_str(input: &str, limits: &Limits) -> Result<WorkloadManifest, Autho
     }
     // YAML is a superset of JSON, so one pass reads both. Trying JSON first
     // would only change which error message a malformed document produces.
-    let manifest: WorkloadManifest = serde_yaml::from_str(input)?;
+    //
+    // `serde_yaml::from_str` is exactly `T::deserialize(Deserializer::from_str)`,
+    // so driving the same deserializer with a seed changes what is built, not
+    // how the document is read: multi-document input, anchors, and the codec's
+    // own nesting bound behave identically.
+    let bounded = seed::Bounded::new(limits);
+    let manifest = match serde::de::DeserializeSeed::deserialize(
+        seed::Manifest(&bounded),
+        serde_yaml::Deserializer::from_str(input),
+    ) {
+        Ok(manifest) => manifest,
+        // A bound the document exceeded is reported as itself. The codec error
+        // carries the same sentence plus a position, but only as text.
+        Err(error) => {
+            return Err(match bounded.into_violation() {
+                Some(violation) => AuthoringError::CollectionTooLarge(violation),
+                None => AuthoringError::Malformed(error),
+            });
+        }
+    };
     manifest.expect(&crate::manifest::api_version(), &crate::manifest::kind())?;
     Ok(manifest)
 }
@@ -83,8 +176,9 @@ pub fn parse_str(input: &str, limits: &Limits) -> Result<WorkloadManifest, Autho
 ///
 /// # Errors
 ///
-/// Returns [`AuthoringError`] when the input is oversized, not UTF-8,
-/// malformed, or is not a workload of the supported version.
+/// Returns [`AuthoringError`] when the input is oversized, not UTF-8, declares
+/// a collection over its bound, is malformed, or is not a workload of the
+/// supported version.
 pub fn parse_bytes(input: &[u8], limits: &Limits) -> Result<WorkloadManifest, AuthoringError> {
     let found = input.len() as u64;
     if found > limits.max_manifest_bytes {
@@ -106,7 +200,8 @@ pub fn parse_bytes(input: &[u8], limits: &Limits) -> Result<WorkloadManifest, Au
 /// # Errors
 ///
 /// Returns [`AuthoringError`] when the stream is oversized, unreadable, not
-/// UTF-8, malformed, or is not a workload of the supported version.
+/// UTF-8, declares a collection over its bound, is malformed, or is not a
+/// workload of the supported version.
 pub fn from_reader<R: std::io::Read>(
     reader: R,
     limits: &Limits,

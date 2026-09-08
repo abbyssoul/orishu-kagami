@@ -1,10 +1,10 @@
 # Define and adopt the shared workload format
 
-Status: **in progress** — slice 1 and the structural half of slice 3 are
-implemented and accepted. Slice 2 is implemented **except** for its
-before-allocation bound on collections, which is
-[carried forward](#carried-forward-from-slice-2) to the admission path. Slices
-4–7 remain. See [Increment record](#increment-record--2026-09-07).
+Status: **in progress** — slices 1 and 2 and the structural half of slice 3 are
+implemented and accepted. Slice 3's scientific-policy half is
+[deferred](#deferred-and-by-whom) with the validators that decide it, and slices
+4–7 remain. See [Increment record](#increment-record--2026-09-07) and
+[Bounded authoring deserialization](#bounded-authoring-deserialization--2026-09-08).
 Decisions: [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md),
 [ADR 0009](../adr/0009-execute-workloads-as-sandboxed-portable-programs.md),
@@ -309,35 +309,24 @@ able to compile an experiment into a workload without acquiring any of them.
   roles and is stored once; size, media type and schema are claims about the
   bytes and may not contradict.
 
-### Carried forward from slice 2
+### What slice 2's before-allocation bound now means
 
 Slice 2 requires bounding "manifest bytes, nesting, collections, strings,
 descriptor counts, aggregate declared size, and expression graphs **before
-allocation or artifact retrieval**". Everything there is satisfied *except* the
-before-allocation half for collections, so slice 2 is not claimed as complete.
-
-What holds today:
+allocation or artifact retrieval**". All of it holds; see
+[Bounded authoring deserialization](#bounded-authoring-deserialization--2026-09-08)
+for the half that was outstanding when this record was first written.
 
 - **Before allocation:** manifest bytes — checked against the input length
   before parsing, before canonical decoding, and *while encoding*, which stops
   at the point it would exceed the budget rather than completing and then being
-  measured; nesting depth; the canonical decoder's value count; and every
-  validated name and role, whose constructors and serde visitors check the
-  borrowed `&str` before copying it.
+  measured; nesting depth; the canonical decoder's value count; every collection
+  count, refused as the collection is read; and every validated name and role,
+  whose constructors and serde visitors check the borrowed `&str` before copying
+  it.
 - **Before retrieval:** every collection and string bound, the descriptor
   counts, and the aggregate declared size — all decided from the manifest alone,
   behind a gate a manifest must pass before a provider is consulted.
-
-What does not: **collection counts during deserialization**. `serde` builds a
-`Vec` or `BTreeMap` and the count bound is applied to the result. Total
-allocation stays proportional to an input already capped at 4 MiB, so this is a
-looseness rather than an unbounded path — but it is not what the slice asks for.
-
-Closing it needs a counting deserializer that refuses an over-long collection as
-it reads. That is invasive, and its value is realised at a network-facing
-boundary that does not exist yet, so it is tracked with **slice 5 (Orishu admits
-the exact shared format)** rather than done speculatively here. Slice 5 cannot
-be accepted without it.
 
 ### Deferred, and by whom
 
@@ -375,11 +364,11 @@ A review of the increment raised four findings, all valid and all addressed.
    declared length. Diagnostics are bounded by `max_reported_errors`, and a
    truncated report says so instead of reading as exhaustive.
 
-   One part is deliberately *not* claimed: deserialization itself is bounded by
-   the input byte cap checked before parsing, not by a counting deserializer.
-   The collection bounds are structural policy applied immediately after the
-   parse. Tightening allocation during deserialization is tracked with the
-   network-facing admission path that would justify it.
+   One part was deliberately *not* claimed at the time: deserialization itself
+   was bounded by the input byte cap checked before parsing, not by a counting
+   deserializer, and the collection bounds were structural policy applied
+   immediately after the parse. That is no longer the case — see
+   [Bounded authoring deserialization](#bounded-authoring-deserialization--2026-09-08).
 
 2. **Ownership and graph-profile invariants were incomplete.** Ownership is
    spelled twice — `StateChannel.owner` and `ComponentInstance.stateOwnership`,
@@ -425,8 +414,10 @@ A second review raised three further findings, all valid.
    itself bounded.
 
 2. **Slice 2's before-allocation bound was deferred while the status claimed
-   the slice was accepted.** The status was wrong, and is corrected above under
-   [Carried forward from slice 2](#carried-forward-from-slice-2). The part that
+   the slice was accepted.** The status was wrong, and was corrected; the bound
+   itself was closed later, under
+   [Bounded authoring deserialization](#bounded-authoring-deserialization--2026-09-08).
+   The part that
    could be closed cheaply was: validated names and roles now check the borrowed
    value before copying it, in both their constructors and their serde
    visitors — the derive's `try_from = "String"` had been allocating every
@@ -474,3 +465,145 @@ unresolvable `urn:orishu:superseded-prototype-*` values, so nothing in the
 repository advertises a mutable reference as if it were a workload dependency.
 `ExternalResource` and its holders survive until slice 5, marked superseded in
 rustdoc.
+
+## Bounded authoring deserialization — 2026-09-08
+
+The last outstanding half of slice 2 is closed: authoring deserialization now
+refuses a collection **as it reads it**, rather than building the collection and
+measuring the result. Slices 1 and 2 and the structural portion of slice 3 are
+implemented and accepted.
+
+### What changed
+
+`crates/orishu-workload/src/authoring/seed.rs` is a private `DeserializeSeed`
+layer that carries the caller's `Limits` down the document. A bounded sequence
+or map stops at the point where accepting its next entry would exceed its bound
+and refuses that entry through a seed whose only behaviour is to fail *without
+touching the deserializer it is handed* — so the rejected element value, and for
+a map its key as well, is never built. A declared collection length is checked
+against the bound before anything is reserved for it, and a reservation is
+clamped to the bound in any case, so a lying size hint cannot buy an allocation.
+
+The layer is a seed rather than a wrapper type because `Limits` is a runtime
+value: a network-facing admission path will use tighter numbers than a local
+file import, and the alternatives that let a `Deserialize` impl see a runtime
+value — a thread-local, a global, a `OnceCell` — make the bound depend on
+ambient state no signature mentions.
+
+Fifteen struct readers are generated by one macro rather than hand-copied,
+because the interesting part of each is one line per field and the rest is the
+unknown-field, duplicate-field and missing-field handling that must be identical
+everywhere. Two are written out: `DomainBounds`, whose derive resolves an
+out-of-order document by buffering the map until its `shape` tag turns up, and
+the resource envelope, whose discriminator fields are private to
+`orishu-resource` so the manifest is rebuilt through its constructor.
+
+`parse_str`, `parse_bytes`, and `from_reader` keep their existing byte, UTF-8,
+discriminator, malformed-input, and unknown-field behaviour; `serde_yaml::from_str`
+is exactly `T::deserialize(Deserializer::from_str(..))`, so driving the same
+deserializer with a seed changes what is built rather than how the document is
+read. A bound that stops a parse is reported as `AuthoringError::CollectionTooLarge`
+carrying a structured `CollectionLimit`, so a submission client does not have to
+read English to tell an author what to shorten.
+
+### Every collection, and the bound that governs it
+
+| Collection | Bound |
+| --- | --- |
+| `metadata.labels` | `max_labels` |
+| `spec.compute.components` | `max_components` |
+| `spec.compute.channels` | `max_channels` |
+| a channel's `shape` | `max_channel_shape_rank` *(new)* |
+| a component's `roles` | `max_roles_per_component` |
+| a component's `stateOwnership` | `max_state_ownership_per_component` |
+| a component's `config` | `max_config_entries` |
+| a component's `limits` | `max_limit_entries` |
+| `stepPlan.invocations` | `max_step_invocations` |
+| an invocation's `inputs` | `max_inputs_per_invocation` |
+| an invocation's `outputs` | `max_outputs_per_invocation` |
+| an invocation's `dependsOn` | `max_dependencies_per_invocation` |
+| `placementConstraints` | `max_placement_constraints` |
+| a constraint's `instances` | `max_components` |
+| a constraint's `parameters` | `max_parameter_entries` *(new)* |
+| `domain.bounds` box `sideMetres` | `max_domain_dimensions` |
+| `discretization.integration.parameters` | `max_parameter_entries` |
+| `inputs.initialConditions` | `max_initial_conditions` |
+| every artifact descriptor, in aggregate | `max_artifacts` |
+| `requirements.hardware` | `max_parameter_entries` |
+| `requirements.executionProfile` | `max_parameter_entries` |
+
+Two bounds were added, and each is on the field it governs rather than assumed:
+
+- **`max_channel_shape_rank`.** A channel's `shape` had no bound at all.
+  Deliberately not `max_domain_dimensions`: a rank-2 tensor field in a
+  3-dimensional domain has shape `[3, 3]`, so sharing one number would couple
+  two independent counts by accident.
+- **`max_parameter_entries`.** One bound over four collections, because they are
+  one kind of thing: a bounded map of already-resolved scalars naming settings a
+  worker passes through rather than interprets. Component configuration is
+  excluded and keeps its own, larger `max_config_entries`, because it is
+  authored against a plugin's schema and is expected to be the biggest of them.
+  The error names the collection, not the limit, so the four stay
+  distinguishable to an author.
+
+Two existing bounds were extended rather than duplicated. A placement
+constraint's `instances` uses `max_components`, since a constraint names
+instances of the graph it constrains and can never usefully name more than the
+graph may hold; a second number would only be a way for the two to disagree. A
+box domain's side lengths use `max_domain_dimensions`, which they must equal
+anyway — the bound is what stops a document declaring a million of them in order
+to be told so.
+
+`inputs.additional` has no bound of its own. Every descriptor in the document —
+component artifacts, geometry, initial conditions, and additional inputs — is
+charged to `max_artifacts` as it is read, so what `additional` may hold is
+whatever the aggregate has left. A per-collection number there would either be
+unreachable or would let one manifest hold more descriptors than the aggregate
+permits.
+
+### Where the bounds are applied twice, and why
+
+Every collection bound is also applied to the whole manifest in the structural
+pass, before `validate_closure` consults a provider. That is not redundant: a
+manifest may be built by Kagami's compiler or recovered from canonical bytes and
+never meet the authoring reader, and the two ways of obtaining a workload must
+admit the same workloads. The five bounds not previously checked there — a
+channel's shape rank, a constraint's instances and parameters, the integration
+parameters, and both requirement maps — now are.
+
+### Evidence
+
+- The reusable sequence and map machinery is driven directly by unit tests whose
+  entries past the bound are backed by a deserializer that **panics if read**.
+  That makes the ordering claim testable rather than inferred: an implementation
+  that read the entry and then measured the result aborts.
+- A size hint of `usize::MAX` is refused before anything is reserved. The test
+  passing at all is the assertion.
+- One integration test per collection family, each asserting that exactly the
+  limit parses and that `limit + 1` is refused naming that collection — through
+  the real authoring API, in both JSON and YAML, since the two are one bounded
+  path with two spellings.
+- `parse_bytes` and `from_reader` are asserted to reach the same bound as
+  `parse_str`, because a convenience that skipped it would be the one a
+  network-facing caller reached for.
+- Unknown fields at every level, both `status` spellings, missing required
+  fields, duplicate keys, non-UTF-8 input, oversized input, and the superseded
+  discriminator are all still refused, and still name what was wrong.
+- The golden canonical bytes and digests are unchanged. Nothing here touches the
+  typed model, so it could not have changed workload identity, and the fixtures
+  are the check on that rather than the claim.
+
+### Not claimed
+
+Slice 3's scientific half and slices 4–7 are untouched: expression resolution,
+dimension compatibility, model-family exclusivity, per-model policy, hardware
+matching and placement feasibility, Kagami compilation, Orishu admission, the
+distribution seams, and the protocol/CLI migration.
+
+Two things remain bounded only by the already-capped input length, and both are
+deliberate. `serde_yaml` parses a document into an event buffer before
+deserialization begins, which is proportional to the input. And
+`ScalarValue::Text` is a value rather than a collection, bounded by
+`max_text_bytes` in the structural pass; bounding it during deserialization
+would mean hand-writing the untagged scalar dispatch, which is a change to what
+parses rather than to when a bound applies.

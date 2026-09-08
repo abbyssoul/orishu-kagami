@@ -313,6 +313,43 @@ model and never define identity: whitespace, key order, comments, and the choice
 of codec cannot change a workload's digest. Golden canonical bytes and digests
 are checked in under `crates/orishu-workload/tests/fixtures/`.
 
+## The authoring boundary
+
+A workload document is hostile input even when it arrives from a trusted
+operator, so reading one is a boundary rather than a convenience. Everything
+untrusted enters through `orishu_workload::authoring` — `parse_str`,
+`parse_bytes`, or `from_reader` — and each takes the caller's `Limits`
+explicitly, because a network-facing admission path and a local file import
+should not be obliged to accept the same sizes.
+
+Bounds apply while the document is read, not after:
+
+- the manifest's **byte length** is checked before parsing begins, so an
+  oversized document is refused without being deserialized at all; and
+- every **collection** stops at the point where accepting its next entry would
+  exceed its bound. The entry that would have crossed it is refused without
+  being deserialized, and a declared collection length is checked before it is
+  reserved for rather than trusted. A document therefore cannot make a reader
+  build a list in order to be told the list is too long.
+
+Which bound governs which collection is recorded on the `Limits` field itself,
+and the resulting error names the *collection* rather than the limit, so an
+author is told which part of their document to shorten even where several
+collections share one number. A refusal is a structured value
+(`AuthoringError::CollectionTooLarge`), not only a sentence.
+
+The model's types also have ordinary serde implementations, which is what makes
+a manifest usable with any format and is the right tool for a manifest a caller
+built or produced itself. Those are **not** bounded — a `Deserialize` impl
+cannot see a runtime value — so untrusted bytes must not be handed to them
+directly.
+
+The same collection bounds are applied again to the whole manifest before
+closure validation consults an artifact provider. That is not redundant: a
+manifest may also be built by Kagami's compiler or recovered from canonical
+bytes and never pass through the authoring reader, and the two ways of obtaining
+a workload must admit the same workloads.
+
 ## Workload and distribution format are separate
 
 The **workload** is the manifest and its complete logical closure. A

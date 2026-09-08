@@ -256,7 +256,14 @@ separate trace, logging, overhead and operator handoff requirements below remain
   with its compatibility fixtures before switching peer ALPN or emitting trace
   context. Current profile 4 rejects the new field; context-free interoperability is not evidence
   that old peers accept optional trace metadata. The client/peer protocol
-  sections contain the planned bounded grammar, not implemented support.
+  sections distinguish implemented client extraction from planned peer support.
+  The [context/child-span primitives](cluster-formation-conformance.md#trace-context-and-parent-aware-span-primitives--2026-09-08)
+  are implemented and tested independently of activation.
+  [Authenticated client extraction](cluster-formation-conformance.md#authenticated-client-parent-receipt--2026-09-08)
+  now has actual worker/collector receipt evidence. Remaining work is
+  profile-5 envelope support/packet omission,
+  generation-fenced causal metadata through owner jobs and real cross-worker
+  collector receipt. Primitive OTLP encoding is not that receipt evidence.
 - Instrument production N-FORMATION admission outcomes, SWIM/gossip/anti-entropy
   activity, timeouts, decode/auth failures, transport volume/latency and bounded
   queues in worker adapters. Use aggregate counters/histograms, not peer labels.

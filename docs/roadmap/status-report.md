@@ -96,7 +96,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | Work package | Primary stage | State | Next step or gate |
 | --- | --- | --- | --- |
 | S-RESOURCE | M1–M2 | **Implemented and accepted** | `crates/orishu-resource` owns the envelope and both consumers use it with compatible fixtures; independent verification confirmed allocation-before-bound construction is fixed and the documented `NoStatus` policy matrix is covered |
-| S-WORKLOAD | M1–M2 | Ready | Implement shared identity, closure, codec, compilation, and admission slices |
+| S-WORKLOAD | M1–M2 | Partial | Slices 1–2 and the structural portion of slice 3 are implemented and accepted — shared identity, canonical codec with golden fixtures, streaming closure validator, and collection bounds applied during authoring deserialization; implement slice 3's scientific policy, Kagami compilation, and the Orishu admission and distribution slices |
 | S-VARIABLES | M1–M2 | Partial | Dimensioned evaluation and K2 experiment integration have landed; add the declared shared-engine resource bounds and S-WORKLOAD integration |
 | S-IDENTITY | M1 | Partial | Complete cluster projection and run identity contracts |
 | S-OBSERVE | M1 | Ready | Implement shared run and observation frame types |

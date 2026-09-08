@@ -483,10 +483,24 @@ scalability claim.
 
 ### Planned client trace context
 
-Remote-parent extraction/propagation is not implemented. This bounded contract
-supports accepted [ADR 0025](adr/0025-version-peer-trace-context-propagation.md);
-it is not a new authentication mechanism or a claim of implemented propagation.
-Existing local root-span export is distinct from adopting an incoming parent.
+Client remote-parent extraction is implemented when `otlp-tracing` is compiled
+in and enabled at runtime. Peer propagation remains unimplemented. This bounded
+contract supports accepted [ADR 0025](adr/0025-version-peer-trace-context-propagation.md);
+it is not a new authentication mechanism or a claim of cross-worker correlation.
+
+The worker now has a feature-independent fixed-size context parser/encoder and
+parent-aware sampled-span queue, with [scoped evidence](tasks/cluster-formation-conformance.md#trace-context-and-parent-aware-span-primitives--2026-09-08).
+The client-service middleware now uses these primitives, with
+[actual worker/collector receipt evidence](tasks/cluster-formation-conformance.md#authenticated-client-parent-receipt--2026-09-08).
+No peer context is emitted. Authentication must precede their use on input.
+
+Adopting context requires exactly one valid worker operator Bearer credential,
+including on Unix-socket read routes that otherwise allow unauthenticated
+access. Missing, invalid or duplicate credentials yield a fresh local trace if
+sampled; they never authorize adoption of the supplied parent. The route still
+performs its normal authorization and validation independently. This does not
+require credentials for existing local reads or allow unauthorized mutations.
+The middleware is not installed on the separate diagnostics listener.
 
 After normal client authorization, an enabled tracing adapter may extract one
 case-insensitive `traceparent` header. Duplicate values (including a combined
@@ -499,8 +513,10 @@ in API responses or retain raw malformed values in logs/diagnostics.
 Version `00` requires exactly 55 ASCII characters:
 `00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>`. Both IDs must be
 nonzero. Version `ff` is invalid. For versions `01` through `fe`, validate the
-same leading IDs/flags and require end-of-value or a dash after flags; ignore
-bounded extension content. Emit version `00` with a new local span ID and only
+same leading IDs/flags and require end-of-value or a dash after flags. Ignore
+bounded extension semantics; this profile rejects comma-combined values,
+whitespace, control bytes and non-ASCII bytes, including in that extension.
+Retain no extension content. Emit version `00` with a new local span ID and only
 the locally chosen sampled bit. Remote flags cannot override local cost limits.
 These rules follow the [W3C format/versioning guidance](https://www.w3.org/TR/trace-context/)
 with Orishu's explicit processing cap and no vendor-state forwarding.

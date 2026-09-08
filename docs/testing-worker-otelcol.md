@@ -136,8 +136,12 @@ python3 scripts/check-worker-otelcol.py --inspect-traces /absolute/private/path/
 One request should yield one `orishu.client.request` span in this isolated
 100%-sampling walkthrough. Inspect the private JSONL file locally for its
 `traceId`, `spanId` and `orishu.outcome`. The IDs identify telemetry, not an
-operation receipt. There is currently no propagated parent, command ID or
-trace-correlated worker log; timestamps/counts are not causal proof for several
+operation receipt. This CLI walkthrough supplies no parent and verifies local
+roots only. The API now supports [authenticated incoming client context](protocol-client.md#planned-client-trace-context),
+with separate [real-worker receipt evidence](tasks/cluster-formation-conformance.md#authenticated-client-parent-receipt--2026-09-08);
+that test uses a bounded OTLP receiver, not this official Collector recipe.
+Cross-peer propagation, command-ID attributes and trace-correlated worker logs
+remain unavailable; timestamps/counts are not causal proof for several
 concurrent operations. Normal sampling defaults to 1000 ppm; the 100% override
 is for this short test, not a fleet recommendation.
 

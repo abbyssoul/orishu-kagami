@@ -9,6 +9,138 @@ work. It does not replace the task's other acceptance criteria or the combined
 M4 observability gate. Keep historical narratives in the integration
 record; update this table when a specific requirement gains evidence.
 
+## Authenticated client parent receipt — 2026-09-08
+
+The client-only [`TraceRequests`](../../apps/orishu-worker/src/trace_export/requests.rs)
+middleware now adopts a bounded parent only after the running worker's operator
+credential check. It requires exactly one Bearer credential even for local
+read routes that do not otherwise require one. Route authorization and command
+validation are unchanged; the middleware cannot grant authority. Context-free
+requests avoid the extra credential check. Missing/invalid/duplicate context or
+credentials start independent roots when locally sampled. Neither raw headers,
+vendor state nor baggage enter the fixed-size span record.
+
+The new [executable-path test](../../apps/orishu-worker/tests/support/tracing_context.rs)
+uses the real Unix-socket API and a bounded loopback OTLP/HTTP receiver. Each
+received protobuf is decoded and acknowledged, not inferred from queue counters.
+In full-sampling mode it receives 16 client spans: two context-free summary
+checks around 14 request cases. Those cases include canonical and future-version
+context, both remote sampling flags, mixed-case header lookup, absent/wrong/
+duplicate credentials, absent/duplicate/combined/oversized/malformed parents,
+unauthorized and duplicate-credential lock requests, and an independent root.
+The remote-unsampled parent still produces a child under local full sampling;
+remote-sampled parents cannot force export under local zero sampling.
+
+Assertions cover exact received trace/parent IDs, a new local span ID, sampled
+flags, the static outcome attribute (`completed` or `rejected`), unchanged HTTP
+status, no trace-response headers, and absence of seeded credentials/labels/
+vendor/baggage markers in OTLP. Rejected mutations retain HTTP 401. Complete
+typed formation summaries, including lock and participation state, remain equal
+before and after the cases. Runtime-disabled and zero-sampled repetitions emit
+no records, and each process terminates normally. The whole test has a twenty-
+second deadline, with 4 KiB collector headers, 1 KiB protobuf bodies and 8 KiB
+client responses; it does not require any external backend or installation.
+
+Verification passed:
+
+- Three middleware tests, including response/capacity preservation and cancelled
+  handler cleanup, in the tracing build.
+- Seven tracing integration tests in each of tracing-only and combined-feature
+  builds, preserving existing collector credential/mTLS, outage, saturation,
+  recovery and shutdown tests. Socket/credential fixtures used approved access
+  outside the restricted sandbox.
+- Combined-feature exporter library: 29 passed, one existing manual allocation
+  profile ignored.
+- All-target worker Clippy with warnings denied in all four telemetry feature
+  combinations; scoped worker rustfmt, whitespace and documentation checks.
+
+```sh
+cargo test --locked --offline -p orishu-worker --features otlp-tracing --lib trace_export::requests --target-dir target/formation-flow-observability --quiet
+for worker_features in otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --test standalone tracing_ --target-dir target/formation-flow-observability --quiet || exit
+done
+cargo test --locked --offline -p orishu-worker --no-default-features --features observability,otlp-tracing --lib trace_export --target-dir target/formation-flow-observability --quiet
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo clippy --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --all-targets --target-dir target/formation-flow-observability -- -D warnings || exit
+done
+rustfmt --edition 2024 --config skip_children=true --check apps/orishu-worker/src/main.rs apps/orishu-worker/src/trace_export/requests.rs apps/orishu-worker/tests/standalone.rs apps/orishu-worker/tests/support/tracing_context.rs
+make docs-check
+```
+
+Checkpoint: `6b1619891d60a3f43e05f7af9ad4a2d45754633e` plus the preceding context/
+queue primitives and this increment's middleware, executable wiring, test and
+documentation changes. Concurrent workload, roadmap and observability-guide
+edits are outside this increment. No new crate dependency, domain/core change,
+peer ALPN change or persisted-data migration is involved. Profile 4 remains
+active. This proves incoming client-to-worker parent receipt, not client-to-peer
+propagation, received cross-worker causality or a refreshed official Collector
+walkthrough. Profile-5 wire/compatibility/packet-fit handling and fenced owner
+metadata remain next; stdout logs, reviewed overhead and final operator handoff
+are also still required for M4. No full-workspace or formation-fault batch was
+rerun for this increment.
+
+## Trace context and parent-aware span primitives — 2026-09-08
+
+The first ADR 0025 implementation increment adds worker-owned
+[`TraceParent`](../../apps/orishu-worker/src/trace_context.rs) and parent-aware
+[`SpanQueue`](../../apps/orishu-worker/src/trace_export/queue.rs) creation.
+The parser is available in all four telemetry feature combinations, has no
+exporter dependency and retains only 25 bytes of IDs/advisory sampling state.
+It checks the 128-byte input cap before slicing, rejects duplicate/combined
+values and malformed IDs/versions, and emits fixed 55-byte version-00 output.
+Future extension semantics are ignored and never retained; the protocol now
+explicitly documents the ASCII/single-value input boundary.
+
+Parents preserve their trace ID while children receive independently generated
+span IDs. Local sampling and active/queue capacities remain authoritative even
+when the remote sampled flag is set. Zero sampling avoids entropy/clock reads.
+Parent/self-span collision sheds telemetry and releases capacity; cancellation,
+queue-full and closed-consumer paths preserve bounded cleanup. Independent roots
+do not inherit the last parent's identity. Actual protobuf encode/decode asserts
+the resulting root/child IDs, parent relation and flags, not collector receipt.
+
+| Check | Result |
+| --- | --- |
+| Context parser, neither / observability / tracing / both | 4 tests passed in each build, including all 256 versions/flag values and exact 128/129-byte boundaries |
+| Combined-feature queue suite | 9 passed; 1 existing manual allocation profile ignored |
+| Tracing-feature exporter library suite | 28 passed; 1 existing manual profile ignored, after approved fixture access |
+| Membership dependency-purity suite | 3 passed; no dependency or core change |
+| Worker combined-feature all-target Clippy | Passed with warnings denied |
+| Changed worker files' rustfmt and whitespace checks | Passed |
+
+The initial exporter-suite run inside the sandbox had 17 passing and 11 failing
+tests: existing socket fixtures returned EPERM and credential fixtures returned
+configuration failures. The same suite passed with approved local socket and
+credential-fixture access; no runtime limits or fixtures were relaxed. The
+workspace-wide format check also reported an unrelated concurrent edit in
+`crates/orishu-workload/src/authoring/seed.rs`; that file was left untouched.
+Scoped worker formatting passed. The early new-file formatting differences were
+corrected with rustfmt before final checks.
+
+Commands (sequential feature builds in one idle target directory):
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --lib trace_context --target-dir target/formation-flow-observability --quiet || exit
+done
+cargo test --locked --offline -p orishu-worker --features observability,otlp-tracing --lib trace_export::queue --target-dir target/formation-flow-observability --quiet
+cargo test --locked --offline -p orishu-worker --lib trace_export --features otlp-tracing --target-dir target/formation-flow-observability
+cargo test --locked --offline -p orishu-membership --test dependencies --target-dir target/formation-flow-observability --quiet
+cargo clippy --locked --offline -p orishu-worker --all-targets --features observability,otlp-tracing --target-dir target/formation-flow-observability -- -D warnings
+rustfmt --edition 2024 --check apps/orishu-worker/src/trace_context.rs apps/orishu-worker/src/trace_export/queue.rs
+make docs-check
+```
+
+Source checkpoint: `6b1619891d60a3f43e05f7af9ad4a2d45754633e` plus this increment's
+new context module, library module declaration and queue changes. Existing and
+concurrent workload/configuration/observability-document edits are not part of
+this increment. No worker executable or peer ALPN was changed: profile 4 still
+rejects trace fields. Authenticated extraction, profile-5 wire grammar and
+packet-fit omission, causal owner/job metadata and received cross-worker traces
+remain implementation work, not a new decision gate. Stdout logging and final
+overhead/operator acceptance remain open. No full workspace/fault batch or
+three-worker propagation result is claimed; M4 is incomplete.
+
 ## Stdout logging decision and ecosystem review — 2026-09-08
 
 The operator accepted standard-stream Option A and explicitly chose stdout

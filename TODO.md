@@ -147,7 +147,7 @@ Perfect. Its time to create a proper implementation roadmap. Maybe place it in t
 
 
 [X] I'd like you to start implementation with implementing swarm model, that will be held and update by each orishu-worker.
-The implementation should be in the style of [SANS-IO library design](../swe-llm-wiki/wiki/networking/sans-io-protocol-architecture.md) and in accordance with [TEA](./docs/Coding%20style.md) concept of IO separation from the functional core. That is - a crate should provide type to represent a set of node's peers, and `update(msg) -> tribe_model` that set in response to network originated messages as per [p2p protocol](./docs/protocol-p2p.md)
+The implementation should be in the style of [SANS-IO library design](https://sans-io.readthedocs.io/) and in accordance with [TEA](./docs/Coding%20style.md) concept of IO separation from the functional core. That is - a crate should provide type to represent a set of node's peers, and `update(msg) -> tribe_model` that set in response to network originated messages as per [p2p protocol](./docs/protocol-p2p.md)
 
 **Promoted** to [Implement the sans-IO cluster membership core](./docs/tasks/implement-membership-model.md), governed by [ADR 0013](./docs/adr/0013-cluster-formation-and-node-identity.md). Named `orishu-membership` rather than "swarm"/"tribe" — see task file for rationale. ADR 0015 governs committed-artifact transfer and is intentionally outside this membership task.
 
