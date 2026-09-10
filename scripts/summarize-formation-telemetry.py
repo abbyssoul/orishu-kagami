@@ -6,7 +6,7 @@ import math
 import statistics
 from pathlib import Path
 
-from formation_telemetry import (COUNTERS, MODES, SIZES, band, ratio, read_json, require)
+from formation_telemetry import (COUNTERS, MODES, SIZES, band, ratio, read_json, require, fixed_rate_issues)
 
 
 def issues(row):
@@ -16,7 +16,14 @@ def issues(row):
     result = []
     mode = row["mode"]
     count = row["worker_count"]
-    require(row["load"]["schema_version"] == 2 and row["load"]["seconds"] == 10, "window/schema mismatch")
+    require(row["load"]["schema_version"] == row["schema_version"] and row["load"]["seconds"] == 10, "window/schema mismatch")
+    if row["schema_version"] == 3:
+        result.extend(fixed_rate_issues(row["load"]))
+        require(row["cpu_accounting"] == "linux_process_cpu_clock_ns", "CPU accounting mismatch")
+        for resource in row["resources"] + list(row["tooling"].values()):
+            require(type(resource["cpu_nanoseconds"]) is int and resource["cpu_nanoseconds"] >= 0
+                    and resource["cpu_seconds"] == resource["cpu_nanoseconds"] / 1e9,
+                    "invalid high-resolution CPU measurement")
     require(len(row["load"]["workers"]) == len(row["resources"]) == len(row["logs"]) == count, "missing worker instrument")
     require([value["role"] for value in row["load"]["workers"]] == list(range(count)), "worker role mismatch")
     require(set(row["tooling"]) == {"collector", "load_generator", "runner_and_log_sink"}, "missing tooling instrument")
@@ -78,6 +85,9 @@ def issues(row):
 
 
 def pair(row, base):
+    require(row["schema_version"] == base["schema_version"]
+            and row["load"].get("arrival_profile") == base["load"].get("arrival_profile"),
+            "mismatched paired workload")
     require((row["worker_count"], row["round"], row["manifest_sha256"]) ==
             (base["worker_count"], base["round"], base["manifest_sha256"]), "mismatched paired identities")
     requests = sum(value["latency"]["requests"] for value in row["load"]["workers"])
@@ -85,7 +95,7 @@ def pair(row, base):
     cpu = sum(value["cpu_seconds"] for value in row["resources"])
     baseline_cpu = sum(value["cpu_seconds"] for value in base["resources"])
     require(requests > 0 and baseline_requests > 0, "missing validated requests")
-    return {"round": row["round"], "requests_per_second": requests / 10,
+    result = {"round": row["round"], "requests_per_second": requests / 10,
             "cpu_seconds": cpu, "cpu_per_request_us": cpu / requests * 1e6,
             "cpu_change_percent": ratio(cpu / requests, baseline_cpu / baseline_requests),
             "throughput_change_percent": ratio(requests, baseline_requests),
@@ -93,12 +103,24 @@ def pair(row, base):
                                    for value, previous in zip(row["load"]["workers"], base["load"]["workers"])],
             "rss_change_kib": [value["rss_peak_kib"] - previous["rss_peak_kib"]
                                for value, previous in zip(row["resources"], base["resources"])]}
+    if row["schema_version"] == 3:
+        result["arrivals"] = [{key: value[key] for key in ("role", "scheduled_arrivals", "skipped_arrivals",
+                               "tail_requests", "scheduled_latency", "scheduling_delay")}
+                              for value in row["load"]["workers"]]
+    return result
 
 
 def report(root):
     root = Path(root)
     manifest = read_json(root / "manifest.json")
-    require(manifest["schema_version"] == 2 and manifest["kind"] == "formation-telemetry", "unsupported manifest")
+    schema = manifest["schema_version"]
+    require(schema in (2, 3) and manifest["kind"] == "formation-telemetry", "unsupported manifest")
+    if schema == 3:
+        profile = manifest["profile"]
+        require(profile["arrival_profile"] == "fixed_500_per_worker_v1"
+                and profile["requests_per_worker_per_second"] == 500
+                and profile["minimum_delivery_percent"] == 99
+                and profile["cpu_accounting"] == "linux_process_cpu_clock_ns", "unsupported fixed-rate profile")
     require(manifest["profile"]["sizes"] == list(SIZES) and manifest["profile"]["modes"] == list(MODES)
             and manifest["profile"]["rounds"] == 6 and manifest["profile"]["window_seconds"] == 10, "unsupported profile")
     digest = hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest()
@@ -108,7 +130,7 @@ def report(root):
     invalid = []
     for index, path in enumerate(paths):
         row = read_json(path)
-        require(row["schema_version"] == 2 and row["manifest_sha256"] == digest, "cell schema/manifest mismatch")
+        require(row["schema_version"] == schema and row["manifest_sha256"] == digest, "cell schema/manifest mismatch")
         require(row["index"] == index, "missing/reordered cell index")
         require(row["worker_count"] in SIZES and type(row["round"]) is int and 0 <= row["round"] < 6, "cell identity outside matrix")
         expected_mode = MODES[(row["round"] + index % 6) % 6]
@@ -121,7 +143,8 @@ def report(root):
             invalid.append({"cell": index, "issues": found})
     expected = {(size, round_, mode) for size in SIZES for round_ in range(6) for mode in MODES}
     finished = read_json(root / "finished.json") if (root / "finished.json").exists() else None
-    output = {"schema_version": 2, "cells": len(rows), "missing_cells": len(expected - set(rows)),
+    output = {"schema_version": schema, "cells": len(rows), "missing_cells": len(expected - set(rows)),
+              "arrival_profile": manifest["profile"].get("arrival_profile", "saturation_v2"),
               "finished": finished, "source_stability_verified": bool(finished and finished.get("source_unchanged")),
               "acceptance_run": manifest["acceptance_run"], "invalid": invalid, "comparisons": []}
     for size in SIZES:

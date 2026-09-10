@@ -1578,9 +1578,8 @@ fn spawn_owner(
             published,
         };
         let mut probe = tokio::time::interval(Duration::from_secs(1));
-        let mut reconcile = tokio::time::interval(Duration::from_secs(5));
+        let mut reconcile = crate::reconciliation::Reconciliation::default();
         probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut completion_budget = 8_u8;
         let mut control_budget = 4_u8;
         loop {
@@ -1618,11 +1617,14 @@ fn spawn_owner(
                     owner.published.send_replace(owner.view.clone());
                     if !matches!(owner.view.summary.participation, Participation::Ejected | Participation::Stopping) {
                         owner.apply(Message::Local(Command::StartProbeRound))?;
-                    }
-                },
-                _ = reconcile.tick() => {
-                    if !matches!(owner.view.summary.participation, Participation::Ejected | Participation::Stopping) {
-                        owner.apply(Message::Local(Command::StartAntiEntropyRound))?;
+                        // During sparse formation, probes still cover disconnected
+                        // members but cannot carry gossip to them. Repair queued
+                        // news on an existing authorized route, without changing
+                        // failure detection or overlapping the core's active round.
+                        let model = owner.model.as_ref().expect("installed model");
+                        if reconcile.due(Instant::now(), !model.gossip().is_empty(), model.anti_entropy().is_some()) {
+                            owner.apply(Message::Local(Command::StartAntiEntropyRound))?;
+                        }
                     }
                 },
                 result = owner.sends.join_next(), if !owner.sends.is_empty() && (completion_budget > 0 || (commands.is_empty() && input.is_empty())) => {

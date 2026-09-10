@@ -1,12 +1,12 @@
 # Formation telemetry overhead: approved acceptance experiment
 
-Status: **3/10/30-worker curve and execution budget accepted on 2026-09-09;
-revised setup policy verified; full overhead run remains incomplete**.
+Status: **post-diagnostic batch completed all 108 cells; three/ten-worker normal
+gates met, thirty-worker noise prevents full overhead acceptance**.
 Owner: [P-OBSERVABILITY for M4](../tasks/implement-worker-observability.md).
 This is the finite plan requested by the
 [formation handoff](../tasks/implement-cluster-formation-poc.md#open-m4-work-selection),
 not accepted performance evidence or permission to change runtime limits.
-The [v2 source-built recipe](../testing-worker-overhead.md#current-formation-scaling-experiment)
+The [source-built recipe](../testing-worker-overhead.md#current-formation-scaling-experiment)
 is implemented separately from the historical local test. Its six-mode smoke
 matrix is harness evidence, not an accepted scaling result.
 The [quiet-host run report](formation-telemetry-2026-09-09.md) now records all
@@ -22,10 +22,145 @@ full-curve acceptance remain open.
 The [read-only baseline review](formation-telemetry-2026-09-09.md#baseline-variation-review--2026-09-09)
 locates the major shift in the first round, across all three roles and before
 full sampling first runs. It does not prove the cause or permit excluding that
-round. A five-minute baseline-only diagnostic and a 45-minute allowance for the
-30-worker point have been proposed for operator review, both within the next
-reviewed 90-minute total. Neither change is approved; current budgets and the
-no-automatic-retry rule remain unchanged.
+round. On 2026-09-10 the operator approved the five-minute baseline diagnostic
+and exploration of per-size budget redistribution (including up to 45 minutes
+for 30 workers), within the next 90-minute total excluding builds. The
+no-automatic-retry rule and acceptance thresholds remain unchanged.
+The [completed diagnostic](formation-baseline-diagnostic-2026-09-10.md)
+reproduces the shared slowdown with observed thermal throttling and lower
+sampled clocks, confirms short-lived HTTP/serialization allocation churn, and
+finds low idle peer-maintenance cost. Baseline stability remains the execution
+gate; redistribution alone is insufficient. V3 implements the 20/20/45-minute
+split plus five diagnostic minutes when `--fixed-rate` is selected.
+A fixed 90-second load-conditioning control also failed to stabilize three
+subsequent fresh baselines (1.325× throughput range). Total diagnostic execution
+was 258.991 seconds. The operator subsequently explicitly approved fixed-rate
+traffic for acceptance. The following v3 profile supersedes the historical
+saturation workload and equal-size budgets below, not the retained results.
+
+## Fixed-rate acceptance profile v3 — 2026-09-10
+
+### Approved post-diagnostic batch — 2026-09-10
+
+Execution is now recorded in the [post-diagnostic report](formation-post-diagnostic-2026-09-10.md):
+all 108 cells completed in 46m07s outer time with unchanged source/artifacts
+and clean cleanup. Formation succeeds at all sizes. Normal three/ten-worker
+instrumentation meets reviewed gates; thirty-worker baseline-p95 variation
+keeps its comparisons inconclusive. A separately instrumented host diagnostic
+reproduces variation without observed thermal throttling and does not replace
+acceptance. Total conservative debit is now 114m07s of 120 minutes, leaving
+5m53s. There is no authorization to automatically repeat the completed batch.
+
+Following the [correctness checkpoint](../tasks/cluster-formation-m4-checklist.md#post-diagnostic-correctness-checkpoint--2026-09-10),
+the operator explicitly approved extending the total experimental allowance
+from 90 to **120 minutes** and running the required activities. Run one fresh
+full 108-cell matrix with `--fixed-rate --batch-cap-seconds 3300`, capped at
+**55 minutes including causal preflight and cleanup**. Prior experimental
+debit is 3,802.326 seconds; at most 3,300 additional seconds totals 7,102.326,
+below the 7,200-second allowance. No build time is charged.
+
+This explicit cap can only shorten the harness's existing batch allowance;
+the original 20/20/45-minute per-size ceilings remain and do not add time to
+the shorter whole-batch deadline. The historical 300-second diagnostic
+reservation is already represented in prior accounting, not charged again.
+No prior smoke or failed cell is reused. All 3/10/30-worker, six-mode,
+six-round requirements, workload, setup and acceptance gates remain unchanged.
+Freeze new artifacts/source before running; preserve every failure and do not
+automatically retry or resume. No host-policy change is authorized.
+
+### Earlier v3 attempt and diagnostic follow-up
+
+The [v3 execution record](formation-fixed-rate-2026-09-10.md) retains harness
+checks, the separate smoke matrix, executable identities and budget debit.
+The attempted curve completed 36/36/11 cells at 3/10/30 workers, then failed
+thirty-worker unlock under the original 60-second setup deadline. No retry or
+resume occurred. Three/ten-worker normal overhead comparisons are inconclusive
+under the unchanged baseline-p95 variation gate; default-sampling CPU medians
+also exceed the normal below-10% goal. Thirty-worker comparisons are partial.
+Separate formation-only timing diagnostics did not reproduce the unlock
+failure, and a bounded harness fix now preserves partial timing evidence on
+failure. These findings do not change the accepted profile or certify M4.
+
+The subsequent [adaptive-repair diagnostic](formation-adaptive-repair-2026-09-10.md)
+reproduces slow sparse-chain dissemination and verifies a bounded runtime
+scheduling correction. Two native thirty-worker checks improve setup from
+45–47 seconds to 26–30 seconds; three/ten-worker checks also pass. This is
+formation-only evidence, not a resumed curve or accepted instrumentation
+overhead. Preserve the failed batch and separately resolve normal CPU excess,
+baseline-p95 variation, full-sampling loss and final checkpoint applicability.
+The [paced-sampling follow-up](formation-sampling-diagnostic-2026-09-10.md)
+now verifies a bounded cryptographic entropy cache, with three-worker diagnostic
+CPU overhead medians of 12.05% before / 4.41% after. It preserves the original
+thread defaults and sampling contract. These two same-version comparisons per
+build are not six acceptance rounds, and ten/thirty-worker overhead and the
+baseline-p95 gate remain unaccepted.
+
+The accepted question is instrumentation overhead at a declared offered rate,
+not maximum throughput. Preserve the 3/10/30-worker, six-mode, six-round matrix,
+exact identity/formation/liveness checks, runtime settings, paired comparisons,
+cost bands and baseline-variation gates. Saturation v2 remains a separately
+labeled stress profile; never pool its cells with v3 or describe a v3 result
+as peak capacity.
+
+- Offer **500 summary requests/second per worker** (1,500/5,000/15,000 aggregate).
+  Two persistent typed clients per worker each receive 2,500 absolute arrival
+  slots over ten seconds: a four-millisecond period. Stagger phases across all
+  clients. Keep the 64-request warmup per client, outside the timed window.
+- At most one request is in flight per client. Skip expired slots instead of
+  building a queue or replaying missed arrivals in bursts. Retain scheduled,
+  completed, skipped and post-window-completion counts. All 5,000 arrivals per
+  worker must reconcile; require **at least 99% completed within the window**
+  for every worker. This is a declared workload-validity condition, not a
+  production loss allowance. A missed arrival is never a successful request.
+- Retain separate raw request-latency, scheduled-arrival-to-completion and
+  scheduling-delay samples. The original request p95 remains the overhead
+  score; show scheduling delay and skips alongside it so generator limitations
+  cannot silently become a service-latency claim. This bounded-concurrency
+  workload is not an unlimited open-loop queue or a general tail-latency SLO.
+- Preallocate 2,500 64-bit samples per client for each of those three measures:
+  0.36/1.2/3.6 MB total numeric payload at the three sizes. Merge/sort after END.
+  No additional benchmark allocation occurs per recorded sample.
+- Account CPU with the live fixture process's POSIX CPU clock, selected through
+  `clock_getcpuclockid` and read in nanoseconds with `clock_gettime_ns`.
+  Retain `/proc` ticks for comparison, but do not round low-load CPU cost to
+  ten-millisecond ticks. Missing clocks fail rather than substituting zero.
+  This is CPU time, not instructions or effective CPU frequency. Keep the
+  external window bracket, 20 Hz RSS sampling and separate tooling accounting.
+- Use schema **3** for manifest/cells/load and profile
+  `fixed_500_per_worker_v1`; the OTLP collector's independent schema stays 2.
+  `--fixed-rate` selects v3; omission retains the historical v2 stress workload.
+- Allocate **20/20/45 minutes** to 3/10/30 workers, with **five minutes reserved
+  for the completed diagnostics**, totalling 90 minutes excluding builds. The
+  three-worker slice includes causal preflight and any separate harness smoke.
+  Debit the smoke's elapsed time rounded up via `--prior-validation-seconds`
+  (bounded to 180 seconds). The runner reserves ten seconds for cleanup inside
+  remaining budgets and cannot borrow from the 90-minute cap.
+
+Validate the new pacing/accounting functions and real serialized load path
+before acceptance. Retain failed validation separately; no automatic retry or
+favorable-sample selection. No worker semantics, allocator, runtime limits,
+machine-wide policy, peer grammar or telemetry thresholds change with v3.
+
+### Approved baseline diagnostic — 2026-09-10
+
+Run `scripts/diagnose-formation-baseline.py` once: six fresh three-worker
+`compiled_off` cells, using the real curve's formation, ten-second load,
+identity and cleanup gates. The whole pilot is capped at 300 seconds, reserving
+15 seconds for cleanup. Freeze executable hashes and source identity; retain
+every attempted cell, including failure, without conditioning or exclusions.
+Read-only observations at 500 ms cover each fixture process's thread CPU,
+scheduling wait, context switches, page faults, RSS/swap, and readable host
+temperature/frequency/throttle counters. Bound observations to 48 per cell,
+six processes, 128 threads per process and 128 sensors. Unreadable counters are
+unavailable, not zero. Sampled cpufreq is not effective-clock measurement and
+RSS is not allocation count. Observer cost belongs to the runner.
+
+Use the result to distinguish host placement/frequency, allocation or retained
+state, runtime contention, and load-client limits. Allocation profiling is a
+separate diagnostic comparison, not overhead acceptance; inspect actual hot
+callers before changing storage ownership. No governor or machine-wide
+profiling-security changes are authorized by this recipe. Review findings
+before executing a revised full curve, keeping total accounting explicit.
 
 The [reliability follow-up](formation-reliability-2026-09-09.md) corrects
 demonstrated worker/verifier defects. The operator has now approved the
@@ -96,8 +231,8 @@ Three workers remain the baseline; coverage must also answer the operator's
 30-worker question. Accepted measurement sizes are **3, 10 and 30 workers**,
 each with the same six modes and six rounds below. Keep two clients per worker
 (6, 20 and 60 clients) and compare each enabled mode against its same-size,
-same-round disabled baseline. This holds per-worker closed-loop concurrency
-constant, not total request rate. Report absolute per-worker and aggregate
+same-round disabled baseline. Historically this held closed-loop concurrency
+constant; v3 additionally fixes the offered per-worker request rate. Report absolute per-worker and aggregate
 CPU, throughput, latency, RSS and formation/convergence timings at every size,
 alongside telemetry overhead. A small percentage increase alone is not proof
 that the underlying formation scales well.
@@ -110,8 +245,9 @@ of scientific compute speedup or cross-host network behavior. The separate
 [scientific scaling stages](../orishu-scaling-objectives.md#staged-evidence)
 remain unchanged; their 32-worker stage is not satisfied by this experiment.
 
-The expanded matrix has 108 cells instead of 36. The accepted limit is 1,800
-seconds per size and 5,400 seconds total, excluding compilation, retaining every
+The expanded matrix has 108 cells instead of 36. The original v2 limit was 1,800
+seconds per size and 5,400 seconds total; v3 uses the redistributed budget above,
+excluding compilation, retaining every
 partial result and with no automatic retries. This authorizes implementing and
 validating the harness, then executing the frozen profile; no new measurements
 are claimed by approval itself.
@@ -200,7 +336,8 @@ The expanded profile below uses the accepted execution budget.
 3. Warm up 2N persistent typed clients, two directly targeting each worker,
    with 64 summary requests per client. Release all clients through one start
    barrier. Each has one outstanding request at a time for a shared ten-second
-   window; client-process startup is not request latency. Every response retains
+   window; v3 issues them only at its predeclared arrival slots. Client-process
+   startup is not request latency. Every response retains
    its source, exact formation, N live members and unlocked state. Validate
    exact membership views immediately before and after the timed window.
 4. In metrics-enabled modes, run one **independent** scraper per worker on a
@@ -214,7 +351,7 @@ The expanded profile below uses the accepted execution budget.
    A missing exit, invalid state or failed required request makes the cell fail;
    it is not silently excluded from the performance report.
 
-This is a two-clients-per-worker closed-loop throughput experiment. It is not an
+The historical v2 profile is a two-clients-per-worker closed-loop throughput experiment. It is not an
 independently scheduled arrival-rate/tail-latency SLO test. Request throughput
 counts validated completed requests divided by the shared measured window;
 client-side validation and contention remain part of that workload.
@@ -231,15 +368,16 @@ Run alone without concurrent builds/test suites; record CPU/kernel, `CLK_TCK`,
 CPU affinity, scaling policy when readable and competing host load. Do not
 change governor, host services or affinity policies without separate permission.
 
-Preallocate at most 500,000 64-bit integer latency samples per client (24, 80
-and 240 MB decimal payload at 3, 10 and 30 workers, respectively) and at most
+For historical v2, preallocate at most 500,000 64-bit integer latency samples per client (24, 80
+and 240 MB decimal payload at 3, 10 and 30 workers, respectively); v3 uses the
+smaller fixed-rate storage bounds above. Retain at most
 128 scrape-latency records per worker. Reaching
 a sample cap before the ten-second window ends is an explicitly incomplete
 cell, not a shorter conveniently fast measurement. Sample worker CPU/RSS at
 20 Hz with bounded `/proc` reads; record setup high-water RSS separately from
 timed resident-memory peaks. Do no sorting or artifact writes in client hot
-loops. The accepted limit is 1,800 seconds per size / 5,400 seconds total,
-excluding compilation. Preserve partial results; there is no automatic
+loops. The v3 execution budgets are specified above; the 90-minute total still
+excludes compilation. Preserve partial results; there is no automatic
 retry loop. A setup deadline or resource failure at a larger size is retained
 as a failed/incomplete point, never silently replaced with a smaller formation.
 

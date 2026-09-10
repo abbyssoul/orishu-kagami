@@ -154,6 +154,25 @@ not replace public ejection/exclusion or process-level fault acceptance.
 
 #### Open M4 work selection
 
+The operator subsequently requested the [physical 3/5-Pi experiment](implement-physical-formation-experiment.md)
+as a forward path independent of further local-host tuning. Its
+[setup guide and readiness scripts](../testing-worker-pi-cluster.md) are
+implemented; remote experiment control/measurement and real Pi verification
+remain planned. The approved governor diagnostic could not start because
+non-interactive administrator authentication was unavailable; no host policy
+changed and no new performance result was produced. Continue the physical-host
+preparation rather than repeatedly blocking on that optional local diagnostic.
+
+Latest: the [post-diagnostic curve](../measurements/formation-post-diagnostic-2026-09-10.md)
+completed all 108 cells with exact formation and clean cleanup. Normal
+instrumentation meets reviewed gates at three/ten workers. Thirty-worker
+baseline-p95 variation still prevents performance acceptance despite low
+median overhead; compiled-in-cost comparisons are noise-limited at ten/thirty
+workers. Full sampling remains explicitly high-cost/lossy. Total experimental
+debit is 114m07s of the approved 120 minutes; 5m53s remains. Review the next
+measurement environment/method before another batch; no automatic retry or
+retrospective relaxation is authorized. Combined M4 remains open.
+
 Select one bounded increment from this table after mapping the latest companion
 evidence. These are work-selection categories, not instructions to implement
 all remaining M4 work together. The owning tasks retain the detailed acceptance
@@ -174,8 +193,8 @@ checks if subsequent source/profile changes require it.
 
 | Open item | Owner | Decision or input needed first | Bounded exit artifact |
 | --- | --- | --- | --- |
-| Formation telemetry overhead | P-OBSERVABILITY slices 1–3 | Review retained baseline noise, full-sampling cost/loss, the [shutdown fix's applicability](../measurements/formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09) and [per-size budget feasibility](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09), then freeze the next pre-run manifest. Curve, cost bands and the 90-minute execution budget remain accepted; the setup-policy revision does not enlarge the 30-minute per-size limit | Reproducible omitted-feature/disabled/enabled comparisons with concurrent load at 3/10/30 workers; latency, throughput, CPU, memory, scrape and loss results against reviewed limits. Final acceptance covers the delivered peer-tracing/logging configuration, not an exploratory substitute. |
-| Final M4 acceptance | N-FORMATION and companion owners | Resolve the performance gate, identify the delivered source/build/profile and assess any changes since the [passing correctness checkpoint](cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09) | One final requirement-to-evidence disposition, retaining scoped formation/operator passes, unresolved findings, exact measurement identities and any affected reruns. Do not infer completion of later release/workload obligations. |
+| Formation telemetry overhead | P-OBSERVABILITY slices 1–3 | The approved [fixed-rate v3 attempt](../measurements/formation-fixed-rate-2026-09-10.md) stopped at thirty-worker unlock after 83 completed cells. Preserve baseline-p95 noise and full-sampling loss/cost. The [adaptive-repair fix](../measurements/formation-adaptive-repair-2026-09-10.md) has deterministic replay and six native setup checks; the [paced-sampling fix](../measurements/formation-sampling-diagnostic-2026-09-10.md) reduces three-worker diagnostic CPU overhead to 4.41%. Affected correctness regressions and applicability review now pass; neither scoped result closes the full overhead gate. The operator approved a [120-minute total allowance and fresh batch](../measurements/formation-telemetry-plan.md#approved-post-diagnostic-batch--2026-09-10), capped at 55 additional minutes, with unchanged gates and no automatic retries. | Reproducible omitted-feature/disabled/enabled comparisons with concurrent load at 3/10/30 workers; latency, throughput, CPU, memory, scrape and loss results against reviewed limits. Final acceptance covers the delivered peer-tracing/logging configuration, not an exploratory substitute. |
+| Final M4 acceptance | N-FORMATION and companion owners | Resolve the performance gate, identify the delivered source/build/profile and assess any changes since the [passing correctness checkpoint](cluster-formation-m4-checklist.md#post-diagnostic-correctness-checkpoint--2026-09-10) | One final requirement-to-evidence disposition, retaining scoped formation/operator passes, unresolved findings, exact measurement identities and any affected reruns. Do not infer completion of later release/workload obligations. |
 
 The historical [recipe-to-criterion map](cluster-formation-conformance.md#m4-operator-recipe-applicability--2026-09-08)
 records the local scrape, secured proxy, Collector, user-service,

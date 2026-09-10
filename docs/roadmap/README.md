@@ -764,6 +764,16 @@ ADR 0025's profile-5 admission propagation has
 [three-worker receipt and compatibility evidence](../tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
 Formation-stage overhead belongs to this handoff, not later
 scientific runtime instrumentation.
+The [post-diagnostic local curve](../measurements/formation-post-diagnostic-2026-09-10.md)
+now completed all 108 cells; normal three/ten-worker overhead gates are met,
+while thirty-worker baseline noise keeps performance acceptance open.
+At the operator's request, the [physical Raspberry Pi experiment](../tasks/implement-physical-formation-experiment.md)
+provides the next hardware path: prepare 3/5 dedicated ARM64 nodes and real
+Ethernet peers, with source-built artifacts and bounded SSH coordination.
+Preparation/readiness tooling is implemented; the remote measurement driver
+and actual hardware evidence are not. This work can proceed without another
+local-host tuning attempt. It does not replace thirty-worker evidence with a
+three/five-worker claim or change the M4 noise gate implicitly.
 A lost-ACK refusal or unresolved status alone is not a recovery procedure.
 Track N-FORMATION, P-OBSERVABILITY and P-OBS-DOCS separately:
 formation acceptance does not close M4 without its monitoring/operator handoff.

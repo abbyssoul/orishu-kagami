@@ -219,6 +219,10 @@ validation, not a new full-workspace/fault-matrix acceptance checkpoint.
 
 ## Baseline variation review — 2026-09-09
 
+Historical decision state below is superseded by the operator's 2026-09-10
+approval and [completed instrumented diagnostic](formation-baseline-diagnostic-2026-09-10.md).
+The original data and interpretation remain retained, not reclassified.
+
 Read-only analysis of the retained cells, not another measurement attempt.
 The unchanged report reader still returns `inconclusive_noise` for all five
 three-worker comparisons. Three explanations were checked against the raw

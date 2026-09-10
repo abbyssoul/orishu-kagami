@@ -40,6 +40,109 @@ def cell(mode="compiled_off"):
 
 
 class Contracts(unittest.TestCase):
+    def test_failed_policy_observation_retains_its_original_time_budget(self):
+        row = {"formation_stage": "unlock"}
+        fixture = runner.Cell(None, 30, "omitted", {}, row)
+        fixture.started = 100
+        clock = [155]
+
+        def late_policy():
+            clock[0] = 160
+            return True
+
+        with patch.object(runner.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaises(TimeoutError):
+                fixture.poll(late_policy, convergence=True)
+        self.assertEqual(row["formation_observations"], [{
+            "stage": "unlock", "start_seconds": 55, "deadline_seconds": 60,
+            "end_seconds": 60, "checks": 1, "accepted": False}])
+
+    def test_formation_observation_evidence_is_bounded(self):
+        row = {"formation_observations": [{} for _ in range(128)]}
+        fixture = runner.Cell(None, 30, "omitted", {}, row)
+        with self.assertRaisesRegex(ValueError, "formation observation record cap"):
+            fixture.poll(lambda: True)
+        self.assertEqual(len(row["formation_observations"]), 128)
+
+    def test_explicit_batch_cap_only_shortens_fixed_rate_execution(self):
+        ordinary = runner.execution_profile(True)
+        capped = runner.execution_profile(True, batch_cap_seconds=3300)
+        self.assertEqual(capped["batch_budget_seconds"], 3300)
+        self.assertEqual(capped["explicit_batch_cap_seconds"], 3300)
+        for key, value in ordinary.items():
+            if key != "batch_budget_seconds":
+                self.assertEqual(capped[key], value)
+        for cap in (0, 179, 5101, True, 3300.5):
+            with self.assertRaises(ValueError):
+                runner.execution_profile(True, batch_cap_seconds=cap)
+        with self.assertRaises(ValueError):
+            runner.execution_profile(False, batch_cap_seconds=3300)
+        with self.assertRaises(ValueError):
+            runner.execution_profile(True, 180, batch_cap_seconds=5000)
+
+    def test_fixed_rate_budget_includes_diagnostics_validation_and_preflight_slice(self):
+        for debit in (0, 90, 180):
+            profile = runner.execution_profile(True, debit)
+            self.assertEqual(sum(profile["size_budgets_seconds"]), profile["batch_budget_seconds"])
+            self.assertEqual(profile["batch_budget_seconds"] + debit + profile["reserved_diagnostic_seconds"], 5400)
+            self.assertEqual(profile["size_budgets_seconds"][0] + debit, 1200)
+            self.assertEqual(profile["size_budgets_seconds"][2], 2700)
+            self.assertEqual(profile["sample_cap_per_client"], 2500)
+        for debit in (-1, 181, 1.5):
+            with self.assertRaises(ValueError):
+                runner.execution_profile(True, debit)
+        self.assertEqual(runner.execution_profile(False), runner.PROFILE)
+
+    def test_fixed_arrival_accounting_and_delivery_gate(self):
+        load = {"schema_version": 3, "arrival_profile": "fixed_500_per_worker_v1", "workers": [
+            {"role": 0, "scheduled_arrivals": 5000, "skipped_arrivals": 49, "tail_requests": 1,
+             "latency": {"requests": 4950}, "scheduled_latency": {"requests": 4950},
+             "scheduling_delay": {"requests": 4950}}]}
+        self.assertEqual(common.fixed_rate_issues(load), [])
+        row = load["workers"][0]
+        row["skipped_arrivals"] += 1
+        for key in ("latency", "scheduled_latency", "scheduling_delay"):
+            row[key]["requests"] -= 1
+        self.assertEqual(common.fixed_rate_issues(load), ["role_0_offered_rate_not_sustained"])
+        row["scheduled_arrivals"] += 1
+        with self.assertRaises(ValueError):
+            common.fixed_rate_issues(load)
+
+    def test_cpu_clock_preserves_sub_tick_work_and_never_substitutes_zero(self):
+        def select_clock(pid, pointer):
+            self.assertEqual(pid, 42)
+            pointer._obj.value = 123
+            return 0
+
+        with patch.object(common, "_cpu_clock_function", return_value=select_clock), patch.object(
+                common.time, "clock_gettime_ns", return_value=1234567) as read:
+            self.assertEqual(common.process_cpu_ns(42), 1234567)
+            read.assert_called_once_with(123)
+        with patch.object(common, "_cpu_clock_function", return_value=lambda *_args: 3):
+            with self.assertRaises(OSError):
+                common.process_cpu_ns(42)
+        self.assertGreater(common.process_cpu_ns(os.getpid()), 0)
+
+    def test_fixed_rate_report_requires_high_resolution_cpu_and_matching_workload(self):
+        row = cell()
+        row["schema_version"] = row["load"]["schema_version"] = 3
+        row["load"]["arrival_profile"] = "fixed_500_per_worker_v1"
+        row["cpu_accounting"] = "linux_process_cpu_clock_ns"
+        for value in row["resources"] + list(row["tooling"].values()):
+            value["cpu_nanoseconds"] = 1234567
+            value["cpu_seconds"] = 0.001234567
+        for value in row["load"]["workers"]:
+            value["latency"]["requests"] = 5000
+            value.update(scheduled_arrivals=5000, skipped_arrivals=0, tail_requests=0,
+                         scheduled_latency={"requests": 5000}, scheduling_delay={"requests": 5000})
+        self.assertEqual(reader.issues(row), [])
+        self.assertEqual(reader.pair(row, row)["cpu_change_percent"], 0)
+        with self.assertRaises(ValueError):
+            reader.pair(row, cell())
+        row["resources"][0]["cpu_seconds"] = 0.01
+        with self.assertRaises(ValueError):
+            reader.issues(row)
+
     def test_convergence_can_use_remaining_setup_time_at_every_size(self):
         self.assertEqual(runner.PROFILE["convergence_budget_policy"], "remaining_whole_setup_v1")
         self.assertEqual(runner.PROFILE["observation_budget_seconds"], 10)
@@ -184,7 +287,7 @@ class Contracts(unittest.TestCase):
         report = {"sourceFormationId": "source", "sourceNodeId": "old-node",
                   "targetFormationId": "target", "state": {"phase": "catchUpFailed", "nodeId": "assigned"}}
         with patch.object(fixture, "cli", return_value=report) as cli, \
-                patch.object(runner.time, "monotonic", side_effect=[0, 0, 11]), patch.object(runner.time, "sleep"):
+                patch.object(runner.time, "monotonic", side_effect=[0, 0, 11, 11]), patch.object(runner.time, "sleep"):
             with self.assertRaises(TimeoutError):
                 fixture.await_join(5, "operation", {"formationId": "source", "sourceNodeId": "old-node"})
         self.assertEqual(cli.call_count, 1)

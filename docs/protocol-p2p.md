@@ -940,6 +940,19 @@ disconnected Alive/Suspected members, so this does not suppress failure detectio
 or manufacture an Alive result. A connection lost after selection still follows
 the ordinary bounded exchange failure/timeout path.
 
+The current PoC owner schedules repair on its skipped-tick one-second probe
+wakeup. While membership gossip is queued, it attempts anti-entropy at most
+once per second; with an empty queue, the minimum spacing is five seconds.
+An active core round is never overlapped or given a renewed deadline. Missed
+wakeups do not produce catch-up bursts. This fixed IO-shell policy is independent
+of telemetry features and uses the existing authorized-route selection, round
+correlation, byte/count limits and timeout. Continuous valid membership news
+can keep the one-second rate active; bounded per-round work does not make that
+extra traffic free. The later configurable defaults table is a design contract,
+not an implemented override of this PoC scheduler.
+The [sparse-chain repair evidence](measurements/formation-adaptive-repair-2026-09-10.md)
+records its regression, real-worker timing comparison and bandwidth tradeoff.
+
 The real-runtime regression
 `simultaneous_admitted_dials_recover_crossed_connections_without_readmission`
 holds both outgoing handshake replies until both incoming sessions register.
@@ -1043,8 +1056,9 @@ local failure counters; they do not claim delivery or kill the membership owner.
 Core probe/reconciliation timeouts continue to govern recovery. There is no
 additional immediate reconciliation-round cancellation solely because its peer
 departs or its transport fails: its existing ten-second round timer can remain
-pending. The PoC owner starts periodic reconciliation every five seconds, so
-repair can wait for the next cadence after that timeout. The real-wire test
+pending. The PoC owner's idle reconciliation spacing is five seconds (one
+second while news is queued), so repair can still wait for the next maintenance
+wakeup after that timeout. The historical idle-cadence real-wire test
 `departed_reconciliation_round_can_delay_learning_a_readmitted_identity`
 establishes three live original records, holds a pull to the departing peer,
 delivers its authenticated departure, answers survivor probes without gossip,

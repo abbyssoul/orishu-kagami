@@ -1,5 +1,7 @@
 """Bounded IO and pure report contracts for the formation telemetry experiment."""
 import http.client as http_client
+import ctypes
+import functools
 import io
 import json
 import math
@@ -75,6 +77,45 @@ def proc(pid):
     return {"ticks": int(fields[11]) + int(fields[12]),
             "rss_kib": int(values[b"VmRSS"]), "hwm_kib": int(values[b"VmHWM"]),
             "swap_kib": int(values[b"VmSwap"])}
+
+
+@functools.lru_cache(maxsize=1)
+def _cpu_clock_function():
+    # Python exposes clock_gettime_ns but not POSIX clock_getcpuclockid.
+    function = ctypes.CDLL(None).clock_getcpuclockid
+    function.argtypes = (ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+    function.restype = ctypes.c_int
+    return function
+
+
+def process_cpu_ns(pid):
+    """High-resolution Linux CPU clock, only for live fixture-owned processes.
+
+    Unavailable/exited processes raise; never substitute zero or rounded ticks.
+    """
+    clock = ctypes.c_int()
+    error = _cpu_clock_function()(pid, ctypes.byref(clock))
+    if error:
+        raise OSError(error, "fixture process CPU clock unavailable")
+    return time.clock_gettime_ns(clock.value)
+
+
+def fixed_rate_issues(load):
+    require(load["schema_version"] == 3 and load["arrival_profile"] == "fixed_500_per_worker_v1",
+            "fixed-rate schema/profile mismatch")
+    result = []
+    for value in load["workers"]:
+        scheduled, skipped, tail = (value[key] for key in
+                                    ("scheduled_arrivals", "skipped_arrivals", "tail_requests"))
+        completed = value["latency"]["requests"]
+        require(all(type(count) is int and count >= 0 for count in (scheduled, skipped, tail, completed)),
+                "invalid arrival counts")
+        require(scheduled == 5000 and completed + skipped + tail == scheduled, "arrival accounting mismatch")
+        require(value["scheduled_latency"]["requests"] == value["scheduling_delay"]["requests"] == completed,
+                "missing scheduled latency samples")
+        if completed < 4950:
+            result.append(f"role_{value['role']}_offered_rate_not_sustained")
+    return result
 
 
 def http(port):

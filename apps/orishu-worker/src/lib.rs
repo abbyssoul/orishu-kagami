@@ -9,6 +9,7 @@ pub mod join_operations;
 mod membership_view;
 pub mod operational_log;
 pub mod peer;
+mod reconciliation;
 pub mod runtime;
 pub mod trace_context;
 pub mod trace_destination;

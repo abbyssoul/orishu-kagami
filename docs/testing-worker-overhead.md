@@ -1,19 +1,41 @@
 # Measure local worker telemetry overhead
 
-Status: **quiet-host curve incomplete at ten-worker formation; M4 acceptance open**
+Status: **post-diagnostic full curve completed; thirty-worker stability and M4 acceptance open**
 
 ## Current formation scaling experiment
 
+Latest execution: the [post-diagnostic 108-cell curve](measurements/formation-post-diagnostic-2026-09-10.md)
+completed once with all formation and rate-delivery checks, unchanged artifacts
+and clean cleanup. Default sampling CPU/p95 overhead medians are
+5.41%/2.83% at three workers and 6.56%/5.12% at ten, meeting the reviewed normal
+gates. Thirty-worker medians are low but baseline latency variation fails the
+unchanged stability gate, so that size is not performance-qualified. Full
+sampling remains high-cost/lossy; do not infer a lossless or normal-compute
+recommendation from a completed cell. The report retains all modes, rounds,
+noise findings, diagnostic limitations and budget accounting.
+
 The [approved plan](measurements/formation-telemetry-plan.md) measures 3, 10 and
 30 ordinary source-built Linux workers, six modes and six rounds per size.
-The limit is 30 minutes per size / 90 minutes total excluding builds, with no
-automatic retries. A separate one-round `--smoke` run validates the harness;
+The original v3 allocation uses fixed-rate traffic at 500 requests/s/worker and
+20/20/45-minute size slices plus five reserved diagnostic minutes, totalling
+90 minutes excluding builds, with no
+automatic retries. The subsequent approved total allowance is 120 minutes;
+the completed fresh batch used `--fixed-rate --batch-cap-seconds 3300` to
+enforce its 55-minute cap, including preflight/cleanup. The cap only shortens
+the whole-batch deadline; per-size limits do not grant extra time. Consult the
+latest report's remaining debit before any separately approved experiment.
+A separate one-round `--smoke` run validates the harness;
 it cannot satisfy the full matrix. Do not run either alongside builds/tests.
 The [validation record](tasks/cluster-formation-conformance.md#approved-scaling-curve-and-v2-harness-validation--2026-09-09)
 retains failed preflights, the completed smoke matrix and its limitations.
 The subsequent [quiet-host report](measurements/formation-telemetry-2026-09-09.md)
 retains 36 complete three-worker cells and the failed first ten-worker setup.
-No thirty-worker overhead result exists. The separate
+The newer [fixed-rate report](measurements/formation-fixed-rate-2026-09-10.md)
+retains 36/36/11 completed cells at 3/10/30 workers and a failed thirty-worker
+unlock setup, without retry. Three/ten-worker normal overhead comparisons are
+inconclusive on baseline-p95 variation; thirty-worker comparisons are partial.
+Default-sampling CPU medians exceed the normal goal, and full sampling has
+high CPU cost and log loss. The separate
 [reliability follow-up](measurements/formation-reliability-2026-09-09.md) records
 worker/verifier fixes and the original short-gate failures. The operator-approved
 [convergence policy](measurements/formation-telemetry-plan.md#shared-setup-convergence-policy--2026-09-09)
@@ -30,10 +52,25 @@ run; do not retry the matrix automatically.
 `scripts/check-formation-scaling.py` runs one
 formation-only regression with the same exact predicates and writes a new,
 private evidence directory; it does not run timed load or grant acceptance.
+The [convergence diagnostic](measurements/formation-convergence-diagnostic-2026-09-10.md)
+adds a bounded CLI-versus-persistent-client comparison and optional existing
+peer-metric snapshots. Its one-second verification cadence and `observe`
+probe mode are diagnostic only, not substituted acceptance behavior.
+The [adaptive-repair follow-up](measurements/formation-adaptive-repair-2026-09-10.md)
+adds a deterministic serialized chain replay and six real-worker setup checks.
+Its runtime scheduling fix preserves SWIM and member authentication, but changes
+repair traffic and therefore requires a new measurement checkpoint. Existing
+curve results do not become passing evidence for the modified worker.
+The subsequent [paced-sampling diagnostic](measurements/formation-sampling-diagnostic-2026-09-10.md)
+isolates repeated cryptographic-provider cost and verifies a fixed-memory,
+non-waiting entropy cache. Three-worker diagnostic CPU overhead improves from
+12.05% to 4.41%, but this is not a full scaling acceptance result. Runtime thread
+defaults, sampling rates, source authentication and the accepted gates remain
+unchanged; do not substitute the rejected two-thread diagnostic configuration.
 
 ```sh
 make build-formation-telemetry
-make measure-formation-telemetry OTELCOL=/absolute/path/to/otelcol FORMATION_TELEMETRY_OUTPUT=/tmp/orishu-telemetry-new-run
+make measure-formation-telemetry OTELCOL=/absolute/path/to/otelcol FORMATION_TELEMETRY_OUTPUT=/tmp/orishu-telemetry-new-run FORMATION_TELEMETRY_ARGS=--fixed-rate
 python3 scripts/summarize-formation-telemetry.py /tmp/orishu-telemetry-new-run
 ```
 
@@ -43,7 +80,11 @@ It retains a versioned source/tool/profile manifest, official-Collector causal
 preflight result, and one bounded JSON artifact per cell. A failed cell stops
 the run and retains available evidence; do not overwrite or silently resume it.
 The summary can inspect a partial matrix but labels missing comparisons.
-For a smoke run, add `FORMATION_TELEMETRY_ARGS=--smoke` and a fresh output path.
+For a smoke run, use `FORMATION_TELEMETRY_ARGS='--fixed-rate --smoke'` and a
+fresh output path. Debit its elapsed seconds rounded up from the subsequent
+full curve with `--prior-validation-seconds`; smoke and causal preflight belong
+inside the three-worker slice. Omitting `--fixed-rate` retains the historical
+saturation profile, never current acceptance.
 
 The Rust probe uses two persistent typed clients per worker and validates every
 response. It collects raw latency samples before computing per-worker p95,
@@ -53,6 +94,12 @@ The runner continuously drains bounded stdout records and samples each process
 at 20 Hz. Worker, collector, client, and runner/log-sink CPU/RSS remain separate.
 CPU uses a recorded external start/end bracket; scheduling skew is reported,
 not silently treated as an exact ten-second CPU interval.
+V3 uses a high-resolution per-process CPU clock, retaining ticks as secondary
+evidence, and separately reports scheduling delay, scheduled-response latency,
+and skipped/tail arrivals. Every worker must complete at least 99% of its 5,000
+scheduled arrivals; all counts reconcile without catch-up bursts or queues.
+See the [v3 profile](measurements/formation-telemetry-plan.md#fixed-rate-acceptance-profile-v3--2026-09-10)
+for bounds and limits of the resulting claim.
 
 Trace queues/batches/flush/attempt/shutdown retain 1024/128/1000 ms/2000 ms/3000 ms;
 active capacity is 128, export bytes 1 MiB and response bytes 16 KiB. Logging

@@ -1,6 +1,7 @@
 # Combined M4 acceptance checklist
 
-Status: **deployment scope accepted and scoped collection verified; overhead and final acceptance pending**.
+Status: **deployment/correctness checkpoints verified; full curve executed;
+thirty-worker performance stability and final acceptance pending**.
 Owner: [cluster-formation task](implement-cluster-formation-poc.md#acceptance-criteria).
 Companions: [P-OBSERVABILITY](implement-worker-observability.md) and
 [P-OBS-DOCS](document-worker-observability.md).
@@ -13,13 +14,84 @@ passes do not certify arbitrary later dirty-worktree changes.
 
 ## Decisions and execution gates
 
-- **Awaiting measurement-policy direction:** the
+- **Physical-host follow-up requested:** the operator permits moving to a real
+  3/5-Raspberry-Pi experiment without waiting for local tuning to succeed.
+  The approved governor experiment was **not run**: `sudo -n true` required
+  interactive authentication. All 20 observed policies remain `powersave`;
+  no governor/affinity/runtime setting was changed. The experimental debit
+  remains 114m07s. The [physical experiment task](implement-physical-formation-experiment.md)
+  and [setup/readiness guide](../testing-worker-pi-cluster.md) provide an
+  actionable next increment, not a waived performance gate or completed
+  cross-host benchmark.
+
+- **Latest execution:** the [post-diagnostic full curve](../measurements/formation-post-diagnostic-2026-09-10.md)
+  completed all 108 cells, including all 36 thirty-worker formations, with
+  unchanged source/artifacts and clean cleanup. Normal metrics/zero/default
+  sampling meets reviewed gates at three/ten workers. Thirty-worker normal
+  medians are below 10%, but baseline-p95 noise prevents acceptance; the
+  ten/thirty-worker compiled-in-cost comparisons are also inconclusive.
+  Full sampling remains high-cost/lossy, with resource-sampling skew at thirty
+  workers. A separate bounded sensor diagnostic reproduces variation without
+  observed thermal throttling but does not establish a cause or qualify the
+  failed noise gate. Total debit is **114m07s / 120 minutes**, leaving **5m53s**.
+  No further full batch, host-policy change or retrospective threshold change
+  is authorized. Historical decisions/results below remain chronological.
+
+- **Diagnostic and redistribution exploration approved on 2026-09-10:** the
   [baseline review](../measurements/formation-telemetry-2026-09-09.md#baseline-variation-review--2026-09-09)
   finds a shared first-round shift, not an isolated worker or recorded
-  sample/window failure. Its proposed five-minute baseline-only diagnostic and
-  the proposed 45-minute 30-worker allowance are unapproved. Both would count
-  within the next reviewed 90-minute total. No further performance run, host
-  policy change or threshold adjustment is inferred from goal continuation.
+  sample/window failure. The operator approved the five-minute baseline-only
+  diagnostic and exploration of per-size budget redistribution, including a
+  45-minute 30-worker allowance, within the next 90-minute total excluding
+  builds. Allocation profiling is explicitly in diagnostic scope. Follow the
+  [bounded pilot recipe](../measurements/formation-telemetry-plan.md#approved-baseline-diagnostic--2026-09-10);
+  no machine-wide policy change or acceptance-threshold adjustment is implied.
+  The [completed diagnostic](../measurements/formation-baseline-diagnostic-2026-09-10.md)
+  reproduces a 2.058× baseline throughput range with observed thermal throttling
+  and reduced sampled clocks; idle peers remain inexpensive and DHAT confirms
+  short-lived HTTP/serialization churn. All fixtures pass correctness/cleanup,
+  but performance stability does not. No full curve or M4 acceptance is claimed;
+  fixed 90-second conditioning also leaves 1.325× baseline throughput variation.
+  The operator subsequently approved fixed-rate acceptance; follow the
+  [v3 profile](../measurements/formation-telemetry-plan.md#fixed-rate-acceptance-profile-v3--2026-09-10).
+  Saturation remains separate stress evidence. No further workload/budget
+  approval is pending for the recorded attempt; acceptance remains open.
+  The [v3 execution record](../measurements/formation-fixed-rate-2026-09-10.md)
+  retains the smoke/debit and the attempted curve: 83 complete cells, one
+  thirty-worker unlock setup failure and 24 unexecuted cells, without retry.
+  Three/ten-worker normal comparisons remain inconclusive on baseline-p95
+  variation; default-sampling CPU medians are +10.52%/+11.70%, and full sampling
+  remains high-cost/lossy. Thirty-worker rate delivery is observed but paired
+  acceptance is incomplete. Bounded formation-only timing diagnostics did not
+  reproduce the unlock failure; partial-stage evidence retention is now fixed
+  in the harness, without changing runtime or the 60-second deadline. Next:
+  obtain a repeatable convergence/policy failure and isolate observer versus
+  propagation cost; investigate normal CPU/noise separately. No acceptance
+  threshold relaxation, temporary exception or new full batch is authorized
+  by these findings. The record accounts for all diagnostic time and failures.
+  The subsequent [observer/peer-metrics diagnostic](../measurements/formation-convergence-diagnostic-2026-09-10.md)
+  rules out repeated CLI startup as the sole explanation: persistent-client
+  exact-members verification still takes 25–41 seconds. Existing peer metrics
+  show early handshake/send failures and probe deadlines as connectivity
+  develops. A deterministic serialized three-node replay confirms that a new
+  member's connection must wait for trusted member discovery, preserving
+  removal fences. The subsequent [adaptive-repair follow-up](../measurements/formation-adaptive-repair-2026-09-10.md)
+  reproduces the delay in a bounded serialized chain and implements 1 Hz
+  existing-route repair while news is queued, returning to five-second spacing
+  when empty. SWIM, authentication and active-round deadlines are unchanged.
+  Six native setup checks pass; the thirty-worker old/candidate means are
+  45.741/27.977 seconds. Retain the bandwidth tradeoff and reassess affected
+  lifecycle/feature evidence at the new checkpoint. No overhead or M4 pass is
+  implied; default CPU, baseline-p95 noise and full-sampling cost/loss remain.
+  The [paced-sampling follow-up](../measurements/formation-sampling-diagnostic-2026-09-10.md)
+  subsequently identifies expensive repeated cryptographic-provider work under
+  paced traffic and verifies a bounded non-waiting cache. Three-worker diagnostic
+  median CPU overhead falls from 12.05% to 4.41%; the official Collector confirms
+  both causal admission chains with 116 matched spans/logs. No thread-default,
+  sampling-rate, authentication or acceptance-gate change is retained. Full
+  scaling and baseline-p95 stability remain open. The
+  [post-diagnostic correctness review](#post-diagnostic-correctness-checkpoint--2026-09-10)
+  below is complete; these diagnostics do not authorize a new acceptance batch.
 
 - Accepted and [scoped setup checks verified](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09):
   post-admission convergence uses only the remaining original 60-second setup
@@ -113,6 +185,23 @@ pass merely because it has a link. Failed required assertions stay open.
 | Final validation and release fault exclusion | Workspace commands below, `make test-formation-release-guard`, applicable fault-process commands in the formation ledger | Run required validation at the final checkpoint; record ignored/skipped/platform-dependent cases and investigate failures. A green default build is not optional-feature or fault-build acceptance. |
 
 ## Command manifest to freeze
+
+The [2026-09-10 adaptive-repair checkpoint](../measurements/formation-adaptive-repair-2026-09-10.md#regression-checkpoint)
+changes only the production owner's repair scheduling, not its authority,
+wire schema, exporter, diagnostics access or deployment configuration. It
+passes the combined worker library (226 tests), serialized chain regression,
+omitted partition/heal/full churn and combined observable full churn. Idle
+three-worker maintenance uses 0.203 aggregate CPU-seconds per 30 seconds;
+the single thirty-worker old/candidate comparison is 7.917/8.108 seconds.
+These scoped checks do not re-certify the entire historical checkpoint.
+
+| Changed-boundary applicability | Current disposition |
+| --- | --- |
+| Sparse dissemination, authorized-route repair, normal SWIM and active-round timing | Replay red/green, scheduler controls, six setup cases and idle controls pass; no deadline relaxation |
+| Partition/heal, normal leave/readmission and restart, observable owner lifecycle | Two full native journeys and combined library regressions pass |
+| Admission fault recovery, exclusion/ejection timing and optional-feature combinations | Subsequently verified in the post-diagnostic correctness checkpoint below; historical artifacts remain separately identified |
+| Collector, proxy, systemd/container and operator stories/manuals | No schema, access, sink or deployment contract changed; preserve historical scoped recipes, but review final executable applicability and causal preflight before acceptance |
+| CPU/p95 overhead, loss and complete scaling matrix | Fresh 108-cell matrix completed; normal three/ten-worker gates met, thirty-worker noise remains inconclusive. See the latest execution report above |
 
 Before execution, record HEAD plus a reproducible dirty-source inventory,
 lockfile/toolchain and executable hashes, feature sets, ordinary/fault builds,
@@ -408,7 +497,96 @@ Workspace formatting, scoped whitespace checks and `make docs-check` (**132
 Markdown files**) passed after this documentation reconciliation. No new
 runtime or wire behavior is introduced by the status updates.
 
+## Post-diagnostic correctness checkpoint — 2026-09-10
+
+The adaptive reconciliation scheduler and bounded sampling cache have now
+completed affected correctness verification. This supersedes the earlier
+feature/fault counts for these changed paths, not the historical performance
+failures. The [formation report](../measurements/formation-adaptive-repair-2026-09-10.md)
+and [sampling report](../measurements/formation-sampling-diagnostic-2026-09-10.md)
+identify the source changes, deterministic regressions, native comparisons
+and limitations. No membership authority, wire field, dependency, operator
+setting or migration contract changed.
+
+| Current check | Result |
+| --- | --- |
+| Four worker feature combinations, all targets and warnings-denied Clippy | Neither: 245 passed / 2 ignored; metrics: 290 / 2; tracing: 286 / 5; both: 342 / 6 |
+| Isolated fault-feature all-target tests, lint and build | 244 passed / 2 ignored; lint/build passed |
+| Ten fault-process scenarios | All passed once: lost join ACK, peer ejection, lost departure, issuer loss/ejection, source loss, dead/removed/blocked assignment and excluded restart |
+| Normal process journeys | Plain formation/churn, client pressure and lost leave response all passed once; the preceding policy-partition pass uses the identical feature-omitted worker and remains applicable |
+| Changed observability paths | Preceding combined observable formation/churn passed; current combined release worker passed official Collector 0.160.0 A→B→C formation with two causal chains, 116 matched spans/logs and 172 series/worker |
+| Workspace | All-target tests/Clippy, doctests, formatting and release fault-exclusion guard passed; existing ignored doctest retained |
+
+The actual held-output/recovery and mixed-feature peer tests ran. Ignored
+tests are explicitly scoped helpers/manual diagnostics, not skipped acceptance
+assertions. No fault or normal-process assertion was retried, and the original
+retry windows, identity/exclusion assertions and shutdown checks were retained.
+
+Local executable identities, rechecked after verification:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Combined release worker | `b3f7db9b2bbb58f571e0e1bcc1f752d8562e5fa725a2c724c19a303fd7a95371` |
+| Feature-omitted release worker | `754a4377cfd9f4fb15587f25d30d25bd0c9e8f68f5bbfc3a57adb33297f678b7` |
+| Isolated fault debug worker | `832d70dcacea5aa0632799b49b1023aece481b4292b317d877c1094e44106e23` |
+| Isolated fault CLI | `2dda026ff70e0fea00cb62fd6c57ce26df0193a0a069cd070cf3dee168ae829d` |
+| Frozen normal CLI | `ca2ea5d6837b0c8dc3a6149c47eccacb506a02ebb60f1d34f142a542d53251ff` |
+
+Reproduction of the current normal/fault process checks:
+
+```sh
+python3 scripts/check-formation-cli.py --worker target/formation-telemetry-omitted/release/orishu-worker --ctl /tmp/orishu-curve-check.so7Ibv/fixed-rate-full-20260910/ctl
+python3 scripts/check-formation-cli.py --worker target/formation-telemetry-omitted/release/orishu-worker --ctl /tmp/orishu-curve-check.so7Ibv/fixed-rate-full-20260910/ctl --client-pressure
+python3 scripts/check-formation-cli.py --worker target/formation-telemetry-omitted/release/orishu-worker --ctl /tmp/orishu-curve-check.so7Ibv/fixed-rate-full-20260910/ctl --lost-leave-response
+set -e
+for scenario in lost-join-ack peer-ejection lost-departure issuer-loss issuer-ejection source-loss dead-assignment removed-assignment blocked-assignment excluded-restart; do
+  python3 scripts/check-formation-cli.py --worker target/formation-faults/debug/orishu-worker --ctl target/formation-faults/debug/orishuctl --"$scenario"
+done
+```
+
+The four-feature commands above were repeated with `CARGO_BUILD_JOBS=2` and
+the absolute `target/formation-telemetry-omitted/release/orishu-worker` fixture,
+not the older debug fixture. The current Collector command used
+`target/formation-telemetry-enabled/release/orishu-worker` and the frozen normal
+CLI above. Local `/tmp` paths identify retained artifacts, not installation
+requirements. Source is the dirty worktree based on
+`b52dc1abc62741d91f4b18dcc8c9d2c322bccbd9`; performance diagnostics retain their
+own exact source/artifact manifests. A future acceptance run must freeze anew.
+
+### Operator-recipe applicability and remaining authority
+
+The preceding systemd/container, scraper, proxy, dashboard and manual checks
+are retained scoped evidence, **not claimed as rerun on this release worker**.
+The changes do not alter deployment wiring, credentials, HTTP access/probe
+contracts, metric catalogue, trace/log fields, sink lifecycle or dashboard
+queries. Changed formation timing is covered by the lifecycle/fault/feature
+checks; changed random-block production is covered by cache regressions,
+serialized exporter tests and the current official Collector journey. No
+operator-story/manual contract needs revision for this private optimization;
+the observability manual now documents its bounded storage and fallback.
+Reassess this applicability if subsequent changes touch those boundaries.
+
+Remaining work is performance acceptance and its final requirement-to-evidence
+disposition. The conservative experimental debit is **63m22s of 90 minutes**,
+excluding builds, leaving **26m38s**. A fresh unchanged 108-cell curve is
+estimated at roughly 40–50 minutes, not guaranteed to fit that remainder.
+The operator subsequently **approved the 120-minute total experimental cap
+and required activities**. The [fresh batch plan](../measurements/formation-telemetry-plan.md#approved-post-diagnostic-batch--2026-09-10)
+enforces the proposed 55-minute batch cap, retaining all rate/setup/loss/noise/
+overhead gates, no automatic retry and no host-policy change. The earlier
+26m38s remainder belongs to the superseded 90-minute allowance. The new
+remainder is 56m38s; approval is not performance acceptance.
+
 ## Final disposition
+
+The [completed post-diagnostic experiment](../measurements/formation-post-diagnostic-2026-09-10.md)
+closes execution of the requested curve, **not** the combined performance gate.
+Its final integrity check covers the frozen worker/source/profile above.
+Subsequent changes are reporting/documentation only. N-FORMATION and scoped
+operator/correctness evidence remain valid at their documented boundaries;
+P-OBSERVABILITY's full formation-overhead acceptance and combined M4 stay open.
+The remaining blocker is a reviewed path to stable thirty-worker measurement
+and compiled-in-cost comparison, not another formation implementation slice.
 
 Report N-FORMATION, formation portions of P-OBSERVABILITY/P-OBS-DOCS, and
 combined M4 separately. Workload execution/storage/observation telemetry,

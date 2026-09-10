@@ -15,7 +15,8 @@ import tempfile
 import time
 
 from formation_telemetry import (CLK_TCK, MODES, SIZES, LogDrain, Scraper, bounded_line,
-                                metrics, proc, read_json, require, unique, write_json)
+                                metrics, proc, process_cpu_ns, fixed_rate_issues,
+                                read_json, require, unique, write_json)
 from worker_formation_receipts import collector as recipe, join_phase_complete
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,27 @@ PROFILE = {"schema_version": 2, "sizes": list(SIZES), "rounds": 6, "modes": list
            "log_sink": "continuously drained stdout; bounded Python record validation",
            "normal_p95_cpu_percent_exclusive": 10, "temporary_percent_inclusive": 20,
            "troubleshooting_above_percent": 25}
+
+
+def execution_profile(fixed_rate, prior_validation_seconds=0, batch_cap_seconds=None):
+    require(type(prior_validation_seconds) is int and 0 <= prior_validation_seconds <= 180,
+            "prior validation budget outside 0..180 seconds")
+    result = dict(PROFILE)
+    if fixed_rate:
+        result.update(schema_version=3, arrival_profile="fixed_500_per_worker_v1",
+                      requests_per_worker_per_second=500, minimum_delivery_percent=99,
+                      sample_cap_per_client=2500, cpu_accounting="linux_process_cpu_clock_ns",
+                      size_budget_seconds=None, size_budgets_seconds=[1200 - prior_validation_seconds, 1200, 2700],
+                      batch_budget_seconds=5100 - prior_validation_seconds,
+                      reserved_diagnostic_seconds=300, prior_validation_seconds=prior_validation_seconds)
+    else:
+        require(prior_validation_seconds == 0, "validation debit requires fixed-rate profile")
+    if batch_cap_seconds is not None:
+        require(fixed_rate, "explicit batch cap requires fixed-rate profile")
+        require(type(batch_cap_seconds) is int and 180 <= batch_cap_seconds <= result["batch_budget_seconds"],
+                "explicit batch cap must shorten the existing budget and allow one cell")
+        result.update(batch_budget_seconds=batch_cap_seconds, explicit_batch_cap_seconds=batch_cap_seconds)
+    return result
 
 
 def sha(path):
@@ -116,21 +138,35 @@ class Cell:
 
     def poll(self, check, setup=True, *, convergence=False):
         require(not convergence or setup, "convergence requires the original setup deadline")
-        deadline = time.monotonic() + PROFILE["observation_budget_seconds"]
+        began = time.monotonic()
+        deadline = began + PROFILE["observation_budget_seconds"]
         if setup:
             setup_deadline = self.started + PROFILE["setup_budget_seconds"]
             deadline = setup_deadline if convergence else min(deadline, setup_deadline)
-        while time.monotonic() < deadline:
-            require(all(child.poll() is None for child in self.children), "cell child exited")
-            result = check()
-            if result:
-                # A slow operator reply cannot turn a late observation into a
-                # pass. Every convergence stage shares the original deadline.
-                if time.monotonic() >= deadline:
-                    break
-                return result
-            time.sleep(0.05)
-        raise TimeoutError(f"formation observation/setup deadline: {self.row.get('formation_stage', 'unspecified')}")
+        observations = self.row.setdefault("formation_observations", [])
+        require(len(observations) < 128, "formation observation record cap")
+        observation = {"stage": self.row.get("formation_stage", "unspecified"),
+                       "start_seconds": began - self.started,
+                       "deadline_seconds": deadline - self.started, "checks": 0, "accepted": False}
+        observations.append(observation)
+        try:
+            while time.monotonic() < deadline:
+                require(all(child.poll() is None for child in self.children), "cell child exited")
+                observation["checks"] += 1
+                result = check()
+                if result:
+                    # A slow operator reply cannot turn a late observation into a
+                    # pass. Every convergence stage shares the original deadline.
+                    if time.monotonic() >= deadline:
+                        break
+                    observation["accepted"] = True
+                    return result
+                time.sleep(0.05)
+            raise TimeoutError(f"formation observation/setup deadline: {observation['stage']}")
+        finally:
+            # Retain partial evidence on timeouts/errors, without refreshing a
+            # deadline or adding work to the measurement window.
+            observation["end_seconds"] = time.monotonic() - self.started
 
     def views(self, locked=False):
         views = [self.cli(role, ["cluster", "info"]) for role in range(self.count)]
@@ -209,7 +245,7 @@ class Cell:
         pins = [self.cli(role, ["inspect", view["sourceNodeId"]])["certFingerprint"] for role, view in enumerate(initial)]
         self.formation = initial[0]["formationId"]
         self.assigned = [initial[0]["sourceNodeId"]]
-        joins = []
+        joins = self.row["joins_seconds"] = []
         for role in range(1, self.count):
             self.row["formation_stage"] = f"submit-join-{role}"
             began = time.monotonic()
@@ -234,13 +270,17 @@ class Cell:
         self.poll(self.exact_members, convergence=True)
         self.row["formation_stage"] = "formation-views"
         self.poll(self.views, convergence=True)
-        policy = []
+        policy = self.row["policy_seconds"] = []
+        submissions = self.row["policy_submissions"] = []
         for locked, role in ((True, 0), (False, self.count - 1)):
             self.row["formation_stage"] = "lock" if locked else "unlock"
             began = time.monotonic()
+            submission = {"stage": self.row["formation_stage"], "start_seconds": began - self.started}
+            submissions.append(submission)
             receipt = self.cli(role, ["cluster", "lock" if locked else "unlock", "--formation-id", self.formation,
                                       "--operation-id", "measure-lock" if locked else "measure-unlock"])
             require(receipt["locked"] is locked, "policy not accepted")
+            submission["accepted_seconds"] = time.monotonic() - self.started
             self.poll(lambda: self.views(locked), convergence=True)
             policy.append(time.monotonic() - began)
         self.row.update(setup_seconds=time.monotonic() - self.started, joins_seconds=joins,
@@ -251,7 +291,9 @@ class Cell:
         config = self.root / "load.json"
         write_json(config, [{"socket": str(self.root / str(role) / "api.sock"), "formation": self.formation, "node": node}
                             for role, node in enumerate(self.assigned)])
-        load = self.spawn([str(self.args.probe), "load", str(config)], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        fixed_rate = getattr(self.args, "fixed_rate", False)
+        load = self.spawn([str(self.args.probe), "load", str(config)] + (["--fixed-rate"] if fixed_rate else []),
+                          stdout=subprocess.PIPE, stdin=subprocess.PIPE)
         require(bounded_line(load.stdout, 15) == b"READY", "load warmup marker")
         require(self.exact_members() and self.views(), "pre-window formation mismatch")
         diagnostic = self.mode not in MODES[:2]
@@ -261,6 +303,7 @@ class Cell:
         self.row["logs_before"] = [{"counts": dict(log.counts), "bytes": log.bytes, "errors": log.errors} for log in self.logs]
         pids = [worker.pid for worker in self.workers] + [self.collector.pid, load.pid, os.getpid()]
         before = [proc(pid) for pid in pids]
+        before_cpu = [process_cpu_ns(pid) for pid in pids] if fixed_rate else None
         peaks = [row["rss_kib"] for row in before]
         swaps = [row["swap_kib"] for row in before]
         scrapers = [Scraper(port, 0) for port in self.ports] if diagnostic else []
@@ -285,6 +328,7 @@ class Cell:
                 next_sample += skipped * 0.05
             time.sleep(max(0, min(started + 10, next_sample) - time.monotonic()))
         require(bounded_line(load.stdout, 2) == b"END", "load end marker")
+        after_cpu = [process_cpu_ns(pid) for pid in pids] if fixed_rate else None
         after = [proc(pid) for pid in pids]
         bracket = time.monotonic() - started
         self.row["logs_after"] = [{"counts": dict(log.counts), "bytes": log.bytes, "errors": log.errors} for log in self.logs]
@@ -298,19 +342,24 @@ class Cell:
         scrape_results = [scraper.finish() for scraper in scrapers]
         after_metrics = [metrics(port) for port in self.ports] if diagnostic else None
         resources = [{"cpu_ticks": end["ticks"] - begin["ticks"],
-                      "cpu_seconds": (end["ticks"] - begin["ticks"]) / CLK_TCK,
+                      "cpu_seconds": ((after_cpu[index] - before_cpu[index]) / 1e9 if fixed_rate
+                                      else (end["ticks"] - begin["ticks"]) / CLK_TCK),
+                      "cpu_nanoseconds": after_cpu[index] - before_cpu[index] if fixed_rate else None,
                       "rss_peak_kib": max(peak, end["rss_kib"]),
                       "setup_hwm_kib": begin["hwm_kib"], "lifetime_hwm_kib": end["hwm_kib"],
                       "swap_peak_kib": max(swap, end["swap_kib"])}
-                     for begin, end, peak, swap in zip(before, after, peaks, swaps)]
+                     for index, (begin, end, peak, swap) in enumerate(zip(before, after, peaks, swaps))]
         self.row.update(load=result, resources=resources[:self.count],
                         tooling=dict(zip(("collector", "load_generator", "runner_and_log_sink"), resources[self.count:])),
                         cpu_bracket_seconds=bracket, proc_samples=samples, proc_missed=missed,
                         scrapes=scrape_results, metrics_before=before_metrics, metrics_after=after_metrics)
+        self.row["cpu_accounting"] = "linux_process_cpu_clock_ns" if fixed_rate else "proc_ticks"
         require(self.exact_members() and self.views(), "post-window formation mismatch")
-        require(result["schema_version"] == 2 and result["seconds"] == 10
+        require(result["schema_version"] == (3 if fixed_rate else 2) and result["seconds"] == 10
                 and len(result["workers"]) == self.count, "load report identity")
         require(all(not row["capped"] and row["latency"]["requests"] > 0 for row in result["workers"]), "load sample cap or empty client")
+        if fixed_rate:
+            require(not fixed_rate_issues(result), "fixed offered rate not sustained (below 99 percent)")
 
     def run(self, root):
         self.root = root
@@ -341,7 +390,13 @@ def main():
         parser.add_argument(f"--{name}", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--smoke", action="store_true", help="one three-worker six-mode round; not acceptance")
+    parser.add_argument("--fixed-rate", action="store_true", help="v3 acceptance: 500 requests/s/worker and high-resolution CPU")
+    parser.add_argument("--prior-validation-seconds", type=int, default=0,
+                        help="debit prior fixed-rate harness validation from the three-worker and total budgets")
+    parser.add_argument("--batch-cap-seconds", type=int,
+                        help="shorten the fixed-rate batch deadline, including preflight and cleanup; never extends a budget")
     args = parser.parse_args()
+    profile = execution_profile(args.fixed_rate, args.prior_validation_seconds, args.batch_cap_seconds)
     require(sys.platform == "linux", "Linux /proc experiment required")
     require(not competing_jobs(), "competing build/test process; wait for a quiet host (do not stop unrelated jobs)")
     os.umask(0o077)
@@ -357,8 +412,8 @@ def main():
         require(sha(source) == sha(target), "artifact changed during snapshot")
         artifacts[name] = {"source": str(source), "sha256": sha(target)}
         setattr(args, name, target.resolve())
-    manifest = {"schema_version": 2, "kind": "formation-telemetry", "acceptance_run": not args.smoke,
-                "profile": PROFILE, "artifacts": artifacts, "source": source_identity(),
+    manifest = {"schema_version": profile["schema_version"], "kind": "formation-telemetry", "acceptance_run": not args.smoke,
+                "profile": profile, "artifacts": artifacts, "source": source_identity(),
                 "plan_sha256": sha(ROOT / "docs/measurements/formation-telemetry-plan.md"),
                 "command": sys.argv, "host": {"platform": platform.platform(), "cpu_count": os.cpu_count(),
                 "affinity": sorted(os.sched_getaffinity(0)), "clk_tck": CLK_TCK,
@@ -389,11 +444,16 @@ def main():
     require(preflight.returncode == 0, "causal receipt preflight failed; no measurement")
     index = 0
     for count in ((3,) if args.smoke else SIZES):
-        size_started = time.monotonic()
+        # In v3 preflight consumes the three-worker slice, not extra time.
+        size_started = began if args.fixed_rate and count == 3 else time.monotonic()
+        size_budget = profile["size_budgets_seconds"][SIZES.index(count)] if args.fixed_rate else 1800
         for round_ in range(1 if args.smoke else 6):
             for offset in range(6):
                 mode = MODES[(round_ + offset) % 6]
-                remaining = min(5400 - (time.monotonic() - began), 1800 - (time.monotonic() - size_started))
+                remaining = min(profile["batch_budget_seconds"] - (time.monotonic() - began),
+                                size_budget - (time.monotonic() - size_started))
+                if args.fixed_rate:
+                    remaining -= 10  # Shared cleanup grace belongs inside the budget.
                 if remaining <= 0:
                     print(f"INCOMPLETE: deadline before {count}/{round_}/{mode}", flush=True)
                     return 2
@@ -401,7 +461,7 @@ def main():
                     write_json(args.output / "interrupted.json", {"reason": "competing_build_or_test", "before_cell": index})
                     print("INCOMPLETE: another build/test started; retained completed cells", flush=True)
                     return 2
-                row = {"schema_version": 2, "manifest_sha256": manifest_hash, "index": index,
+                row = {"schema_version": profile["schema_version"], "manifest_sha256": manifest_hash, "index": index,
                        "worker_count": count, "round": round_, "mode": mode, "status": "failed", "phase": "formation",
                        "host_before": host_snapshot()}
                 print(f"CELL {index + 1}: workers={count} round={round_ + 1} mode={mode}", flush=True)
@@ -409,21 +469,25 @@ def main():
                     signal.setitimer(signal.ITIMER_REAL, min(180, remaining))
                     with tempfile.TemporaryDirectory(prefix="ofm-") as temporary:
                         Cell(args, count, mode, environment, row).run(Path(temporary))
+                    require(row.get("cleanup_clean"), "cell cleanup failed")
                 except (Exception, KeyboardInterrupt) as error:
+                    row["status"] = "failed"
                     row["error_type"] = type(error).__name__
                     # Fixed harness errors only; never dump credential-bearing IO.
                     row["error"] = str(error)[:256] if isinstance(error, (ValueError, TimeoutError)) else "cell failed; inspect bounded phase evidence"
-                    write_json(args.output / f"cell-{index:03}.json", row)
                     print(f"FAILED: {row['phase']}: {row['error']}", flush=True)
                     return 2
                 finally:
                     signal.setitimer(signal.ITIMER_REAL, 0)
                     row["host_after"] = host_snapshot()
+                    if row["status"] == "failed":
+                        write_json(args.output / f"cell-{index:03}.json", row)
                 write_json(args.output / f"cell-{index:03}.json", row)
                 print(f"COMPLETE: {count}/{round_ + 1}/{mode}", flush=True)
                 index += 1
-    write_json(args.output / "finished.json", {"schema_version": 2, "cells": index,
-               "elapsed_seconds": time.monotonic() - began, "source_unchanged": source_identity() == manifest["source"]})
+    write_json(args.output / "finished.json", {"schema_version": profile["schema_version"], "cells": index,
+               "elapsed_seconds": time.monotonic() - began, "source_unchanged": source_identity() == manifest["source"],
+               "artifacts_unchanged": all(sha(getattr(args, name)) == value["sha256"] for name, value in artifacts.items())})
     return 0
 
 

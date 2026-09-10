@@ -62,6 +62,17 @@ uses an explicit CA bundle or the bounded default Linux system bundle described
 in the configuration guide; optional mTLS/token files use the bounded Unix
 loader. Other native trust-store layouts remain unsupported without explicit CA input.
 
+Nonzero head sampling amortizes cryptographic provider calls with one
+worker-queue-owned cache shared by producer clones: 64 fresh 28-byte blocks,
+1,792 payload bytes plus mutex/index/reference-counting bookkeeping. Each
+block is consumed once, even when the operation is sampled out. A non-waiting
+lock attempt uses the cache; contention or poisoning falls back to direct
+generation. Partial refill failure cannot expose leftover bytes. Zero sampling
+retains no cache and performs no entropy or clock acquisition. Sampling
+probability, validated identity/parent construction and shedding semantics
+are unchanged. See the [paced-sampling measurements](measurements/formation-sampling-diagnostic-2026-09-10.md)
+for the fixed-memory/refill tradeoff and the still-open full overhead gate.
+
 The exporter flushes on count or the first buffered record's deadline and
 splits requests at the byte cap. Shutdown stops client services, signals the
 exporter, then joins its bounded drain before process exit. Interrupted
@@ -132,8 +143,14 @@ Its current deployment evidence is loopback, not cross-host qualification.
 
 For reproducible runtime-disabled/enabled request, CPU, memory and scrape
 measurements, see the [manual local overhead harness](testing-worker-overhead.md).
-Its single-worker scope and unreviewed performance threshold do not close the
-M4 formation/telemetry overhead acceptance requirement.
+It distinguishes the historical single-worker baseline from the current
+3/10/30-worker fixed-rate curve. The [post-diagnostic results](measurements/formation-post-diagnostic-2026-09-10.md)
+meet reviewed normal-instrumentation gates at three/ten workers, but
+thirty-worker baseline latency variation keeps full M4 overhead acceptance
+open. Full sampling is separately high-cost and loses operation logs through
+bounded contention shedding in this experiment; it is not a normal-compute
+or lossless-delivery recommendation. Do not infer scientific-workload,
+cross-host or supervisor-specific performance from these local API measurements.
 
 Build with `--features observability` and explicitly set
 `--observability.enabled true` to bind `127.0.0.1:9168`. The capability is not

@@ -37,6 +37,32 @@ Unless a story says otherwise, all stories in this document assume the following
 
 ## Local startup and identity
 
+### Prepare a dedicated experiment worker
+
+As an administrator, I want a repeatable preparation check for each physical
+experiment machine so that I can discover missing software, wrong binaries,
+network configuration and power/thermal risks before running a benchmark.
+
+**Given** dedicated machines and a normal key-authenticated SSH account
+**When** I prepare a private lab directory and collect readiness reports
+**Then** each machine reports its setup and unresolved prerequisites without
+starting a worker, modifying host policy or exporting credentials.
+
+**Acceptance criteria:**
+
+- Preparation never overwrites an existing worker or experiment directory.
+- Reports identify the actual architecture, OS, network interface/address and
+  staged artifacts; missing tools and unavailable thermal/time evidence remain
+  explicit, not a performance pass.
+- Readiness can be collected over verified SSH without granting passwordless
+  root access or uploading a private SSH key.
+- Setup, ARM64 execution, cross-host formation and measured performance retain
+  separate verification status.
+
+The [Pi setup/readiness guide](../../testing-worker-pi-cluster.md) implements
+the scoped preparation workflow. Actual hardware and the complete experiment
+driver remain with the [physical-host task](../../tasks/implement-physical-formation-experiment.md).
+
 ### Install orishu-worker
 
 As an administrator, I want to install orishu-worker through my platform's

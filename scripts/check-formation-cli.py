@@ -20,7 +20,8 @@ from formation_evidence import Evidence
 from formation_udp_relay import UdpRelay
 
 # Current PoC owner: an outstanding anti-entropy round can outlive its departed
-# peer for 10s, then wait for the next 5s cadence. Allow 2s scheduling margin.
+# peer for 10s, then wait up to the idle 5s cadence (queued news may repair
+# sooner). Allow 2s scheduling margin; adaptive repair does not relax this gate.
 # This is a harness observation budget, not a runtime deadline or fleet SLO.
 # See peer::readmission_timing_tests and docs/protocol-p2p.md.
 READMISSION_CONVERGENCE_SECONDS = 10 + 5 + 2

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {"name": "pi1", "ssh_host": "orishu-pi1", "peer_address": "192.0.2.11", "interface": "eth0", "root": "/home/orishu/orishu-lab"},
+    {"name": "pi2", "ssh_host": "orishu-pi2", "peer_address": "192.0.2.12", "interface": "eth0", "root": "/home/orishu/orishu-lab"},
+    {"name": "pi3", "ssh_host": "orishu-pi3", "peer_address": "192.0.2.13", "interface": "eth0", "root": "/home/orishu/orishu-lab"}
+  ]
+}

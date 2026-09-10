@@ -262,9 +262,91 @@ pub(crate) fn validate_member(
 }
 
 #[cfg(test)]
+#[path = "formation_replay.rs"]
+mod formation_replay;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use orishu_membership::{Command, Message, RemovalMode, testing};
+
+    #[test]
+    fn new_member_handshake_waits_for_trusted_serialized_membership_discovery() {
+        use super::super::{handshake, wire};
+        use orishu_membership::{DeltaBody, GossipDelta, OutboundBody, OutboundMessage, ProbeId};
+
+        // A knows B; B has admitted C. TLS facts are fixture inputs here:
+        // this reproduces the application-binding dependency, not TLS or
+        // thirty-worker wall-clock convergence.
+        let mut a = testing::standalone("node-A");
+        let mut b = testing::member("node-B", 1);
+        b.cert_fingerprint = testing::fingerprint(2);
+        let mut c = testing::member("node-C", 1);
+        c.cert_fingerprint = testing::fingerprint(3);
+        testing::insert_member(&mut a, b.clone());
+        let mut local_c = testing::local_identity(c.id.as_str());
+        local_c.worker_name = c.name.clone();
+        local_c.cert_fingerprint = c.cert_fingerprint;
+        let hello = handshake::request(&local_c, a.formation().clone(), false).unwrap();
+        let mut from_c = AuthenticatedSession {
+            id: SessionId(3),
+            generation: Generation(0),
+            formation: a.formation().clone(),
+            fingerprint: c.cert_fingerprint,
+            sender: None,
+            introducer_target: None,
+        };
+        assert!(handshake::accept_request(&hello, &mut from_c, &a, Generation(0)).is_err());
+        assert!(from_c.is_unbound());
+        assert!(a.member(&c.id).is_none(), "a handshake cannot admit C");
+
+        let mut from_b = session(&a, &b.id);
+        from_b.bind_member(&a, Generation(0), b.id.clone()).unwrap();
+        let packet = wire::encode(
+            OutboundMessage {
+                seq: 1,
+                body: OutboundBody::Ping {
+                    probe: ProbeId(1),
+                    incarnation: b.incarnation,
+                },
+                gossip: vec![GossipDelta {
+                    hops: 1,
+                    body: DeltaBody::MembershipUpdate(c.clone()),
+                }],
+            },
+            a.formation().clone(),
+            SenderIdentity::Admitted(b.id),
+            None,
+        )
+        .unwrap();
+        assert_eq!(packet.deferred_gossip, 0);
+        // Decode through the actual bound-session/wire path, then merge in
+        // the same core used by the owner; no direct insertion of C into A.
+        let decoded = from_b
+            .decode(&packet.bytes, &a, Generation(0), packet.transport)
+            .unwrap();
+        let mut driver = testing::Driver::new(a);
+        driver.apply(Message::Peer(decoded.input));
+        assert_eq!(driver.model().member(&c.id), Some(&c));
+        handshake::accept_request(&hello, &mut from_c, driver.model(), Generation(0)).unwrap();
+        assert_eq!(
+            from_c
+                .context(driver.model(), Generation(0))
+                .unwrap()
+                .sender,
+            SenderIdentity::Admitted(c.id.clone())
+        );
+
+        driver.apply(Message::Local(Command::RemoveMember {
+            node: c.id,
+            mode: RemovalMode::Force,
+            reason: None,
+        }));
+        assert!(from_c.context(driver.model(), Generation(0)).is_err());
+        assert!(
+            handshake::accept_request(&hello, &mut from_c, driver.model(), Generation(0)).is_err()
+        );
+    }
 
     fn session(model: &Membership, node: &NodeId) -> AuthenticatedSession {
         AuthenticatedSession {

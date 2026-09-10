@@ -322,17 +322,21 @@ separate trace, logging, overhead and operator handoff requirements below remain
   latency, throughput, CPU, exporter memory, scrape duration and telemetry loss,
   together with unchanged domain outcomes. State collector transport and host
   conditions, preserve variation/failures and report unmet limits explicitly.
-  The [manual local overhead harness](../testing-worker-overhead.md) supplies a
-  reusable single-worker runtime-mode baseline, not omitted-feature,
-  three-worker, TLS-collector or exporter-specific memory acceptance. No
-  measured overhead budget has yet been accepted. This M4 work needs no solver
-  or scientific workload and makes no fleet-scaling claim.
+  The [manual local overhead harness](../testing-worker-overhead.md) separates
+  the historical single-worker baseline from the implemented versioned
+  3/10/30-worker curve. The [post-diagnostic full run](../measurements/formation-post-diagnostic-2026-09-10.md)
+  completed all 108 cells with unchanged artifacts and clean cleanup. Normal
+  three/ten-worker gates are met; thirty-worker noise and compiled-in-cost
+  comparison stability keep full overhead acceptance open. Full sampling is
+  separately high-cost/lossy. This M4 work needs no solver or scientific
+  workload and makes no fleet-scaling claim.
   The [expanded experiment](../measurements/formation-telemetry-plan.md)
   records the accepted normal p95/CPU overhead goal below 10%, temporary
   tolerance up to 20% and troubleshooting classification above 25%.
-  Its full 3/10/30-worker curve and 90-minute total execution budget (excluding
-  builds; 30 minutes per size) are accepted. Implement and validate its harness,
-  then freeze executable/configuration identities before measuring.
+  Its original 90-minute total was subsequently extended to 120 minutes
+  excluding builds; the fresh batch used an explicit 55-minute cap. The
+  conservative total debit is 114m07s, leaving 5m53s. A further full batch needs
+  reviewed scope/budget; do not repeat until green or relax gates retroactively.
   Accepted targets are not measured results;
   logging output and ADR 0025 have their own accepted decisions and evidence.
 

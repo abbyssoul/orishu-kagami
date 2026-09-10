@@ -49,6 +49,32 @@ Unless a story says otherwise, all stories in this document assume the following
 
 ## Node visibility
 
+### Evaluate a formation on dedicated machines
+
+As an administrator, I want a bounded, reproducible experiment across real
+machines so that I can evaluate formation and monitoring costs for my hardware
+without confusing same-host tests with real-network evidence.
+
+**Given** prepared experiment nodes and a reviewed workload/time budget
+**When** I run a physical-cluster experiment
+**Then** I receive per-node and cluster results tied to exact source, hardware,
+identities and measured windows, including every failure and limitation.
+
+**Acceptance criteria:**
+
+- The selected workers communicate through their real peer network and verify
+  exact membership and policy; the coordinator is not a membership authority.
+- Results separate worker cost from generator/collector cost, and identify
+  missing samples, timing uncertainty, telemetry loss and power/thermal events.
+- Only bounded, sanitized evidence is collected; worker state and credentials
+  remain private, and losing SSH control does not leave an unbounded load run.
+- A failed or noisy experiment is retained without automatic retries or a
+  silently relaxed target. Three/five-node evidence does not certify thirty.
+
+This workflow is **planned**, not yet hardware-verified. See the
+[physical-cluster task](../../tasks/implement-physical-formation-experiment.md)
+and its [preparation guide](../../testing-worker-pi-cluster.md).
+
 ### List cluster nodes
 As an administrator, I want to see a list of all nodes in the cluster so that I can understand the current cluster composition, capabilities, health, and status.
 

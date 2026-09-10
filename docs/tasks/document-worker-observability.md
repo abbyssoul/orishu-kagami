@@ -37,6 +37,14 @@ proxy pressure/security and dashboard queries after the formation/shutdown fixes
 Formation-stage recipe implementation is verified; final M4 performance and
 acceptance remain open, not another missing sink or deployment-selection choice.
 
+The [post-diagnostic correctness/applicability checkpoint](cluster-formation-m4-checklist.md#post-diagnostic-correctness-checkpoint--2026-09-10)
+preserves those recipe boundaries after adaptive formation repair and bounded
+sampling changes. The [completed 108-cell curve](../measurements/formation-post-diagnostic-2026-09-10.md)
+now supplies normal three/ten-worker results, thirty-worker noise limitations,
+full-sampling cost/loss and operator-facing caveats. These are documented in
+the observability/overhead guides; final performance acceptance remains open,
+not an undocumented promise of lossless full sampling or cross-host scaling.
+
 The [logging-counter Prometheus recipe](../testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
 now verifies actual 160/172-series ingestion with independent logging, combined
 telemetry and a real broken stdout pipe. New writes/closure refusals generated
