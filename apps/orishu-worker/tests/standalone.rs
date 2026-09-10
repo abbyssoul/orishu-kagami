@@ -14,6 +14,9 @@ use std::{
 
 struct Worker(Child);
 
+#[path = "support/logging.rs"]
+mod logging;
+
 #[cfg(feature = "observability")]
 #[path = "support/peer_ingress_metrics.rs"]
 mod peer_ingress_metrics;
@@ -25,6 +28,14 @@ mod tracing_security;
 #[cfg(feature = "otlp-tracing")]
 #[path = "support/tracing_pressure.rs"]
 mod tracing_pressure;
+
+#[cfg(feature = "otlp-tracing")]
+#[path = "support/tracing_context.rs"]
+mod tracing_context;
+
+#[cfg(feature = "otlp-tracing")]
+#[path = "support/tracing_peer.rs"]
+mod tracing_peer;
 
 #[cfg(all(
     target_os = "linux",

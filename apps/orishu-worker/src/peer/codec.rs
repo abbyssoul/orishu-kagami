@@ -90,6 +90,26 @@ pub(crate) fn record_fields(bytes: &[u8]) -> Result<Vec<(&str, &[u8])>, CodecErr
     Ok(fields)
 }
 
+/// Borrow one definite text value within an adapter-specific cap. Optional
+/// metadata callers must first run ordinary structural/frame validation: this
+/// returns `None` for non-text/oversized metadata, not a domain rejection.
+pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> Option<&str> {
+    let mut scan = Scan {
+        bytes,
+        offset: 0,
+        remaining: MAX_ITEMS,
+    };
+    let (major, length) = scan.header().ok()?;
+    if major != 3 || length > limit as u64 {
+        return None;
+    }
+    let text = scan.text(length).ok()?;
+    if scan.offset != bytes.len() {
+        return None;
+    }
+    std::str::from_utf8(text).ok()
+}
+
 /// Encode a value with a hard output cap and check the same profile as receive.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, CodecError> {
     let mut output = CappedWriter(Vec::new());

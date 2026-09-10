@@ -5,9 +5,12 @@ use serde::Deserialize;
 use crate::ListenAddress;
 mod tracing;
 pub use tracing::TracingConfig;
+mod logging;
+pub use logging::LoggingConfig;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeConfig {
+    pub logging: LoggingConfig,
     pub tracing: TracingConfig,
     pub observability: ObservabilityConfig,
     pub state_dir: Option<PathBuf>,
@@ -67,6 +70,7 @@ impl RuntimeConfig {
     }
 
     pub fn finalize(mut self) -> Result<Self, String> {
+        self.logging.validate()?;
         self.tracing.validate()?;
         if self.observability.enabled == Some(true) {
             if !cfg!(feature = "observability") {
@@ -152,6 +156,8 @@ struct ClusterConfig {
 #[derive(Debug, Default, Deserialize)]
 struct WorkerSpec {
     #[serde(default)]
+    logging: LoggingConfig,
+    #[serde(default)]
     tracing: TracingConfig,
     #[serde(default)]
     observability: ObservabilityConfig,
@@ -211,6 +217,7 @@ fn parse_config_str(contents: &str, source: &Path) -> Result<RuntimeConfig, Stri
     }
 
     Ok(RuntimeConfig {
+        logging: parsed.spec.logging,
         tracing: parsed.spec.tracing,
         observability: parsed.spec.observability,
         state_dir: parsed.spec.state_dir,

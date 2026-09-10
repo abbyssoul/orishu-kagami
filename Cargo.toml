@@ -31,7 +31,12 @@ orishu-variables = { path = "crates/orishu-variables" }
 orishu-workload = { path = "crates/orishu-workload" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1", features = ["derive", "rc"] }
-serde_json = "1"
+# `float_roundtrip` is load-bearing, not a tuning choice: without it
+# serde_json's fast float parser is not bit-exact, so a saved coordinate,
+# velocity or camera pose can come back a bit away from what was written.
+# "Save then open reproduces an identical experiment" is an acceptance
+# criterion of the experiment format, so the parser has to earn it.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 # Field-path decoration for serde errors, so a malformed catalog document
 # reports `spec.components[0].properties.mass` rather than an anonymous
 # "invalid type". Small (no transitive dependencies beyond serde) and used

@@ -1,4 +1,4 @@
-//! Membership profile 4: explicit transport DTOs and secret-free core inputs.
+//! Membership profile 5: explicit transport DTOs and secret-free core inputs.
 
 use orishu_membership::{
     Accepts, Announcement, Capabilities, CertFingerprint, ClusterName, FormationId, GossipDelta,
@@ -13,6 +13,9 @@ use sha2::{Digest, Sha256};
 
 use super::codec::{self, CodecError};
 use crate::credentials::SecretToken;
+
+/// Optional-context encoding for the single negotiated profile 5.
+pub mod profile5;
 
 /// Datagram payload ceiling; framing is absent and SWIM never falls back to streams.
 pub const MAX_DATAGRAM_BYTES: usize = 1200;
@@ -57,6 +60,10 @@ struct Envelope {
     #[serde(flatten)]
     body: Body,
     gossip: Vec<GossipDelta>,
+    // Borrowed and parsed separately after session/domain validation. Ignoring
+    // here allows non-text optional context without retaining its contents.
+    #[serde(default, skip_serializing, rename = "traceParent")]
+    _trace_parent: serde::de::IgnoredAny,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -180,6 +187,9 @@ pub struct Decoded {
     /// An admitted session may only replay its original assignment, never admit
     /// again. The owner must check its ledger before applying any core input.
     pub(crate) admitted_retry: Option<NodeId>,
+    /// Optional diagnostic ancestry from a validated profile-5 envelope. Never
+    /// feed this into the membership core or adopt it before credential checks.
+    pub trace_parent: Option<crate::trace_context::TraceParent>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -204,6 +214,15 @@ pub fn decode(
     session: &PeerContext,
     transport: Transport,
 ) -> Result<Decoded, WireError> {
+    decode_inner(bytes, session, transport, true)
+}
+
+fn decode_inner(
+    bytes: &[u8],
+    session: &PeerContext,
+    transport: Transport,
+    trace_extension: bool,
+) -> Result<Decoded, WireError> {
     if !session.authenticated {
         return Err(WireError::Session);
     }
@@ -220,7 +239,12 @@ pub fn decode(
         "payload",
         "gossip",
     ];
-    if fields.len() != NAMES.len() || fields.iter().any(|(name, _)| !NAMES.contains(name)) {
+    let has_trace = trace_extension && fields.iter().any(|(name, _)| *name == "traceParent");
+    if fields.len() != NAMES.len() + usize::from(has_trace)
+        || fields
+            .iter()
+            .any(|(name, _)| !NAMES.contains(name) && !(has_trace && *name == "traceParent"))
+    {
         return Err(CodecError::Schema.into());
     }
     let field = |name: &str| {
@@ -365,11 +389,21 @@ pub fn decode(
     let mut context = session.clone();
     context.seq = envelope.seq;
     context.gossip = envelope.gossip;
+    let trace_parent = if has_trace {
+        codec::bounded_text(
+            field("traceParent")?,
+            crate::trace_context::MAX_TRACE_PARENT_BYTES,
+        )
+        .and_then(|text| crate::trace_context::TraceParent::parse(text.as_bytes()))
+    } else {
+        None
+    };
     Ok(Decoded {
         input: PeerInput { context, body },
         join_token,
         join_attempt,
         admitted_retry: None,
+        trace_parent,
     })
 }
 
@@ -381,6 +415,17 @@ pub struct Encoded {
     pub transport: Transport,
     /// Supplied deltas omitted to fit this datagram; reconciliation must retain them.
     pub deferred_gossip: usize,
+    /// Locally omitted values, consumed by owner feedback before network IO.
+    pub(crate) deferred: Vec<GossipDelta>,
+}
+
+impl Encoded {
+    /// Append optional IO-owned ancestry only when it fits the selected packet.
+    /// Local sampling/credential policy belongs to the caller, not this codec.
+    #[cfg(feature = "otlp-tracing")]
+    pub(crate) fn with_parent(self, parent: Option<crate::trace_context::TraceParent>) -> Self {
+        profile5::attach(self, parent)
+    }
 }
 
 /// Map a core effect to its wire DTO, attaching a join token only on `JoinReq`.
@@ -392,6 +437,18 @@ pub fn encode(
     token: Option<&SecretToken>,
 ) -> Result<Encoded, WireError> {
     encode_inner(message, formation, sender, token, None)
+}
+
+/// Encode a member effect and identify gossip the owner must retain locally.
+/// This is sender bookkeeping, never peer receipt or authority to merge data.
+pub(crate) fn encode_member(
+    message: OutboundMessage,
+    formation: FormationId,
+    sender: SenderIdentity,
+) -> Result<(Encoded, Vec<GossipDelta>), WireError> {
+    let mut encoded = encode(message, formation, sender, None)?;
+    let deferred = std::mem::take(&mut encoded.deferred);
+    Ok((encoded, deferred))
 }
 
 /// Encode an applicant request with the same fresh shell identity on every retry.
@@ -525,20 +582,34 @@ fn encode_inner(
         seq: message.seq,
         body,
         gossip: message.gossip,
+        _trace_parent: serde::de::IgnoredAny,
     };
     let mut deferred_gossip = 0;
+    let mut deferred = Vec::new();
     loop {
         let bytes = codec::encode(&envelope)?;
         if transport == Transport::Stream || bytes.len() <= MAX_DATAGRAM_BYTES {
+            if !deferred.is_empty() {
+                // A record unable to fit even by itself must not retain queue
+                // priority forever. Its authoritative value remains available
+                // through bounded reliable anti-entropy.
+                let included = std::mem::take(&mut envelope.gossip);
+                let base_len = codec::encode(&envelope)?.len();
+                envelope.gossip = included;
+                deferred.retain(|delta| {
+                    codec::encode(delta)
+                        .is_ok_and(|bytes| base_len + bytes.len() <= MAX_DATAGRAM_BYTES)
+                });
+            }
             return Ok(Encoded {
                 bytes,
                 transport,
                 deferred_gossip,
+                deferred,
             });
         }
-        if envelope.gossip.pop().is_none() {
-            return Err(CodecError::TooLarge.into());
-        }
+        let delta = envelope.gossip.pop().ok_or(CodecError::TooLarge)?;
+        deferred.push(delta);
         deferred_gossip += 1;
     }
 }
@@ -794,6 +865,97 @@ mod tests {
     }
 
     #[test]
+    fn locally_trimmed_gossip_is_not_retired_before_any_wire_submission() {
+        use orishu_membership::{Command, Effect, EffectOutcome, Message, PeerBody, PeerInput};
+        use std::collections::BTreeSet;
+        for oversized in [false, true] {
+            let mut driver = testing::Driver::new(testing::model_with_members(2));
+            let peer = NodeId::new("node-0001").unwrap();
+            let mut incoming = testing::peer_context(driver.model(), &peer, 1);
+            let expected: BTreeSet<_> = (2..if oversized { 11 } else { 12 })
+                .map(|index| NodeId::new(format!("node-{index:04}")).unwrap())
+                .collect();
+            incoming.gossip = expected
+                .iter()
+                .map(|node| GossipDelta {
+                    hops: 0,
+                    body: orishu_membership::DeltaBody::MembershipUpdate(testing::member(
+                        node.as_str(),
+                        1,
+                    )),
+                })
+                .collect();
+            if oversized {
+                let mut large = testing::member("large", 99);
+                large.capabilities.accelerators = vec!["x".repeat(200); 8];
+                incoming.gossip.insert(
+                    0,
+                    GossipDelta {
+                        hops: 0,
+                        body: orishu_membership::DeltaBody::MembershipUpdate(large),
+                    },
+                );
+            }
+            // Unknown ACK keeps the probe path quiet while exercising real merge.
+            driver.apply(Message::Peer(PeerInput {
+                context: incoming,
+                body: PeerBody::Ack {
+                    probe: ProbeId(999),
+                    incarnation: Incarnation::INITIAL,
+                },
+            }));
+            let mut seen = BTreeSet::new();
+            for _ in 0..128 {
+                driver.apply(Message::Local(Command::StartProbeRound));
+                driver.supply_peers(&[peer.as_str()]);
+                let effects = std::mem::take(&mut driver.effects);
+                for effect in effects {
+                    if let Effect::Send { message, .. } = effect {
+                        let (encoded, deferred) = encode_member(
+                            message,
+                            driver.model().formation().clone(),
+                            SenderIdentity::Admitted(driver.model().local_id().clone()),
+                        )
+                        .unwrap();
+                        assert_eq!(encoded.transport, Transport::Datagram);
+                        assert!(encoded.bytes.len() <= MAX_DATAGRAM_BYTES);
+                        let envelope: Envelope = codec::decode(&encoded.bytes).unwrap();
+                        for delta in envelope.gossip {
+                            if let orishu_membership::DeltaBody::MembershipUpdate(member) =
+                                delta.body
+                            {
+                                seen.insert(member.id);
+                            }
+                        }
+                        if !deferred.is_empty() {
+                            driver.apply(Message::Outcome(EffectOutcome::GossipDeferred {
+                                deltas: deferred,
+                            }));
+                        }
+                    }
+                }
+            }
+            assert_eq!(
+                seen, expected,
+                "every fitting record must get a wire opportunity before retirement"
+            );
+            assert!(
+                driver.model().gossip().is_empty(),
+                "submitted gossip still retires"
+            );
+            if oversized {
+                assert!(
+                    driver
+                        .model()
+                        .member(&NodeId::new("large").unwrap())
+                        .is_some(),
+                    "anti-entropy still owns the oversized record"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn oversized_gossip_is_deferred_without_promoting_swim() {
         let ctx = context();
         let gossip = (0..10)
@@ -832,7 +994,7 @@ mod tests {
     #[test]
     fn profile_four_refuses_trace_extension_without_changing_domain_decode() {
         let mut value = serde_json::json!({ "proto": 1, "senderId": "n", "formationId": "f", "seq": 1, "type": "Ping", "payload": {"probeId": 1,"incarnation": 0}, "gossip": [] });
-        assert_eq!(crate::peer::tls::ALPN, b"orishu-membership/4");
+        assert_eq!(crate::peer::tls::ALPN, b"orishu-membership/5");
         let ctx = context();
         assert!(decode(&codec::encode(&value).unwrap(), &ctx, Transport::Datagram).is_ok());
         for parent in [
@@ -842,7 +1004,12 @@ mod tests {
         ] {
             value["traceParent"] = parent;
             assert!(matches!(
-                decode(&codec::encode(&value).unwrap(), &ctx, Transport::Datagram),
+                decode_inner(
+                    &codec::encode(&value).unwrap(),
+                    &ctx,
+                    Transport::Datagram,
+                    false
+                ),
                 Err(WireError::Codec(CodecError::Schema))
             ));
         }

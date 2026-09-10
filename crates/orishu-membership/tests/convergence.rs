@@ -21,6 +21,83 @@ fn node(id: &str) -> NodeId {
     NodeId::new(id).unwrap()
 }
 
+#[test]
+fn local_gossip_deferral_never_merges_stale_unknown_or_removed_values() {
+    use orishu_membership::EffectOutcome;
+    let mut driver = Driver::new(testing::model_with_members(3));
+    let old = driver.model().member(&node("node-0001")).unwrap().clone();
+    testing::set_liveness(
+        driver.model_mut(),
+        &old.id,
+        Liveness::Suspected,
+        Incarnation(1),
+    );
+    let removed = driver.model().member(&node("node-0002")).unwrap().clone();
+    testing::remove_member(driver.model_mut(), &removed.id);
+    let current = driver.model().clone();
+    for body in [
+        DeltaBody::MembershipUpdate(old),
+        DeltaBody::MembershipUpdate(removed),
+        DeltaBody::MembershipUpdate(testing::member("unknown", 99)),
+        policy(99, "stranger", true),
+        DeltaBody::Foreign(testing::foreign_delta()),
+    ] {
+        driver.apply(Message::Outcome(EffectOutcome::GossipDeferred {
+            deltas: vec![GossipDelta { hops: 1, body }],
+        }));
+        assert_eq!(driver.model(), &current);
+        assert!(driver.effects.is_empty());
+        assert!(driver.foreign.is_empty());
+    }
+}
+
+#[test]
+fn local_gossip_deferral_is_bounded_and_restores_only_the_omitted_attempt() {
+    use orishu_membership::EffectOutcome;
+    let mut driver = Driver::new(testing::model_with_members(3));
+    let body =
+        DeltaBody::MembershipUpdate(driver.model().member(&node("node-0001")).unwrap().clone());
+    let before = driver.model().clone();
+    let maximum = before.limits().effective_gossip_hops(before.scale_size());
+    for hops in [0, maximum + 1] {
+        driver.apply(Message::Outcome(EffectOutcome::GossipDeferred {
+            deltas: vec![GossipDelta {
+                hops,
+                body: body.clone(),
+            }],
+        }));
+        assert_eq!(driver.model(), &before);
+    }
+    driver.apply(Message::Outcome(EffectOutcome::GossipDeferred {
+        deltas: vec![
+            GossipDelta {
+                hops: 1,
+                body: body.clone()
+            };
+            before.limits().max_gossip_per_message() + 1
+        ],
+    }));
+    assert_eq!(driver.model(), &before);
+    assert!(matches!(
+        driver.diagnostics.as_slice(),
+        [Diagnostic::LimitExceeded { .. }]
+    ));
+    // Restore a just-retired last attempt, not a fresh full retry allowance.
+    driver.apply(Message::Outcome(EffectOutcome::GossipDeferred {
+        deltas: vec![GossipDelta {
+            hops: maximum,
+            body,
+        }],
+    }));
+    assert_eq!(
+        driver.model().gossip().iter().next().unwrap().1,
+        maximum - 1
+    );
+    driver.apply(Message::Local(Command::StartProbeRound));
+    driver.supply_peers(&["node-0001"]);
+    assert!(driver.model().gossip().is_empty());
+}
+
 fn policy(counter: u64, actor: &str, locked: bool) -> DeltaBody {
     DeltaBody::MembershipPolicyUpdate(orishu_membership::MembershipPolicy {
         locked,

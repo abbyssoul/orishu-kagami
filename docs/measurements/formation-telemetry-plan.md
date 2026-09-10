@@ -1,19 +1,120 @@
-# Formation telemetry overhead: proposed acceptance experiment
+# Formation telemetry overhead: approved acceptance experiment
 
-Status: **proposed — measurement profile and budgets require operator review**.
+Status: **3/10/30-worker curve and execution budget accepted on 2026-09-09;
+revised setup policy verified; full overhead run remains incomplete**.
 Owner: [P-OBSERVABILITY for M4](../tasks/implement-worker-observability.md).
 This is the finite plan requested by the
 [formation handoff](../tasks/implement-cluster-formation-poc.md#open-m4-work-selection),
 not accepted performance evidence or permission to change runtime limits.
-The experiment described below is not implemented by the existing local test.
+The [v2 source-built recipe](../testing-worker-overhead.md#current-formation-scaling-experiment)
+is implemented separately from the historical local test. Its six-mode smoke
+matrix is harness evidence, not an accepted scaling result.
+The [quiet-host run report](formation-telemetry-2026-09-09.md) now records all
+36 three-worker cells, the first ten-worker setup failure and separate bounded
+diagnostics. Thirty-worker performance and final overhead acceptance remain
+unverified. The original formation/catch-up setup blocker has the scoped
+follow-up below; the separate
+[shutdown-log follow-up](formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09)
+fixes reproduced final-event contention and verifies one real zero-sampling
+load/shutdown. Timing noise, full-sampling cost/loss, budget feasibility and
+full-curve acceptance remain open.
+
+The [read-only baseline review](formation-telemetry-2026-09-09.md#baseline-variation-review--2026-09-09)
+locates the major shift in the first round, across all three roles and before
+full sampling first runs. It does not prove the cause or permit excluding that
+round. A five-minute baseline-only diagnostic and a 45-minute allowance for the
+30-worker point have been proposed for operator review, both within the next
+reviewed 90-minute total. Neither change is approved; current budgets and the
+no-automatic-retry rule remain unchanged.
+
+The [reliability follow-up](formation-reliability-2026-09-09.md) corrects
+demonstrated worker/verifier defects. The operator has now approved the
+[shared setup convergence policy](#shared-setup-convergence-policy--2026-09-09).
+Earlier short-gate failures remain failed historical results; new checks use
+the explicitly revised policy, not retrospective acceptance.
+
+## Shared setup convergence policy — 2026-09-09
+
+Accepted by the operator after reviewing the demonstrated fixes and observed
+thirty-worker convergence: post-admission exact membership, formation-summary
+and lock/unlock visibility checks may use the **remaining original 60-second
+whole-setup budget**, at all three worker counts. They do not each receive a
+fresh 60 seconds. Startup/socket and individual join-status observations retain
+their ten-second limits, also capped by the same whole-setup deadline.
+
+All exact formation/node/certificate identities, member counts, all-alive
+liveness, introducer readiness and policy checks remain mandatory. A reply
+completing at or after its observation deadline cannot count as success. No
+phase change, partial convergence or worker retry resets the deadline. Worker
+protocol timers, admission/catch-up attempt limits, the ten-second load window,
+cell/per-size/whole-batch budgets and no-automatic-retry rule are unchanged.
+
+New manifests identify this policy as
+`convergence_budget_policy: remaining_whole_setup_v1`, with
+`observation_budget_seconds: 10` and `setup_budget_seconds: 60`.
+Preserve all earlier manifests and failures under their original policy. This
+is an acceptance-harness policy, not a production convergence SLO, worker runtime
+change or new peer-protocol/architecture decision.
+
+The [six-case formation-only check](formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09)
+passed at 3/10/30 workers, with features omitted and metrics enabled. Thirty-worker
+full setup took 46.615/51.287 seconds. If repeated across 36 cells, setup plus
+ten-second load windows would exceed the unchanged 30-minute per-size budget
+(approximately 34–37 minutes before other overhead). Review that feasibility
+alongside remaining timing noise and the shutdown fix's applicability before another full curve; no
+per-size or 90-minute batch-budget increase is authorized by this setup policy.
 
 ## Question and existing evidence
 
-What does the final optional M4 telemetry configuration cost while three real
-workers maintain one authenticated formation and concurrently answer operator
+What does the final optional M4 telemetry configuration cost as real workers
+maintain one authenticated formation and concurrently answer operator
 requests? Report latency, throughput, worker CPU, memory, scrape cost and
 telemetry loss without changing the domain outcomes or suppressing inconvenient
 samples. No scientific workload or fleet-scale claim is involved.
+
+## Operator decision and proposed scaling curve — 2026-09-09
+
+The operator subsequently approved the complete proposed curve and its full
+90-minute execution allowance, excluding builds. The heading is retained for
+existing decision links; the curve and budget are now accepted, not awaiting
+another choice.
+
+The operator accepted proper paired verification and specified these cost bands
+for both p95 latency and worker CPU overhead:
+
+- Below 10% is the normal monitoring instrumentation goal, including the
+  default-sampled trace/log configuration; the earlier 15% latency / 20% CPU
+  proposal must not become an unqualified normal-operation pass.
+- Up to 20% is tolerable only temporarily, with an explicit time-bounded
+  operational disposition; it does not meet the normal goal.
+- Above 20% through 25% is outside that temporary tolerance and requires review.
+  Above 25% belongs to a separately scoped troubleshooting exercise, not an
+  acceptable compute-operation monitoring profile. It does not authorize an
+  automatic optimization or troubleshooting campaign.
+
+Three workers remain the baseline; coverage must also answer the operator's
+30-worker question. Accepted measurement sizes are **3, 10 and 30 workers**,
+each with the same six modes and six rounds below. Keep two clients per worker
+(6, 20 and 60 clients) and compare each enabled mode against its same-size,
+same-round disabled baseline. This holds per-worker closed-loop concurrency
+constant, not total request rate. Report absolute per-worker and aggregate
+CPU, throughput, latency, RSS and formation/convergence timings at every size,
+alongside telemetry overhead. A small percentage increase alone is not proof
+that the underlying formation scales well.
+
+This is a single-host formation/control-plane curve. Host saturation, swapping,
+collector/client contention and background load can make a point inconclusive;
+record those conditions rather than attributing all degradation to worker
+count. Thirty local processes are not thirty independent machines, nor evidence
+of scientific compute speedup or cross-host network behavior. The separate
+[scientific scaling stages](../orishu-scaling-objectives.md#staged-evidence)
+remain unchanged; their 32-worker stage is not satisfied by this experiment.
+
+The expanded matrix has 108 cells instead of 36. The accepted limit is 1,800
+seconds per size and 5,400 seconds total, excluding compilation, retaining every
+partial result and with no automatic retries. This authorizes implementing and
+validating the harness, then executing the frozen profile; no new measurements
+are claimed by approval itself.
 
 The [retained local baseline](../testing-worker-overhead.md#recorded-local-baseline--2026-09-07)
 used one worker, one sequential client, two-second windows and scrapes
@@ -27,7 +128,7 @@ shows CPU time per completed request approximately 20.0–21.3% above disabled,
 and per-cell p95 latency approximately 8.3–17.4% above disabled. Full sampling
 shows p95 increases approximately 62.8–96.6%, despite much smaller median-latency
 changes. These are derived comparisons of old observations, not new runs or
-predictions for three workers. The budgets below are proposals to review, not
+predictions for any point on the new curve. The cost targets below are not
 thresholds already proven by that baseline.
 
 ## Required profile before implementation
@@ -47,11 +148,20 @@ build must still speak the same accepted wire grammar as the enabled build.
 | `default_sample` | Both | Metrics plus 1000 ppm tracing and the final accepted correlated-log configuration |
 | `full_sample` | Both | Metrics plus 1,000,000 ppm tracing; same final output/queue policy, reported separately as a high-cost mode |
 
-The final logging contract must specify what zero sampling means for operational
-records; do not invent that rule in the benchmark. Until the accepted stdout
-logging adapter and ADR 0025 are implemented, current-capability experiments can only
-be labelled exploratory. They cannot silently substitute local root spans for
-the final client/peer/log configuration.
+The [implemented logging contract](../orishu-observability.md#bounded-operational-log-adapter)
+now defines zero sampling: enabled lifecycle records remain, but there are no
+operation records or invented span IDs; enabled tracing can emit its bounded
+final accounting records at shutdown. ADR 0025 is also implemented, and the
+[official Collector journey](../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+verifies the client/peer/log configuration. These are functional prerequisites,
+not performance evidence. The zero/default/full modes enable logging to a
+continuously drained stdout reader, with queue 256 and shutdown 250 ms; the
+reader validates bounded records and retains counts, not unbounded log history.
+Trace queue/active/batch limits are 1024/128/128, export/response byte caps
+1 MiB/16 KiB and flush/attempt/shutdown durations 1000/2000/3000 ms. Record these
+exact settings and reader/collector executable identities before each run;
+do not invent different runtime semantics in the benchmark or substitute
+local-root-only evidence for admission tracing.
 
 Use a healthy bounded loopback OTLP receiver that decodes the actual protobuf
 and records finite receipt/accounting summaries, plus the selected local logging
@@ -68,21 +178,30 @@ Do not combine them into this baseline or claim that this profile qualifies them
 
 ## One measurement cell
 
-1. Start three isolated ordinary worker processes A, B and C. Use public
-   authenticated joins so A admits B and B admits C. Require the accepted
+The expanded profile below uses the accepted execution budget.
+
+1. Start N isolated ordinary worker processes, for N = 3, 10 or 30. Use public
+   authenticated joins in a chain: A admits B, B admits C, and each subsequent
+   worker joins through its predecessor. Require the accepted
    exact formation/node/certificate/liveness views and complete introducer
    catch-up. Record join/catch-up durations separately from steady-state request
-   latency. Setup has a sixty-second whole-cell budget; retain the owning
-   protocol's narrower deadlines rather than extending them to sixty seconds.
+   latency. Setup has a sixty-second whole-cell budget; post-admission membership
+   and summary convergence use its remaining time under the accepted policy
+   above. Retain the owning protocol's narrower deadlines and the ten-second
+   startup/join observations rather than extending them to sixty seconds.
+   Observe `catchUpFailed` as a possible intermediate worker retry outcome under
+   the same operation/assigned identity and existing observation deadline; never
+   restart admission or reset the deadline on phase changes.
 2. Check identified lock/unlock and eventual policy visibility across entry
    workers, then leave the formation unlocked. Record control/convergence
-   durations and the selected trace/log receipt evidence outside the request
+   durations within that same original setup deadline, and record the selected
+   trace/log receipt evidence outside the request
    measurement window. Keep background SWIM/gossip/anti-entropy enabled.
-3. Warm up six persistent typed clients, two directly targeting each worker,
-   with 64 summary requests per client. Release all six through one start
+3. Warm up 2N persistent typed clients, two directly targeting each worker,
+   with 64 summary requests per client. Release all clients through one start
    barrier. Each has one outstanding request at a time for a shared ten-second
    window; client-process startup is not request latency. Every response retains
-   its source, exact formation, three live members and unlocked state. Validate
+   its source, exact formation, N live members and unlocked state. Validate
    exact membership views immediately before and after the timed window.
 4. In metrics-enabled modes, run one **independent** scraper per worker on a
    250 ms schedule, one request in flight at most. Do not pause client load to
@@ -95,7 +214,7 @@ Do not combine them into this baseline or claim that this profile qualifies them
    A missing exit, invalid state or failed required request makes the cell fail;
    it is not silently excluded from the performance report.
 
-This is a six-client closed-loop throughput experiment. It is not an
+This is a two-clients-per-worker closed-loop throughput experiment. It is not an
 independently scheduled arrival-rate/tail-latency SLO test. Request throughput
 counts validated completed requests divided by the shared measured window;
 client-side validation and contention remain part of that workload.
@@ -103,20 +222,33 @@ client-side validation and contention remain part of that workload.
 ## Repetitions, resource bounds and retained artifacts
 
 Run six rounds, rotating the first of the six modes each round so each occupies
-every ordinal position once: 36 complete cells. Use a fresh formation per cell
-and stable logical roles A/B/C for comparisons, not reused ephemeral identities.
+every ordinal position once: 36 complete cells per size, 108 for the proposed
+curve. Run sizes in ascending order and record that ordering as a possible
+thermal/time confound; the disabled comparison remains paired within each size.
+Use a fresh formation per cell and stable logical join-order roles for
+comparisons, not reused ephemeral identities.
 Run alone without concurrent builds/test suites; record CPU/kernel, `CLK_TCK`,
 CPU affinity, scaling policy when readable and competing host load. Do not
 change governor, host services or affinity policies without separate permission.
 
-Preallocate at most 500,000 integer latency samples per client (24 MiB payload
-across six clients) and at most 128 scrape-latency records per worker. Reaching
+Preallocate at most 500,000 64-bit integer latency samples per client (24, 80
+and 240 MB decimal payload at 3, 10 and 30 workers, respectively) and at most
+128 scrape-latency records per worker. Reaching
 a sample cap before the ten-second window ends is an explicitly incomplete
 cell, not a shorter conveniently fast measurement. Sample worker CPU/RSS at
 20 Hz with bounded `/proc` reads; record setup high-water RSS separately from
 timed resident-memory peaks. Do no sorting or artifact writes in client hot
-loops. Stop the complete batch after 1,800 seconds excluding compilation,
-preserving partial results; there is no automatic retry loop.
+loops. The accepted limit is 1,800 seconds per size / 5,400 seconds total,
+excluding compilation. Preserve partial results; there is no automatic
+retry loop. A setup deadline or resource failure at a larger size is retained
+as a failed/incomplete point, never silently replaced with a smaller formation.
+
+The scaling verifier bounds `orishuctl ls` output separately at 64 KiB so a
+complete thirty-member listing is representable; all other operator command
+replies retain the 16 KiB cap. Both limits are recorded in the manifest. Exact
+membership, unique identity, pinned certificates and Alive checks still apply.
+Failure artifacts retain the formation substage, last observed join phases,
+bounded membership rows and summary projections before fixture teardown.
 
 The new report format needs explicit versioning; do not append new semantics
 to v1. Before running, create a new private output directory and freeze a run
@@ -134,18 +266,20 @@ Do not use process-lifetime counters divided by timed request counts as a
 fabricated loss rate. Report exporter queue/active/encoding/delivery/shutdown
 loss and intentional sampling separately. No missing instrument becomes zero.
 
-## Proposed budgets — not accepted
+## Cost targets and remaining profile review
 
-These candidate budgets express a default operational cost target for review,
-not a scientific performance objective. Compare `metrics`, `zero_sample` and
+The operator's p95/CPU cost bands above supersede the earlier normal-operation
+latency/CPU proposals. Other numerical profile settings below are retained from
+the reviewed recommendation, not measured guarantees or scientific performance
+objectives. Compare `metrics`, `zero_sample` and
 `default_sample` with the same round's `compiled_off` result. Compare
 `compiled_off` with `omitted` separately to expose compiled-in cost.
 
-| Metric | Metrics-only proposal | Default-sampled final trace/log proposal |
+| Metric | Metrics-only target | Default-sampled final trace/log target |
 | --- | --- | --- |
-| Per-worker request p95 | At most 10% increase | At most 15% increase |
+| Per-worker request p95 | Below 10% increase for normal operation | Same |
 | Aggregate validated throughput | At most 10% decrease | At most 15% decrease |
-| Aggregate worker CPU seconds per validated request | At most 10% increase | At most 20% increase |
+| Aggregate worker CPU seconds per validated request | Below 10% increase for normal operation | Same |
 | Timed peak RSS increase, per worker | At most 2 MiB | At most 8 MiB |
 | Scraping | No failed/skipped scheduled scrapes; report per-worker median/p95 and bytes | Same |
 
@@ -156,7 +290,8 @@ the same domain correctness, finite-resource and shutdown requirements.
 Compiled-off versus omitted is an explicitly reported comparison requiring
 review, not a claim of zero overhead from absence of export traffic.
 
-For each worker role, calculate the six paired relative changes first, then
+At each worker count separately, for each worker role calculate the six paired
+relative changes first, then
 their median and range; never pool independently computed p95s into a fake
 request percentile. The primary latency/memory score is the worst role's median
 paired change; throughput and CPU use aggregate worker totals within each cell.
@@ -176,15 +311,22 @@ explicitly revised requirement, never retroactive threshold fitting.
 
 ## Implementation and review exit
 
-Remaining implementation is the three-worker measurement harness, versioned
-run/cell artifacts, independent scraper/collector/log accounting and a reader
-for that new format. Their tests must cover partial rounds, mismatched
+The parameterized scaling measurement harness, versioned run/cell artifacts,
+independent scraper/collector/log accounting and report reader now exist.
+Their tests cover partial rounds, mismatched
 build/profile/window identities, missing instruments, cap exhaustion, failures,
 zero denominators and loss preservation. The current v1 reader deliberately
-refuses partial matrices and unsupported schemas; it is not that future reader.
+refuses partial matrices and unsupported schemas; it is not the v2 reader.
 
-Review exit: approve or revise the profile/budgets above and name any additional
-deployment profile required for M4. ADR 0025 and the stdout logging destination
-are now accepted separately; their implementation and the numerical budgets
-above are not approved or verified by that choice. This plan does not start
-the benchmark or close P-OBSERVABILITY/M4.
+Review exit: the expanded matrix execution budget is accepted. Freeze its
+size-dependent profile and executable/command identities before measurement,
+preserving the accepted operator cost bands. Name any
+additional deployment performance profile explicitly if required for M4.
+ADR 0025 and the stdout logging destination
+are accepted and have separate implementation evidence; that does not verify
+the cost targets above. Use the
+[M4 checklist](../tasks/cluster-formation-m4-checklist.md) to record deployment
+applicability without turning functional recipe coverage into measured
+service/container overhead. This plan does not close P-OBSERVABILITY/M4. The
+approved measurement run must still execute without overlapping builds/tests
+and retain all results, including partial or failed cells.

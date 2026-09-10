@@ -388,7 +388,7 @@ async fn departed_reconciliation_round_can_delay_learning_a_readmitted_identity(
         testing::insert_member(&mut receiver, old_record.clone());
         // Setup models are already admitted, initially with a partial A view.
         // Wire gossip establishes all three old records before the departure.
-        let (owner, owner_task) = driver::spawn_standalone(receiver);
+        let (owner, owner_task) = crate::formation_metrics::test_owner(receiver);
         let endpoint = quinn::Endpoint::server(
             identity.server_config().unwrap(),
             "127.0.0.1:0".parse().unwrap(),
@@ -398,7 +398,7 @@ async fn departed_reconciliation_round_can_delay_learning_a_readmitted_identity(
         let dispatcher = server::spawn(endpoint, owner.clone());
         let mut c = Peer::connect(address, &identity, &departing_identity, departing).await;
 
-        // Clear any startup missing-route round by completing a real pull.
+        // Complete the first routed round before selecting the controlled one.
         let (send, round) = c.next_pull().await;
         c.answer_pull(send, round, false).await;
         while owner.model_snapshot().await.anti_entropy().is_some() {
@@ -509,6 +509,13 @@ async fn departed_reconciliation_round_can_delay_learning_a_readmitted_identity(
             .await
             .expect("next reconciliation is bounded");
         assert_ne!(round, held_round);
+        #[cfg(feature = "observability")]
+        {
+            use crate::formation_metrics::Event;
+            let counters = owner.formation_counters().unwrap();
+            assert_eq!(counters.get(Event::AntiEntropyDeadline), 1);
+            assert_eq!(counters.get(Event::AntiEntropyAbandoned), 1);
+        }
         b.answer_pull(send, round, true).await;
         tokio::time::timeout(Duration::from_secs(1), async {
             while owner.view().unwrap().summary.member_count != 4 {

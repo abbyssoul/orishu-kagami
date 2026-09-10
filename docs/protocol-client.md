@@ -350,6 +350,13 @@ change the assigned identity, and possible admission cannot transition to a
 clean pre-admission failure. Unresolved/adopted-but-failed work continues to
 exclude another join pending explicit recovery.
 
+`catchUpFailed` is an attempt outcome, not necessarily final exhaustion: the
+worker can return to `catchingUp` within its existing three-attempt,
+90-second post-adoption budget. Bounded automation must keep observing the same
+operation and assigned identity until `joined` or its observation deadline;
+it must not resubmit a new admission, renew its deadline, or treat this phase
+as successful readiness. See the [catch-up owner contract](protocol-p2p.md#admission-state-catch-up-contract).
+
 The selected PoC history bound is 64 accepted join requests per worker process,
 retained across formation changes with no eviction or persistence across restart.
 Full history rejects new IDs but still serves exact retries. Matching uses a
@@ -484,15 +491,25 @@ scalability claim.
 ### Planned client trace context
 
 Client remote-parent extraction is implemented when `otlp-tracing` is compiled
-in and enabled at runtime. Peer propagation remains unimplemented. This bounded
+in and enabled at runtime. Profile-5 join propagation is also implemented. This bounded
 contract supports accepted [ADR 0025](adr/0025-version-peer-trace-context-propagation.md);
-it is not a new authentication mechanism or a claim of cross-worker correlation.
+it is not a new authentication mechanism.
 
 The worker now has a feature-independent fixed-size context parser/encoder and
 parent-aware sampled-span queue, with [scoped evidence](tasks/cluster-formation-conformance.md#trace-context-and-parent-aware-span-primitives--2026-09-08).
 The client-service middleware now uses these primitives, with
 [actual worker/collector receipt evidence](tasks/cluster-formation-conformance.md#authenticated-client-parent-receipt--2026-09-08).
-No peer context is emitted. Authentication must precede their use on input.
+Authentication must precede their use on input.
+
+The join submission adapter now carries the sampled local client span's identity
+into a newly reserved IO-owned join job. Each locally sampled outbound join
+exchange may be its child; the parent is not stored in operation receipts or
+membership state. Replaying a retained operation does not replace its ancestry
+or start another exchange. [Real-process receipt evidence](tasks/cluster-formation-conformance.md#owned-join-exchange-parent-receipt--2026-09-09)
+covers the initiating worker's client and exchange spans, not a span exported
+by the receiving worker. The later [profile-5 receipt test](tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09)
+adds the receiving admission span and verifies both links across three real
+workers. No trace ID is returned as an operation receipt or membership identity.
 
 Adopting context requires exactly one valid worker operator Bearer credential,
 including on Unix-socket read routes that otherwise allow unauthenticated

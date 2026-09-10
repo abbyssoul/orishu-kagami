@@ -357,6 +357,13 @@ pub struct AdmissionEvidence {
 /// The result of an effect the core previously requested.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectOutcome {
+    /// Gossip omitted locally from an outgoing packet. Requeue only current
+    /// authoritative records; the shell must fence this to the owner generation.
+    GossipDeferred {
+        /// At most `max_gossip_per_message` locally omitted deltas. Only exact
+        /// current records qualify; these values are never merged into state.
+        deltas: Vec<crate::gossip::GossipDelta>,
+    },
     /// Peers chosen for a [`Effect::SelectPeers`](crate::Effect::SelectPeers)
     /// request.
     PeersSelected {

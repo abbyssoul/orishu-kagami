@@ -133,11 +133,13 @@ For a formerly joined worker, follow the
 [admission-recovery stop conditions](cluster-admission-recovery.md) before any
 new join. Retained credentials cannot bypass exclusion.
 
-The journal captures existing worker stdout/stderr. It is neither a structured
-trace-correlated logging implementation nor durable audit/provenance. The
-pending [logging-output choice](tasks/implement-worker-observability.md#accepted-logging-output-decision)
-and sink-pressure/shutdown acceptance remain unchanged. Do not enable debug
-payload logging to make this recipe work.
+The base recipe captures worker stdout/stderr but leaves structured logging and
+tracing disabled. The
+[bounded stdout adapter](../apps/orishu-worker/README.md#structured-stdout-logs)
+is implemented; the [enabled collection check](#verify-enabled-journal-and-trace-collection)
+below verifies actual journal/Collector receipts separately from the base
+recipe's credential-exclusion assertion. Journal storage is not durable
+audit/provenance. Do not enable debug payload logging to make this recipe work.
 
 To remove only this optional runtime link after stopping the service:
 
@@ -149,6 +151,86 @@ This leaves the source unit file and private state intact. Do not remove the
 state directory to clear a failed unit or force readmission. Use only the exact
 unit name; broad `disable`, `reset-failed` or cleanup commands can affect other
 user services.
+
+## Verify enabled journal and trace collection
+
+The [current-build verification](tasks/cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09)
+reruns both this collection extension and the five-mode base recipe after the
+formation/shutdown fixes. It does not grant overhead or release acceptance.
+
+The selected M4 extension uses the same unit template, with tracing/logging
+explicitly enabled in a private runtime-linked copy. It changes no permanent
+unit, boot/login policy or shared journal configuration. Obtain the pinned
+[official Collector 0.160.0](testing-worker-otelcol.md#pinned-prerequisites), then
+run against an idle combined-feature worker and CLI:
+
+```sh
+python3 scripts/test_worker_deployment_receipts.py
+python3 scripts/check-worker-deployment-logs.py --deployment systemd --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --otelcol /absolute/path/to/otelcol
+```
+
+To build and verify **both** selected deployment examples, use
+`make test-worker-deployment-logs OTELCOL=/absolute/path/to/otelcol
+WORKER_SERVICE_TARGET_DIR=target/formation-flow-observability`. Podman and the
+cached pinned Debian base are additionally required for that combined target;
+see the [container extension](testing-worker-container.md#verify-enabled-container-and-trace-collection).
+The harness snapshots all executable bytes before starting; later builds cannot
+replace a binary used by its explicit restart. Do not race the initial snapshot
+with a build. The snapshot hashes identify each result.
+
+The extension enables a 256-record stdout queue, 250 ms logging shutdown,
+100% trace sampling, one-span export batches and 1000 ms export/shutdown
+deadlines. Its Collector is a separate loopback process, with the checked-in
+configuration and private receipt file. These are short-check settings, not
+recommended production sampling or measured performance budgets. Normal user
+service defaults remain unchanged.
+
+Each of two explicit starts performs eight CLI requests, including a rejected
+unauthenticated lock, authenticated lock/unlock and exact identity/membership
+reads. Actual HTTP probes remain healthy; live trace/log counters confirm all
+eight spans exported and all nine pre-shutdown records written without loss.
+The worker must stop cleanly within the existing ten-second service budget and
+remove its socket. Restart retains credentials but creates fresh identities;
+it is deliberate test control, never a telemetry repair action.
+
+Journal reads select the exact unit, `InvocationID`, worker PID and stdout
+transport, not a recent timestamp or the whole user journal. Each start must
+yield eight operation records, three lifecycle records and twelve final trace
+accounting records. Every operation matches an actual Collector receipt by
+trace/span IDs, event, outcome and completion time. Old-invocation records,
+missing receipts, duplicates, partial/oversized JSON and credential/name markers
+fail. Both starts together must match sixteen distinct received spans.
+
+Journald may attach `_CMDLINE` and other process metadata containing configured
+public names. The verifier forbids credentials in every journal field and
+forbids authored-name/operation markers in the worker's `MESSAGE`; it does not
+misrepresent systemd metadata as part of Orishu's fixed JSON schema. Do not put
+secrets on process command lines or assume Orishu controls journal metadata.
+
+For an operator-managed instance with these settings, obtain its invocation
+identity **before stopping** and inspect only that invocation:
+
+```sh
+service_invocation=$(systemctl --user show orishu-worker-poc.service --property=InvocationID --value)
+journalctl --user --unit orishu-worker-poc.service --no-pager --output=cat "_SYSTEMD_INVOCATION_ID=$service_invocation" _TRANSPORT=stdout
+```
+
+Match `trace_id`/`span_id` to the Collector receipt, not to a formation identity
+or operation receipt. The automated verifier also checks the exact worker PID,
+schema and byte/count limits. Lifecycle and final accounting records intentionally
+have no trace IDs. Journal availability/retention is external to Orishu; missing
+logs do not authorize retrying a mutation or restarting a healthy worker.
+
+The complete script has a 360-second alarm (including the optional container
+build); observations have ten seconds, ordinary commands fifteen seconds, HTTP
+reads one second and Collector process exit three seconds. Journal queries
+request at most 513 entries and reject more than 512 or 512 KiB of raw output;
+extracted records retain the 320-byte/128-KiB worker limits. Fixture units and
+private files are removed, but journal entries are retained. See the
+[recorded evidence](tasks/cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09).
+This verifies local-root trace/log collection through systemd, not three-worker
+formation under systemd, remote/mTLS co-deployment, audit durability or overhead.
+The ordinary-process admission-chain proof remains separate.
 
 ## Executable evidence
 
@@ -178,5 +260,6 @@ stops, resets failed status and unlinks only the UUID-named fixture units before
 removing temporary credentials. Ordinary unit journal records remain; the
 harness checks its bounded journal tail for the operator token but does not
 delete shared journals. No package, permanent unit, login policy or boot target
-is changed. Tests do not establish remote-proxy co-deployment, service-level
-trace correlation, three-worker formation under systemd or release acceptance.
+is changed. These base tests do not establish remote-proxy co-deployment,
+three-worker formation under systemd or release acceptance; enabled service-level
+trace/log correlation has the separate check above.

@@ -30,9 +30,11 @@ port zero. Without an override, a concrete bind on port zero advertises the
 actual allocated port. YAML uses `spec.listen.peers` and `spec.advertise.peers`
 as zero/one-element lists; precedence is file < environment < CLI.
 Peer mTLS uses the private persisted worker identity, independently of client
-TLS settings. The peer ALPN is now `orishu-membership/4`; older PoC profiles
+TLS settings. The peer ALPN is now `orishu-membership/5`; older PoC profiles
 cannot connect and must be rebuilt/restarted together. This adds source-side
-admission attempt identity/replay without changing membership Merkle hashes.
+bounded optional trace context while retaining admission attempt identity/replay
+and unchanged membership Merkle hashes. All feature builds use profile 5;
+there is no profile-4 fallback. See the [propagation evidence](../../docs/tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
 Introduction is separately opt-in with `--accepts.peers true`,
 `ORISHU_ACCEPTS_PEERS=true` or YAML `spec.accepts.peers: true`; the default is
 false, and enabling it without a peer listener fails startup. Explicit CLI
@@ -44,6 +46,13 @@ credential export until automatic catch-up validates and installs the complete
 admission baseline and target credential. The scheduler permits one active job,
 with at most three prepared attempts within 90 seconds of adoption. It checks
 for eligible work once per second; absent routes do not consume attempts.
+After adoption it prioritizes one fresh admitted handshake to the original
+introducer before the normal peer scan; this is not a new admission or retained
+bootstrap session. Peer maintenance uses up to four candidates per tick within
+the existing four shared dial slots and one-second owner-query budget.
+Adoption wakes the first scan, and registration of the first current admitted
+route wakes initial catch-up. Failed attempts retain periodic retry scheduling;
+these wake-ups do not reset any budget or grant admission/readiness.
 Success publishes `joined`; failure remains in the target formation with
 `catchUpFailed` operation status and no introduction readiness. Lost admission
 ACKs can recover the original still-live assignment through the same pinned
@@ -371,7 +380,8 @@ are absent when tracing is disabled or omitted. See the
 Prometheus server, including fresh delivery counts after collector recovery;
 see the [test guide](../../docs/testing-worker-prometheus.md#ingest-trace-counters-through-prometheus)
 for pinned tool prerequisites and the supported local source-build scope.
-Peer propagation, trace-correlated logs and full M4 acceptance remain open.
+Profile-5 admission propagation and [structured local span-correlated logs](#structured-stdout-logs)
+are implemented with scoped process evidence; full M4 acceptance remains open.
 `make test-worker-otelcol OTELCOL=/absolute/path/to/otelcol` runs the
 [pinned local Collector walkthrough](../../docs/testing-worker-otelcol.md):
 real OTLP decoding/file receipt, disabled/zero sampling and collector
@@ -624,6 +634,67 @@ alone does not demonstrate peer convergence; the three-worker harness checks
 that separately. See the
 [CLI workflow](../orishu-ctl/README.md#identified-membership-lock-changes) for
 operation IDs, the explicit 1,024-outcome formation-lifetime limit and testing.
+
+### Structured stdout logs
+
+Unix source builds support `--logging.enabled true`, independently of both
+telemetry features. Logging defaults to disabled. `--logging.queue-records`
+defaults to 256 (1–4096), and `--logging.shutdown-ms` to 250 (0–2000 ms).
+The [configuration table](../../docs/orishu-configuration.md#implemented-structured-stdout-logging)
+lists file/environment equivalents and precedence.
+
+When enabled, stdout contains only the fixed version-1 JSON event catalogue
+during ordinary successful runtime operation. Startup errors remain separate on
+stderr. Existing synchronous listener/signal/final-export-statistics prints are
+removed; disabled logging does not retain them. Development fault markers and
+panic diagnostics are not this production logging interface.
+
+Lifecycle records are unsampled. Client/admission/peer-operation records follow
+actual local trace sampling; zero sampling or disabled tracing emits none of
+those records. To correlate, match a received OTLP span's trace and span IDs to
+the record's `trace_id` and `span_id`; `unix_nanos` is its completion timestamp.
+Do not treat a log as command acceptance or a guarantee of collector delivery.
+No names, raw paths, credentials or arbitrary error fields are emitted.
+
+If metrics are also enabled, inspect the nine `orishu_worker_log_*_total`
+counters. Rising `queue_full` or `contended` means records were shed; check the
+external stdout reader. Rising `output_failed` followed by `closed` indicates
+terminal sink failure, not failed membership. Do not restart or alter formation
+solely because telemetry is missing. Restore a slow reader where possible;
+replacement of a closed output requires a separately planned worker restart.
+Keep per-process collection metadata outside the log record.
+
+The [logging-counter Prometheus check](../../docs/testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+verifies actual backend ingestion with tracing disabled or enabled, and with a
+real broken stdout pipe. Logging failure leaves control and probes healthy;
+after scraper recovery, new writes/closure refusals must appear in Prometheus.
+
+After resuming a stalled stdout reader, check that acknowledged `written` counts
+advance, existing loss counts remain visible, and a new operation yields a usable
+record. A quiet, drained queue can have `written == accepted`; while producers
+are active these independent counters are not a transactional equality check.
+Already-shed records are not replayed. The
+[real-worker recovery test](../../docs/tasks/cluster-formation-conformance.md#real-worker-stdout-reader-recovery--2026-09-09)
+verifies resumed output and a fresh authenticated trace ID without restarting or
+changing formation. This does not recover a terminally closed/broken output.
+
+Shutdown drains only for its configured interval and may leave one write's
+delivery uncertain. There is no fallback stderr report, retry destination or
+durable audit guarantee. The last metrics scrape is not final shutdown
+accounting. With tracing enabled, twelve final `orishu.trace.accounting` records
+carry fixed `counter`/`value` pairs through the same bounded queue. They may be
+shed or only partially delivered; they describe trace export, not final logging
+loss, and do not revive the removed stderr summaries.
+See the [record/loss contract](../../docs/orishu-observability.md#bounded-operational-log-adapter)
+and [scoped executable evidence](../../docs/tasks/cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09).
+The [official Collector three-worker walkthrough](../../docs/testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+now matches both admission chains to their workers' stdout records alongside
+direct scrapes, probes and cross-worker policy checks. The separate
+[systemd collection check](../../docs/testing-worker-user-service.md#verify-enabled-journal-and-trace-collection)
+and [rootless-container collection check](../../docs/testing-worker-container.md#verify-enabled-container-and-trace-collection)
+now match actual journal/runtime records to received spans across deliberate
+restarts. These are local collection checks, not full supervisor-specific
+formation or performance qualification; the final M4 checklist remains open.
 
 ## Monitoring interface and remaining work
 

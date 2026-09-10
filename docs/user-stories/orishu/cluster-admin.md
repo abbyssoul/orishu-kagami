@@ -102,8 +102,19 @@ three-worker convergence or cross-peer trace/log correlation.
 
 The [formation dashboard example](../../testing-worker-dashboard.md) supplies
 per-target metric and trace-delivery views with explicit source selection and
-graph links. It does not provide the still-pending cross-peer/log correlation,
+graph links. It does not itself provide cross-peer/log correlation,
 infer peer identity from a scrape label or prove convergence from availability.
+
+The [official Collector formation walkthrough](../../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+separately proves both admission trace chains against per-worker stdout records,
+exact membership identities and cross-worker lock/unlock visibility. Healthy
+direct scrapes and probes accompany the journey. A separate
+[Prometheus logging-counter check](../../testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+now establishes backend ingestion and fresh write/failure samples after scraper
+outage. Separate [systemd and rootless-container collection evidence](../../tasks/cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09)
+now verifies enabled stdout records through those runtimes. Supervisor-specific
+three-worker formation and reviewed overhead are not implied by combining these
+scoped results.
 
 The [formation warning examples](../../testing-worker-prometheus.md#optional-formation-warnings)
 distinguish recent admission refusals, receiver failures, exhausted budgets
@@ -146,6 +157,10 @@ can be fenced or abandoned; a source refusal is not a new admission refusal.
 Compare authenticated join-operation status before acting, not page counts,
 aggregate readiness or a successful transport response. Counters retain totals
 across formation changes but are not durable admission history.
+An observed `catchUpFailed` can be followed by the worker's existing bounded
+automatic retry. Continue inspecting the same operation and assigned identity
+within the chosen observation deadline; do not report successful readiness,
+extend the deadline on each phase change, or issue a new admission ID.
 Reliable-exchange metrics additionally expose aggregate request/serve outcomes,
 duration, partial stream bytes and pool pressure. Use their
 [accounting boundaries](../../orishu-observability.md#reliable-peer-exchange-metrics)
@@ -208,6 +223,15 @@ As an administrator, I want to diagnose the connectivity and health of nodes in 
 - This is a diagnostic operation that does not modify cluster state or disrupt ongoing simulations. If the target node is under heavy load, the report reflects this state to assist in troubleshooting.
 - The result is consistent regardless of whether the check was direct or indirect; if the target is unreachable, it is clearly marked.
 
+
+Local [structured stdout logs](../../../apps/orishu-worker/README.md#structured-stdout-logs)
+can now be matched to actual sampled OTLP trace/span IDs. Logging and tracing
+are independently enabled; absence of a log is not proof that an operation did
+not occur. Operators use authoritative status/receipts for decisions and inspect
+bounded logging-loss counters to distinguish output pressure from cluster faults.
+This does not add an `orishuctl logs` query, retained history, audit authority or
+automatic worker restart. The selected three-worker/deployment monitoring
+walkthrough and reviewed overhead remain part of the open M4 handoff.
 
 ## Membership and topology
 

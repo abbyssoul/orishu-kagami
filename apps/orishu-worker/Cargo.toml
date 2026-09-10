@@ -89,3 +89,7 @@ tempfile = "=3.27.0"
 tokio = { version = "1.50.0", features = ["process"] }
 # Real collector TLS fixtures, using the already resolved worker TLS adapter.
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["aws_lc_rs"] }
+
+[[example]]
+name = "formation-telemetry-probe"
+required-features = ["observability", "otlp-tracing"]

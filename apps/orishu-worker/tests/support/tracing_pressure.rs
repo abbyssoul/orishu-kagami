@@ -48,7 +48,7 @@ async fn assert_scrape(address: std::net::SocketAddr, enqueued: u64, accepted: u
     let body = response.split_once("\r\n\r\n").unwrap().1;
     assert_eq!(
         body.lines().filter(|line| !line.starts_with('#')).count(),
-        163
+        172
     );
     let traces: Vec<_> = body
         .lines()
@@ -138,6 +138,8 @@ async fn tracing_saturation_preserves_mutations_recovers_and_bounds_shutdown() {
                 .arg("--listen.clients")
                 .arg(&socket)
                 .args([
+                    "--logging.enabled",
+                    "true",
                     "--tracing.enabled",
                     "true",
                     "--tracing.endpoint",
@@ -155,7 +157,7 @@ async fn tracing_saturation_preserves_mutations_recovers_and_bounds_shutdown() {
                     "--tracing.shutdown-timeout-ms",
                     "100",
                 ])
-                .stdout(Stdio::null())
+                .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
                 .unwrap(),
@@ -221,14 +223,43 @@ async fn tracing_saturation_preserves_mutations_recovers_and_bounds_shutdown() {
             .take(8193)
             .read_to_string(&mut stderr)
             .unwrap();
-        assert!(stderr.len() <= 8192 && !stderr.contains(&token));
-        assert!(
-            stderr.contains("accepted: 2, rejected: 0, failed: 0"),
-            "{stderr}"
-        );
-        assert!(stderr.contains("shutdown_dropped: 1"), "{stderr}");
-        assert!(stderr.contains("queue_full: 4"), "{stderr}");
-        assert!(stderr.contains("enqueued: 3"), "{stderr}");
+        assert!(stderr.is_empty(), "no synchronous runtime fallback");
+        let mut stdout = String::new();
+        worker
+            .0
+            .stdout
+            .take()
+            .unwrap()
+            .take(8193)
+            .read_to_string(&mut stdout)
+            .unwrap();
+        assert!(stdout.len() <= 8192 && !stdout.contains(&token));
+        let mut counters = std::collections::BTreeMap::new();
+        for line in stdout.lines() {
+            assert!(line.len() < orishu_worker::operational_log::RECORD_BYTES);
+            let record: serde_json::Value = serde_json::from_str(line).unwrap();
+            if record["event"] == "orishu.trace.accounting" {
+                assert!(
+                    counters
+                        .insert(
+                            record["counter"].as_str().unwrap().to_owned(),
+                            record["value"].as_u64().unwrap()
+                        )
+                        .is_none()
+                );
+            }
+        }
+        assert_eq!(counters.len(), 12);
+        for (counter, value) in [
+            ("accepted", 2),
+            ("rejected", 0),
+            ("failed", 0),
+            ("shutdown_dropped", 1),
+            ("queue_full", 4),
+            ("enqueued", 3),
+        ] {
+            assert_eq!(counters[counter], value, "{counter}");
+        }
         drop((first, second, third, listener));
     })
     .await

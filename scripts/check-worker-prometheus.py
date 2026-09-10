@@ -79,6 +79,9 @@ NAMES |= {name + suffix for name in HISTOGRAMS for suffix in ("_bucket", "_sum",
 TRACE_NAMES = {f"orishu_worker_trace_{name}_total" for name in (
     "sampled_out", "active_full", "queue_full", "closed", "invalid_source", "enqueued",
     "accepted", "rejected", "failed", "encoding_dropped", "shutdown_dropped", "warnings")}
+LOG_NAMES = {f"orishu_worker_log_{name}_total" for name in (
+    "accepted", "written", "queue_full", "contended", "encoding_failed",
+    "invalid_source", "output_failed", "closed", "shutdown_dropped")}
 FORMATION_ALERT_NAMES = {
     "OrishuWorkerOwnerUnresponsive", "OrishuWorkerAdmissionRefusals",
     "OrishuWorkerCatchupTransferFailures", "OrishuWorkerMembershipAbandoned",
@@ -94,6 +97,33 @@ def check_histogram(buckets, count, minimum=0):
     assert values[-1] == count and count >= minimum, "histogram count does not match observed work"
 
 
+def logging_ingested(values, closed_output=False, minimum=None):
+    """Validate finite log counters and await observable writes or sink failure.
+
+    Minimum is a named post-scraper-outage counter/value; old TSDB samples must
+    not establish new ingestion. Independent live counters are not transactional.
+    """
+    counters = {name: values[name] for name in LOG_NAMES}
+    assert all(math.isfinite(value) and value >= 0 and float(value).is_integer()
+               for value in counters.values()), "invalid logging counter"
+    prefix = "orishu_worker_log_"
+    for suffix in ("queue_full", "contended", "encoding_failed", "invalid_source", "shutdown_dropped"):
+        assert counters[prefix + suffix + "_total"] == 0, "unexpected local logging loss"
+    if closed_output:
+        assert counters[prefix + "written_total"] == 0, "closed pipe acknowledged a write"
+        failures = counters[prefix + "output_failed_total"]
+        assert failures <= 1, "terminal sink failure retried"
+        ready = failures == 1
+    else:
+        assert counters[prefix + "output_failed_total"] == counters[prefix + "closed_total"] == 0
+        ready = counters[prefix + "written_total"] >= 1
+    if minimum is not None:
+        name, count = minimum
+        assert name in LOG_NAMES and math.isfinite(count) and count >= 0
+        ready = ready and counters[name] >= count
+    return ready and counters[prefix + "accepted_total"] >= 1
+
+
 def run(command, **kwargs):
     return subprocess.run(command, check=True, capture_output=True, timeout=10, **kwargs)
 
@@ -105,10 +135,16 @@ def port():
 
 
 @contextlib.contextmanager
-def process(command, environment=None):
+def process(command, environment=None, closed_stdout=False):
     # Never print potentially secret-bearing worker output on failure.
-    child = subprocess.Popen(command, env=environment, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+    with contextlib.ExitStack() as handles:
+        output = subprocess.DEVNULL
+        if closed_stdout:
+            read_fd, write_fd = os.pipe()
+            os.close(read_fd)
+            output = handles.enter_context(os.fdopen(write_fd, "wb", buffering=0))
+        child = subprocess.Popen(command, env=environment, stdout=output,
+                                 stderr=subprocess.DEVNULL)
     try:
         yield child
     finally:
@@ -167,11 +203,18 @@ def main():
     parser.add_argument("--prometheus", type=Path, required=True)
     parser.add_argument("--trace-metrics", action="store_true",
                         help="also ingest live trace counters across collector failure/recovery")
+    parser.add_argument("--log-metrics", action="store_true",
+                        help="also ingest independent structured-stdout logging counters")
+    parser.add_argument("--closed-log-output", action="store_true",
+                        help="with --log-metrics, exercise a real stdout pipe with no reader")
     parser.add_argument("--formation-alerts", action="store_true",
                         help="also validate/load six optional formation-stage alert examples")
     args = parser.parse_args()
-    sample_keys = SAMPLE_KEYS | (TRACE_NAMES if args.trace_metrics else set())
-    names = NAMES | (TRACE_NAMES if args.trace_metrics else set())
+    if args.closed_log_output and not args.log_metrics:
+        parser.error("--closed-log-output requires --log-metrics")
+    optional = (TRACE_NAMES if args.trace_metrics else set()) | (LOG_NAMES if args.log_metrics else set())
+    sample_keys = SAMPLE_KEYS | optional
+    names = NAMES | optional
     scrape_limit = 32768
     args.promtool = Path(shutil.which(str(args.promtool)) or args.promtool).resolve()
     args.prometheus = Path(shutil.which(str(args.prometheus)) or args.prometheus).resolve()
@@ -199,7 +242,10 @@ def main():
                                "--tracing.sample-ppm", "1000000", "--tracing.batch-size", "1",
                                "--tracing.export-max-bytes", "1024", "--tracing.export-timeout-ms", "1000",
                                "--tracing.shutdown-timeout-ms", "100"]
-        with process(worker_command, environment) as worker:
+        if args.log_metrics:
+            worker_command += ["--logging.enabled", "true", "--logging.queue-records", "256",
+                               "--logging.shutdown-ms", "250"]
+        with process(worker_command, environment, closed_stdout=args.closed_log_output) as worker:
             poll(lambda: get(worker_port, "/readyz", 1024)[0] == 200, [worker])
 
             def operator(arguments, authenticated=False):
@@ -302,7 +348,7 @@ def main():
             with process(server_command) as server:
                 query = urllib.parse.urlencode({"query": '{__name__=~"orishu_worker_.+"}'})
 
-                def ingested(minimum_transitions=0, trace_phase=None):
+                def ingested(minimum_transitions=0, trace_phase=None, minimum_log=None):
                     if collector:
                         collector.check()
                     status, _, response = get(server_port, "/api/v1/query?" + query, 65536)
@@ -347,6 +393,8 @@ def main():
                     for name in HISTOGRAMS:
                         check_histogram(buckets[name], values[name + "_count"],
                                         minimum=int(name == HISTOGRAM))
+                    if args.log_metrics and not logging_ingested(values, args.closed_log_output, minimum_log):
+                        return False
                     if trace_phase:
                         if values["orishu_worker_trace_failed_total"] < 1:
                             return False
@@ -435,6 +483,20 @@ def main():
                 assert get(worker_port, "/readyz", 1024)[0] == 200
             # The context manager has stopped and reaped the actual scraper.
             assert server.poll() == 0
+            log_minimum = None
+            if args.log_metrics and collector:
+                # With full tracing, subsequent operator reads generate log
+                # records even while Prometheus is stopped. A terminal pipe
+                # instead increments closure refusals without retrying output.
+                log_key = "orishu_worker_log_" + ("closed_total" if args.closed_log_output else "written_total")
+
+                def log_count():
+                    status, _, body = get(worker_port, "/metrics", scrape_limit)
+                    assert status == 200
+                    return float(next(line.split()[1] for line in body.decode("ascii").splitlines()
+                                      if line.startswith(log_key + " ")))
+
+                before_log = log_count()
             incident_reads()
             before = transitions(worker_port, scrape_limit)
             for action, expected in [("lock", True), ("unlock", False)]:
@@ -447,16 +509,20 @@ def main():
                 assert get(worker_port, "/readyz", 1024)[0] == 200
             after = poll(lambda: value if (value := transitions(worker_port, scrape_limit)) > before else None,
                          [worker])
+            if args.log_metrics and collector:
+                after_log = poll(lambda: value if (value := log_count()) > before_log else None, [worker])
+                log_minimum = log_key, after_log
             # Require ingestion of a counter value reached only while the
             # scraper was absent; retained pre-outage TSDB samples cannot pass.
             with process(server_command) as recovered:
-                poll(lambda: ingested(after, "recovered" if collector else None), [worker, recovered])
+                poll(lambda: ingested(after, "recovered" if collector else None, log_minimum), [worker, recovered])
                 assert operator(["cluster", "info"])["formationId"] == original["formationId"]
                 assert get(worker_port, "/readyz", 1024)[0] == 200
                 incident_reads()
     alert_count = 3 + (3 if args.trace_metrics else 0) + (6 if args.formation_alerts else 0)
     print(f"PASS: Prometheus {VERSION}; {len(sample_keys)} series and {alert_count} live-evaluated alert expressions; "
           f"trace collector failure/recovery {'verified' if args.trace_metrics else 'not selected'}; "
+          f"logging {'closed pipe' if args.closed_log_output else 'discard sink' if args.log_metrics else 'disabled'}; "
           "operator control survives scraper outage and re-scrape")
 
 

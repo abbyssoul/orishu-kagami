@@ -566,7 +566,7 @@ the unchanged `workloadId` spelling.
 
 ----
 
-Implement S-WORKLOAD slices 1–2 and the structural portion of slice 3: define the immutable workload model, artifact
+[Implement S-WORKLOAD slices 1–2 and the structural portion of slice 3: define the immutable workload model, artifact
 descriptors and identities, canonical encoding/digests, structural closure validation, bounds, and golden fixtures.
 
 Why this is next:
@@ -598,3 +598,19 @@ The existing task is docs/tasks/define-and-adopt-shared-workload-format.md:1, bu
 first independently reviewable domain increment above.
 
 Ask me any questions if you need input.
+
+
+---
+
+So when we talk about plugins I am thinking about two things at the same time: packaging and distribution format and concept of extensibility.
+For packaging format examples are quake3(idTech 3) pack format (flat gzip with union FS to merge resource files into the right namespaces); java jars as common to extent tomcat server and/or EclipseIDEs plugin format.
+As a more recent example - VS Code seems to be a new best practice for plugin format and distribution with cli tools to download, update, disable/enable plugins.
+Logically though the all act the same - an app has extensions points (directory names/paths that a game reads, list of views/windows in the menu etc). A single plugin bundle can contribute/extend multiple such extension points.
+Same with Blender plugins. and a few more notable examples.
+
+So for user facing app, such as Kagami I'd like user to have familiar experience: a cli tools (same kagami exec with different args) to list/install/update/enable/disable plugins. Or to start with some plugins disables just for this run.
+The effect is tha plugins contribute to various points of the app: components that can be added to an Entity (such as gravitational charge (mass)), a phenomenon modeled - such as hydrodynamics flow, gravitational field, etc. 
+And the code to 'simulate' such phenomenon - a compute kernel to update a field each timestep. Note that its possible for a two different plugins to complete each other - one can define 'gravitational coupling and the concept of gravity field', while two other can contribute kernel to update the same field. Its not a conflict - these are options and a user can chose which one to use for the experiment they are crafting. 
+When experiment is exported - it becomes a workload for the cluster. And workload needs to capture all the info to run on a distributed cluster. Independent of users' Kagami setup.
+
+With that in mind, I mostly agree with your proposed design. Interview me with a options to clarify the gaps and we can update the design accordingly.

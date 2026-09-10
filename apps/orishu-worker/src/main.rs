@@ -141,7 +141,7 @@ struct JoinOperationHandler {
 }
 #[handler]
 impl JoinOperationHandler {
-    async fn handle(&self, req: &mut Request, res: &mut Response) {
+    async fn handle(&self, req: &mut Request, depot: &mut Depot, res: &mut Response) {
         let mut values = req.headers().get_all("authorization").iter();
         let valid = values
             .next()
@@ -194,27 +194,41 @@ impl JoinOperationHandler {
                 .map_err(|_| (StatusCode::BAD_REQUEST, "InvalidBody"))?;
             let request = orishu_worker::peer::codec::decode(bytes)
                 .map_err(|_| (StatusCode::BAD_REQUEST, "InvalidRequest"))?;
-            self.runtime.submit_join(request).await.map_err(|error| {
-                use orishu_worker::{join_operations::OperationError, runtime::JoinSubmitError};
-                match error {
-                    JoinSubmitError::Driver(_) => {
-                        (StatusCode::SERVICE_UNAVAILABLE, "OutcomeUnknown")
+            #[cfg(feature = "otlp-tracing")]
+            let parent = orishu_worker::trace_export::request_parent(depot);
+            #[cfg(not(feature = "otlp-tracing"))]
+            let parent = {
+                let _ = depot;
+                None
+            };
+            self.runtime
+                .submit_join_with_parent(request, parent)
+                .await
+                .map_err(|error| {
+                    use orishu_worker::{
+                        join_operations::OperationError, runtime::JoinSubmitError,
+                    };
+                    match error {
+                        JoinSubmitError::Driver(_) => {
+                            (StatusCode::SERVICE_UNAVAILABLE, "OutcomeUnknown")
+                        }
+                        JoinSubmitError::Operation(OperationError::Stale) => {
+                            (StatusCode::PRECONDITION_FAILED, "StaleFormation")
+                        }
+                        JoinSubmitError::Operation(OperationError::Conflict) => {
+                            (StatusCode::CONFLICT, "OperationConflict")
+                        }
+                        JoinSubmitError::Operation(OperationError::Busy) => {
+                            (StatusCode::CONFLICT, "ParticipationUnavailable")
+                        }
+                        JoinSubmitError::Operation(OperationError::Full) => {
+                            (StatusCode::SERVICE_UNAVAILABLE, "OperationHistoryFull")
+                        }
+                        JoinSubmitError::Operation(_) => {
+                            (StatusCode::BAD_REQUEST, "InvalidRequest")
+                        }
                     }
-                    JoinSubmitError::Operation(OperationError::Stale) => {
-                        (StatusCode::PRECONDITION_FAILED, "StaleFormation")
-                    }
-                    JoinSubmitError::Operation(OperationError::Conflict) => {
-                        (StatusCode::CONFLICT, "OperationConflict")
-                    }
-                    JoinSubmitError::Operation(OperationError::Busy) => {
-                        (StatusCode::CONFLICT, "ParticipationUnavailable")
-                    }
-                    JoinSubmitError::Operation(OperationError::Full) => {
-                        (StatusCode::SERVICE_UNAVAILABLE, "OperationHistoryFull")
-                    }
-                    JoinSubmitError::Operation(_) => (StatusCode::BAD_REQUEST, "InvalidRequest"),
-                }
-            })
+                })
         })
         .await;
         match result {
@@ -774,6 +788,8 @@ impl std::str::FromStr for ListenAddress {
 #[command(name = "orishu-worker")]
 struct Cli {
     #[command(flatten)]
+    logging: config::LoggingConfig,
+    #[command(flatten)]
     tracing: config::TracingConfig,
     /// Enable the optional loopback process probes and Prometheus health metrics.
     #[arg(long = "observability.enabled", env = "ORISHU_OBSERVABILITY_ENABLED", action = clap::ArgAction::Set)]
@@ -959,6 +975,11 @@ async fn main() {
     let state = state.with_peer_metrics(
         runtime.observability.enabled == Some(true) && runtime.observability.metrics_enabled(),
     );
+    let logging = runtime.logging.prepare().unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(2);
+    });
+    let log = logging.as_ref().map(|(log, _)| log.clone());
     let (state, owner_task) = state.start();
     let state = Arc::new(state);
     #[cfg(feature = "formation-fault-test")]
@@ -1030,6 +1051,15 @@ async fn main() {
     let inspection_capacity = Arc::new(tokio::sync::Semaphore::new(16));
     #[cfg(feature = "otlp-tracing")]
     let tracing = tracing.map(|(queue, exporter)| {
+        let queue = if let Some(log) = &log {
+            queue.with_log(log.clone())
+        } else {
+            queue
+        };
+        assert!(
+            state.install_trace_queue(queue.clone()),
+            "startup tracing queue installed twice"
+        );
         let (stop, signal) = tokio::sync::oneshot::channel();
         (
             queue,
@@ -1108,7 +1138,11 @@ async fn main() {
         let service = Service::new(router);
         #[cfg(feature = "otlp-tracing")]
         let service = if let Some((queue, _, _, _)) = &tracing {
-            service.hoop(orishu_worker::trace_export::TraceRequests(queue.clone()))
+            let authority = state.clone();
+            service.hoop(orishu_worker::trace_export::TraceRequests::new(
+                queue.clone(),
+                move |token: &str| authority.authorize_operator(token),
+            ))
         } else {
             service
         };
@@ -1122,7 +1156,6 @@ async fn main() {
         };
         match addr {
             ListenAddress::Tcp(socket_addr) => {
-                println!("Listening on TCP socket: {}", socket_addr);
                 if let Some(ref tls) = tls_config {
                     let acceptor = TcpListener::new(*socket_addr)
                         .rustls(tls.clone())
@@ -1131,18 +1164,24 @@ async fn main() {
                     let server = client_server(acceptor);
                     server_handles.push(server.handle());
                     let health_role = state.required_role();
+                    let log = log.clone();
                     tasks.push(tokio::spawn(async move {
                         let _health_role = health_role;
-                        server.try_serve(service).await.expect("TLS server failed");
+                        if server.try_serve(service).await.is_err() {
+                            lifecycle(&log, orishu_worker::operational_log::Event::RuntimeFailed);
+                        }
                     }));
                 } else {
                     let acceptor = TcpListener::new(*socket_addr).bind().await;
                     let server = client_server(acceptor);
                     server_handles.push(server.handle());
                     let health_role = state.required_role();
+                    let log = log.clone();
                     tasks.push(tokio::spawn(async move {
                         let _health_role = health_role;
-                        server.try_serve(service).await.expect("TCP server failed");
+                        if server.try_serve(service).await.is_err() {
+                            lifecycle(&log, orishu_worker::operational_log::Event::RuntimeFailed);
+                        }
                     }));
                 }
             }
@@ -1153,7 +1192,6 @@ async fn main() {
                         eprintln!("{error}");
                         std::process::exit(2);
                     });
-                println!("Listening on Unix socket: {}", path.display());
 
                 use std::os::unix::fs::PermissionsExt;
                 let acceptor = UnixListener::new(path.clone())
@@ -1165,10 +1203,13 @@ async fn main() {
                     .expect("successfully bound socket ownership");
                 server_handles.push(server.handle());
                 let health_role = state.required_role();
+                let log = log.clone();
                 tasks.push(tokio::spawn(async move {
                     let _health_role = health_role;
                     let _lease = lease;
-                    server.try_serve(service).await.expect("Unix server failed");
+                    if server.try_serve(service).await.is_err() {
+                        lifecycle(&log, orishu_worker::operational_log::Event::RuntimeFailed);
+                    }
                 }));
             }
         }
@@ -1178,32 +1219,40 @@ async fn main() {
     if let Some(acceptor) = diagnostics_acceptor {
         let server = client_server(acceptor).max_connections(16);
         server_handles.push(server.handle());
-        #[cfg(feature = "otlp-tracing")]
-        let router = diagnostics::router_with_traces(
+        let router = diagnostics::router_with_telemetry(
             state.clone(),
             &runtime.observability,
             request_metrics,
+            log.clone(),
+            #[cfg(feature = "otlp-tracing")]
             tracing.as_ref().map(|(queue, _, counters, _)| {
                 diagnostics::Traces(queue.clone(), counters.clone())
             }),
         );
-        #[cfg(not(feature = "otlp-tracing"))]
-        let router = diagnostics::router(state.clone(), &runtime.observability, request_metrics);
         // Diagnostics failure is not membership/process-role failure. It must
         // not make a healthy worker unready or stop scientific/peer work.
+        let log = log.clone();
         tasks.push(tokio::spawn(async move {
             if server.try_serve(router).await.is_err() {
-                eprintln!("diagnostics listener stopped");
+                lifecycle(
+                    &log,
+                    orishu_worker::operational_log::Event::DiagnosticsFailed,
+                );
             }
         }));
     }
     state.mark_initialized();
+    lifecycle(&log, orishu_worker::operational_log::Event::Ready);
     let supervised_servers = server_handles.clone();
+    let supervisor_log = log.clone();
     let supervisor = tokio::spawn(async move {
         let outcome = owner_task.await;
         let failed = !matches!(outcome, Ok(Ok(())));
         if failed {
-            eprintln!("membership owner failed; stopping client listeners");
+            lifecycle(
+                &supervisor_log,
+                orishu_worker::operational_log::Event::RuntimeFailed,
+            );
         }
         for handle in supervised_servers {
             handle.stop_graceful(Some(std::time::Duration::from_secs(1)));
@@ -1213,29 +1262,66 @@ async fn main() {
     // The owner supervisor alone stops client servers. Salvo consumes the
     // first stop command before draining connections, so a competing signal
     // handler deadline could prevent the supervisor's bounded drain taking effect.
-    tokio::spawn(listen_shutdown_signal(state.clone()));
+    let shutdown_signal = tokio::spawn(listen_shutdown_signal(state.clone(), log.clone()));
 
     for task in tasks {
         let _ = task.await;
     }
     let _ = state.shutdown().await;
+    shutdown_signal.abort();
+    let _ = shutdown_signal.await;
     #[cfg(feature = "otlp-tracing")]
     if let Some((queue, stop, _, task)) = tracing {
         let _ = stop.send(());
         match task.await {
-            Ok(stats) => eprintln!("trace exporter stopped: {stats:?}"),
-            Err(_) => eprintln!("trace exporter task failed"),
+            Ok(stats) => {
+                if let Some(log) = &log {
+                    orishu_worker::trace_export::log_final_counts(log, &queue.stats(), &stats);
+                }
+            }
+            Err(_) => lifecycle(
+                &log,
+                orishu_worker::operational_log::Event::TraceExporterFailed,
+            ),
         }
-        eprintln!("trace queue stopped: {:?}", queue.stats());
     }
-    if supervisor.await.unwrap_or(true) {
+    let failed = supervisor.await.unwrap_or(true);
+    if let Some((_, output)) = logging {
+        // Bounded drain only after producers/owner/exporter have stopped. No
+        // synchronous stdout/stderr report may bypass this output's cutoff.
+        let _ = if failed {
+            output.shutdown()
+        } else {
+            output.shutdown_stopped()
+        };
+    }
+    if failed {
         std::process::exit(1);
     }
 }
 
 // ── Shutdown ────────────────────────────────────────────────────────────────
 
-async fn listen_shutdown_signal(runtime: Arc<RunningWorker>) {
+fn lifecycle(
+    log: &Option<orishu_worker::operational_log::Log>,
+    event: orishu_worker::operational_log::Event,
+) {
+    use orishu_worker::operational_log::{Event, Outcome};
+    if let Some(log) = log {
+        let outcome = match event {
+            Event::RuntimeFailed | Event::DiagnosticsFailed | Event::TraceExporterFailed => {
+                Outcome::Failed
+            }
+            _ => Outcome::Completed,
+        };
+        log.lifecycle(event, outcome);
+    }
+}
+
+async fn listen_shutdown_signal(
+    runtime: Arc<RunningWorker>,
+    log: Option<orishu_worker::operational_log::Log>,
+) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -1259,9 +1345,10 @@ async fn listen_shutdown_signal(runtime: Arc<RunningWorker>) {
     };
 
     tokio::select! {
-        _ = ctrl_c => println!("ctrl_c signal received"),
-        _ = terminate => println!("terminate signal received"),
+        _ = ctrl_c => {},
+        _ = terminate => {},
     };
+    lifecycle(&log, orishu_worker::operational_log::Event::Stopping);
 
     let _ = runtime.shutdown().await;
 }
@@ -1274,6 +1361,7 @@ fn resolve_runtime_config(cli: &Cli) -> Result<RuntimeConfig, String> {
 
     runtime.apply_cli(&cli.listen, cli.tls_cert.as_deref(), cli.tls_key.as_deref());
     runtime.tracing.overlay(&cli.tracing);
+    runtime.logging.overlay(&cli.logging);
     if let Some(enabled) = cli.observability_enabled {
         runtime.observability.enabled = Some(enabled);
     }

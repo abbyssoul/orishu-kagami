@@ -90,13 +90,13 @@ As an administrator, I want to be able to assign a human-readable name to a work
 
 **Given** the shared assumptions above
 **When** I start `orishu-worker` with a name
-**Then** the worker process starts and is identified by the given name in cluster membership, logs, and administrator tool output.
+**Then** the worker process starts and is identified by the given name in cluster membership and administrator tool output; operational-log collection identifies its process/target separately.
 
 **Acceptance criteria:**
 - The worker can be started with a human-readable name, e.g. `orishu-worker --name <name>` (or equivalent configuration), and should use that name as its identifier.
 - The name is distinct from the node ID. The node ID is an identifier assigned by the cluster to its members and plays a part in partition ownership. The name is a human-friendly label for display purposes. See [Node identity](../../orishu-runtime-design.md#node-identity).
 - If no `--name` is provided, the worker should generate a random name automatically, ensuring that every instance has a recognizable label even without explicit configuration.
-- The name should appear in cluster node listings (e.g. `orishuctl ls`), detailed node information, log output, and diagnostics to help administrators distinguish between multiple instances.
+- The name should appear in cluster node listings (e.g. `orishuctl ls`) and detailed node information. The bounded operational-log contract excludes raw names from records: use external process/target collection metadata to distinguish stdout streams, not a new free-text log field or metric label.
 - Multiple instances can share the same name. The name is not required to be unique within the cluster and can be interpreted as representing a family of similarly configured workers.
 
 
@@ -319,11 +319,28 @@ Local sampled export now has live delivery/loss counters when metrics and
 tracing are both enabled. The [catalogue](../../orishu-observability.md#live-trace-delivery-and-loss-counters)
 explains sampling, queue pressure, collector failure and absent instruments;
 these signals do not establish operation acceptance or justify worker restart.
+Optional [structured stdout logging](../../../apps/orishu-worker/README.md#structured-stdout-logs)
+now has independent file/environment/CLI settings, sampled trace/span correlation
+and nine logging-loss counters when metrics are enabled. Zero-sampled or
+disabled tracing does not suppress enabled lifecycle records. Normal disabled
+logging is quiet; a slow/closed stdout reader must not make a worker unready.
+The [logging-counter backend recipe](../../testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+verifies independent enablement, real broken-pipe counters, unchanged control
+and probes, and fresh ingested values after scraper recovery.
+The [local executable evidence](../../tasks/cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09)
+does not complete the combined service/container handoff or durable log retention.
+The selected [systemd](../../testing-worker-user-service.md#verify-enabled-journal-and-trace-collection)
+and [rootless-container](../../testing-worker-container.md#verify-enabled-container-and-trace-collection)
+extensions now verify collected records against received spans with clean stops
+and explicit fresh-identity restarts. They do not promise durable retention,
+three-worker formation under a supervisor or accepted overhead budgets.
 The [pinned local Collector walkthrough](../../testing-worker-otelcol.md) adds
 real span receipt and inspection, disabled/zero-sampling checks and collector
-shutdown/recovery while authenticated control remains usable. This is local
-client-service telemetry only; cross-peer/log correlation, remote collector
-security and durable backend operation are not established by that recipe.
+shutdown/recovery while authenticated control remains usable. The additional
+[three-worker walkthrough](../../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+matches received admission chains to the respective stdout streams and checks
+direct metrics/probes and cross-worker policy visibility. These local HTTP
+recipes do not establish remote collector security or durable backend operation.
 The [mTLS receiver extension](../../testing-worker-otelcol-mtls.md) now adds
 dedicated collector trust/client credentials and real startup/certificate/name
 refusal evidence. Cross-host deployment and credential lifecycle qualification

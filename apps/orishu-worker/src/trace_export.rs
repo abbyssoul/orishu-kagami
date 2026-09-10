@@ -19,14 +19,34 @@ pub use credentials::CollectorFiles;
 mod worker;
 pub use worker::{DeliveryCounters, ExportLoop, ExportStats};
 mod requests;
-pub use requests::TraceRequests;
+pub use requests::{TraceRequests, request_parent};
+
+/// Emit the final fixed trace counters through the existing optional bounded
+/// logger. This is not guaranteed delivery or a second logging destination.
+pub fn log_final_counts(log: &crate::operational_log::Log, q: &QueueStats, d: &ExportStats) {
+    use crate::operational_log::TraceCounter as C;
+    log.trace_summary([
+        (C::SampledOut, q.sampled_out),
+        (C::ActiveFull, q.active_full),
+        (C::QueueFull, q.queue_full),
+        (C::Closed, q.closed),
+        (C::InvalidSource, q.invalid_source),
+        (C::Enqueued, q.enqueued),
+        (C::Accepted, d.accepted),
+        (C::Rejected, d.rejected),
+        (C::Failed, d.failed),
+        (C::EncodingDropped, d.encoding_dropped),
+        (C::ShutdownDropped, d.shutdown_dropped),
+        (C::Warnings, d.warnings),
+    ]);
+}
 
 /// Static instrumentation vocabulary; not derived from user input.
 #[derive(Clone, Copy, Debug)]
 pub enum Operation {
     /// One client service invocation, not transport delivery or domain acceptance.
     ClientRequest,
-    /// One admission operation in the worker adapter.
+    /// One authenticated, bound admission request handled by the receiving worker.
     Admission,
     /// One identified peer exchange, not an aggregate gossip causality claim.
     PeerExchange,
@@ -108,7 +128,7 @@ impl SpanRecord {
     fn message(self) -> Span {
         let (name, kind) = match self.operation {
             Operation::ClientRequest => ("orishu.client.request", SpanKind::Server),
-            Operation::Admission => ("orishu.admission", SpanKind::Internal),
+            Operation::Admission => ("orishu.admission", SpanKind::Server),
             Operation::PeerExchange => ("orishu.peer.exchange", SpanKind::Client),
         };
         let outcome = match self.outcome {
@@ -137,6 +157,30 @@ impl SpanRecord {
             }),
             ..Default::default()
         }
+    }
+
+    fn log_record(self) -> crate::operational_log::Record {
+        use crate::operational_log::{Event, Outcome as LogOutcome, Record};
+        let event = match self.operation {
+            Operation::ClientRequest => Event::ClientRequest,
+            Operation::Admission => Event::Admission,
+            Operation::PeerExchange => Event::PeerExchange,
+        };
+        let outcome = match self.outcome {
+            Outcome::Completed => LogOutcome::Completed,
+            Outcome::Rejected => LogOutcome::Rejected,
+            Outcome::Failed => LogOutcome::Failed,
+            Outcome::Cancelled => LogOutcome::Cancelled,
+        };
+        Record::new(
+            event,
+            outcome,
+            self.end,
+            Some(
+                crate::trace_context::TraceParent::new(self.trace, self.span, true)
+                    .expect("validated local span identity"),
+            ),
+        )
     }
 }
 

@@ -1,13 +1,13 @@
 # 0025 — Version peer trace-context propagation separately from membership semantics
 
-Status: **accepted — implementation pending**
+Status: **accepted — implemented for formation admission tracing**
 Decision date: **2026-09-08**
 
 ## Context
 
 [ADR 0017](0017-worker-operational-observability.md) requires sampled
 client-to-peer tracing without making telemetry an authority or core dependency.
-The current `orishu-membership/4` wire adapter requires seven envelope fields
+The preceding `orishu-membership/4` wire adapter required seven envelope fields
 and rejects unknown ones. Adding optional context is therefore incompatible
 with existing peers, even when its sender considers the field optional.
 Silently relaxing profile 4 would make telemetry enablement change interoperability.
@@ -24,7 +24,8 @@ fixtures are ready. Keep semantic `proto: 1`, policy Merkle hashing, admission
 attempt identity and assignment replay unchanged. Do not negotiate profile 4
 as a fallback. As with previous PoC profile changes, rebuild/restart all workers
 together; rolling upgrades and retained formation recovery remain unsupported.
-Until implemented and validated, the supported profile remains 4.
+Profile 5 was activated on 2026-09-09 with the
+[wire, compatibility and three-worker receipt evidence](../tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
 
 All profile-5 builds understand the optional membership-envelope `traceParent`
 field, independently of exporter features. Exporter dependencies stay behind
@@ -67,7 +68,9 @@ membership behavior. Context bytes count toward all existing transport limits.
 
 This requires a coordinated PoC restart, not a persisted-data migration. Metrics
 and probes remain independently usable. Feature-disabled peers still implement
-one wire grammar. No context field or profile bump is implemented by this ADR.
+one wire grammar. The implementation now propagates sampled outbound join
+exchange context to receiving admission spans. Handshakes, admission baselines
+and unrelated periodic traffic do not acquire invented single-parent causality.
 
 Before activation, verify old-profile refusal with valid mutual credentials;
 golden absent/present-context bytes; invalid-context versus invalid-domain
@@ -75,6 +78,13 @@ behavior; unchanged admission digests/replay; maximum packet omission; and all
 feature combinations. Then verify a real client operation and peer operation
 reach the test OTLP receiver with the documented parent relationship. Codec
 fixtures alone do not establish propagation or export.
+
+The linked activation evidence covers independent runtime controls, mixed
+feature-enabled/omitted executables and authenticated old-profile refusal.
+This closes the initial formation propagation delivery. The subsequent
+[official Collector walkthrough](../tasks/cluster-formation-conformance.md#official-collector-formation-and-log-correlation--2026-09-09)
+adds admission-chain/stdout correlation, not full M4: reviewed overhead and
+the final selected-deployment handoff remain open.
 
 Delivery: [observability task](../tasks/implement-worker-observability.md),
 [formation task](../tasks/implement-cluster-formation-poc.md),

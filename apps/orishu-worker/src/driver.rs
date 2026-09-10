@@ -216,6 +216,8 @@ pub enum PacketError {
 }
 
 struct PacketContext {
+    #[cfg(feature = "otlp-tracing")]
+    admission_outcome: crate::trace_export::Outcome,
     join_attempt: Option<(
         orishu_membership::CertFingerprint,
         crate::peer::wire::JoinAttempt,
@@ -228,7 +230,23 @@ struct PacketContext {
     response: Option<crate::peer::wire::Encoded>,
 }
 
+// Registry validation must precede this diagnostic gate. It never authorizes
+// admission or replaces the membership core's credential/policy checks.
+#[cfg(feature = "otlp-tracing")]
+fn admission_trace_parent(
+    expected: Option<&SecretToken>,
+    presented: Option<&SecretToken>,
+    parent: Option<crate::trace_context::TraceParent>,
+) -> Option<crate::trace_context::TraceParent> {
+    parent.filter(|_| {
+        expected.is_some_and(|expected| {
+            presented.is_some_and(|presented| expected.matches(presented.expose()))
+        })
+    })
+}
+
 struct JoinTransport {
+    parent: Option<crate::trace_context::TraceParent>,
     attempt_id: NodeId,
     emitted: bool,
     session: orishu_membership::SessionId,
@@ -363,6 +381,7 @@ pub enum PreparedJoin {
 /// Single-use shell job with guaranteed completion delivery. Contains secret
 /// input deliberately excluded from Debug and from retained operation records.
 pub struct JoinPreparation {
+    parent: Option<crate::trace_context::TraceParent>,
     operation: orishu::model::cluster::JoinOperation,
     generation: Generation,
     local: orishu_membership::LocalIdentity,
@@ -391,6 +410,7 @@ impl JoinPreparation {
             send_reserved_control(
                 permit,
                 Control::JoinPrepared {
+                    parent: self.parent,
                     generation: self.generation,
                     request: self.request.take().expect("single completion"),
                     pending,
@@ -508,11 +528,13 @@ enum Control {
     },
     Input(Input),
     PrepareJoin {
+        parent: Option<crate::trace_context::TraceParent>,
         request: orishu::model::cluster::JoinRequest,
         completion: mpsc::OwnedPermit<Control>,
         reply: oneshot::Sender<Result<PreparedJoin, crate::join_operations::OperationError>>,
     },
     JoinPrepared {
+        parent: Option<crate::trace_context::TraceParent>,
         generation: Generation,
         request: orishu::model::cluster::JoinRequest,
         pending: Option<crate::peer::dial::PendingHandshake>,
@@ -526,6 +548,7 @@ enum Control {
         reply: oneshot::Sender<orishu::model::cluster::AdmissionInspection>,
     },
     BeginJoin {
+        parent: Option<crate::trace_context::TraceParent>,
         generation: Generation,
         source: orishu_membership::FormationId,
         target: orishu_membership::FormationId,
@@ -619,6 +642,8 @@ pub enum LeaveError {
 /// Cheap IO-side handle. Only the owner task can mutate `Membership`.
 #[derive(Clone)]
 pub struct Handle {
+    #[cfg(feature = "otlp-tracing")]
+    tracing: std::sync::Arc<std::sync::OnceLock<crate::trace_export::SpanQueue>>,
     #[cfg(feature = "observability")]
     formation_metrics: crate::formation_metrics::FormationMetrics,
     exchanges: crate::peer::exchange::ExchangePool,
@@ -628,9 +653,29 @@ pub struct Handle {
     completion: mpsc::Sender<Input>,
     shutdown: mpsc::Sender<oneshot::Sender<()>>,
     view: watch::Receiver<View>,
+    formation_adopted: std::sync::Arc<tokio::sync::Notify>,
+    first_catchup_route: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl Handle {
+    /// Coalesced IO wake-up only; the owner revalidates every resulting plan.
+    pub(crate) async fn formation_adopted(&self) {
+        self.formation_adopted.notified().await;
+    }
+
+    /// Wake the first catch-up when a current admitted route is registered.
+    /// Subsequent failed attempts retain the periodic retry cadence.
+    pub(crate) async fn first_catchup_route(&self) {
+        self.first_catchup_route.notified().await;
+    }
+
+    /// Install optional diagnostics once during startup. Cannot replace a live
+    /// queue or mutate membership authority; false means already configured.
+    #[cfg(feature = "otlp-tracing")]
+    pub(crate) fn install_trace_queue(&self, queue: crate::trace_export::SpanQueue) -> bool {
+        self.tracing.set(queue).is_ok()
+    }
+
     /// Optional owner deadline/abandonment observations, without owner requests.
     #[cfg(feature = "observability")]
     pub fn formation_counters(&self) -> Option<crate::formation_metrics::Snapshot> {
@@ -849,6 +894,26 @@ impl Handle {
         oneshot::Receiver<Result<PreparedJoin, crate::join_operations::OperationError>>,
         DriverError,
     > {
+        self.prepare_join_with_parent(request, None)
+    }
+
+    /// Retain at most one IO-only parent on a newly reserved operation. Replays
+    /// do not replace it; existing generation/completion fencing remains intact.
+    pub(crate) fn prepare_join_with_parent(
+        &self,
+        request: orishu::model::cluster::JoinRequest,
+        parent: Option<crate::trace_context::TraceParent>,
+    ) -> Result<
+        oneshot::Receiver<Result<PreparedJoin, crate::join_operations::OperationError>>,
+        DriverError,
+    > {
+        #[cfg(feature = "otlp-tracing")]
+        let parent = parent.filter(|_| self.tracing.get().is_some());
+        #[cfg(not(feature = "otlp-tracing"))]
+        let parent = {
+            let _ = parent;
+            None
+        };
         let completion = self
             .control
             .clone()
@@ -860,6 +925,7 @@ impl Handle {
         let (reply, receive) = oneshot::channel();
         self.control
             .try_send(Control::PrepareJoin {
+                parent,
                 request,
                 completion,
                 reply,
@@ -915,6 +981,7 @@ impl Handle {
         let (reply, receive) = oneshot::channel();
         self.control
             .try_send(Control::BeginJoin {
+                parent: None,
                 generation,
                 source,
                 target,
@@ -1439,13 +1506,19 @@ fn spawn_owner(
         admissions: AdmissionCounters::default(),
     };
     let (published, receiver) = watch::channel(view.clone());
+    let formation_adopted = std::sync::Arc::new(tokio::sync::Notify::new());
+    let first_catchup_route = std::sync::Arc::new(tokio::sync::Notify::new());
     let (send, mut input) = mpsc::channel::<PeerDelivery>(MAILBOX_CAPACITY);
     let (control, mut commands) = mpsc::channel::<Control>(CONTROL_CAPACITY);
     let (completion, mut completions) = mpsc::channel::<Input>(MAILBOX_CAPACITY);
     let (shutdown, mut stopping) = mpsc::channel::<oneshot::Sender<()>>(1);
     let exchanges = crate::peer::exchange::ExchangePool::with_metrics(MAX_RELIABLE_SENDS, metrics)
         .expect("fixed valid capacity");
+    #[cfg(feature = "otlp-tracing")]
+    let tracing = std::sync::Arc::new(std::sync::OnceLock::new());
     let handle = Handle {
+        #[cfg(feature = "otlp-tracing")]
+        tracing: tracing.clone(),
         #[cfg(feature = "observability")]
         formation_metrics: formation_metrics.clone(),
         exchanges: exchanges.clone(),
@@ -1455,10 +1528,16 @@ fn spawn_owner(
         completion,
         shutdown,
         view: receiver,
+        formation_adopted: formation_adopted.clone(),
+        first_catchup_route: first_catchup_route.clone(),
     };
     let task = tokio::spawn(async move {
         let sessions = crate::peer::registry::Registry::observed(formation_metrics.clone());
         let mut owner = Owner {
+            formation_adopted,
+            first_catchup_route,
+            #[cfg(feature = "otlp-tracing")]
+            tracing,
             formation_metrics,
             packet_io,
             #[cfg(feature = "formation-fault-test")]
@@ -1476,7 +1555,9 @@ fn spawn_owner(
             pending_catchup: None,
             next_catchup: 0,
             catchup_attempts: 0,
+            catchup_route_notified: false,
             catchup_started: None,
+            catchup_route: None,
             catchup_failed: false,
             baseline_result: None,
             admission_baselines: Default::default(),
@@ -1581,6 +1662,10 @@ fn spawn_owner(
 }
 
 struct Owner {
+    formation_adopted: std::sync::Arc<tokio::sync::Notify>,
+    first_catchup_route: std::sync::Arc<tokio::sync::Notify>,
+    #[cfg(feature = "otlp-tracing")]
+    tracing: std::sync::Arc<std::sync::OnceLock<crate::trace_export::SpanQueue>>,
     formation_metrics: crate::formation_metrics::FormationMetrics,
     packet_io: crate::peer::traffic::Traffic,
     #[cfg(feature = "formation-fault-test")]
@@ -1598,7 +1683,10 @@ struct Owner {
     pending_catchup: Option<CatchupAttempt>,
     next_catchup: u64,
     catchup_attempts: u8,
+    catchup_route_notified: bool,
     catchup_started: Option<Instant>,
+    // One admitted reconnect hint, not a credential or readiness grant.
+    catchup_route: Option<(NodeId, orishu_membership::CertFingerprint)>,
     catchup_failed: bool,
     baseline_result: Option<(u64, bool, bool)>,
     admission_baselines: crate::peer::catchup::store::Store,
@@ -1711,6 +1799,7 @@ impl Owner {
                             transport,
                             bytes: encoded,
                             deferred_gossip: 0,
+                            deferred: Vec::new(),
                         }))
                     })();
                     let _ = reply.send(result.map_err(Into::into));
@@ -1757,13 +1846,40 @@ impl Owner {
                     let _ = reply.send(Err(DriverError::PeerAdapterUnavailable.into()));
                     return Ok(());
                 }
+                #[cfg(feature = "otlp-tracing")]
+                let active = if decoded.join_attempt.is_some() {
+                    self.tracing.get().and_then(|queue| {
+                        // Session/generation/source checks already passed. A
+                        // valid current join credential is additionally needed
+                        // to adopt diagnostic ancestry, never to skip admission.
+                        let parent = admission_trace_parent(
+                            self.join_token.as_ref(),
+                            decoded.join_token.as_ref(),
+                            decoded.trace_parent,
+                        );
+                        queue.try_begin_with_parent(
+                            crate::trace_export::Operation::Admission,
+                            parent,
+                        )
+                    })
+                } else {
+                    None
+                };
                 if decoded.join_attempt.is_some() {
                     match self.replay_join(&decoded, session) {
                         Ok(Some(encoded)) => {
+                            #[cfg(feature = "otlp-tracing")]
+                            if let Some(active) = active {
+                                active.finish(crate::trace_export::Outcome::Completed);
+                            }
                             let _ = reply.send(Ok(Some(encoded)));
                             return Ok(());
                         }
                         Err(error) => {
+                            #[cfg(feature = "otlp-tracing")]
+                            if let Some(active) = active {
+                                active.finish(crate::trace_export::Outcome::Rejected);
+                            }
                             let _ = reply.send(Err(error.into()));
                             return Ok(());
                         }
@@ -1771,6 +1887,8 @@ impl Owner {
                     }
                 }
                 self.packet = Some(PacketContext {
+                    #[cfg(feature = "otlp-tracing")]
+                    admission_outcome: crate::trace_export::Outcome::Completed,
                     join_attempt: decoded
                         .join_attempt
                         .map(|attempt| (decoded.input.context.cert_fingerprint, attempt)),
@@ -1836,11 +1954,19 @@ impl Owner {
                     let _ = reply.send(Err(DriverError::PeerAdapterUnavailable.into()));
                     return Ok(());
                 }
-                let response = self
+                let packet = self
                     .packet
                     .take()
-                    .expect("packet context scoped to one transition")
-                    .response;
+                    .expect("packet context scoped to one transition");
+                #[cfg(feature = "otlp-tracing")]
+                if let Some(active) = active {
+                    active.finish(if result.is_ok() {
+                        packet.admission_outcome
+                    } else {
+                        crate::trace_export::Outcome::Failed
+                    });
+                }
+                let response = packet.response;
                 match result {
                     Ok(()) => {
                         let _ = reply.send(Ok(response));
@@ -1881,6 +2007,27 @@ impl Owner {
                             .accept_introducer_reply(model, generation, connection, &bytes, target),
                     }
                 };
+                if self.view.summary.participation == Participation::CatchingUp
+                    && self.catchup_attempts == 0
+                    && !self.catchup_route_notified
+                    && let Ok(binding) = &result
+                    && self
+                        .sessions
+                        .credential_context(
+                            self.model.as_ref().expect("installed model"),
+                            self.view.generation,
+                            binding.session,
+                        )
+                        .is_ok_and(|(context, _)| {
+                            matches!(
+                                context.sender,
+                                orishu_membership::SenderIdentity::Admitted(_)
+                            )
+                        })
+                {
+                    self.catchup_route_notified = true;
+                    self.first_catchup_route.notify_one();
+                }
                 let _ = reply.send(result);
                 Ok(())
             }
@@ -2314,6 +2461,7 @@ impl Owner {
                         self.join_token = Some(token);
                         self.catchup_failed = false;
                         self.catchup_started = None;
+                        self.catchup_route = None;
                         self.view.summary.participation = Participation::Joined;
                     }
                 }
@@ -2328,6 +2476,7 @@ impl Owner {
                 return self.publish();
             }
             Control::PrepareJoin {
+                parent,
                 request,
                 completion,
                 reply,
@@ -2341,6 +2490,7 @@ impl Owner {
                         }
                         crate::join_operations::Reservation::Start(operation) => {
                             PreparedJoin::Start(Box::new(JoinPreparation {
+                                parent,
                                 operation,
                                 generation: self.view.generation,
                                 local: self
@@ -2425,6 +2575,30 @@ impl Owner {
                     after: None,
                     plan: None,
                 };
+                if self.view.summary.participation == Participation::CatchingUp
+                    && let Some((node, fingerprint)) = self.catchup_route.take()
+                    && model
+                        .member(&node)
+                        .is_some_and(|member| member.cert_fingerprint == fingerprint)
+                    && self
+                        .sessions
+                        .member_connection(model, self.view.generation, &node)
+                        .is_none()
+                    && let Ok(target) = crate::peer::dial::MemberTarget::from_model(model, &node)
+                {
+                    // The admitting peer already knows this assignment. Give
+                    // it one fresh admitted handshake before the ordinary scan,
+                    // even when the canonical direction would await its dial.
+                    // A failed attempt falls back to the normal bounded scan.
+                    page.after = after;
+                    page.plan = Some(MemberDialPlan {
+                        node,
+                        local: model.local().clone(),
+                        target,
+                    });
+                    let _ = reply.send(page);
+                    return Ok(());
+                }
                 if matches!(
                     self.view.summary.participation,
                     Participation::Standalone | Participation::CatchingUp | Participation::Joined
@@ -2460,6 +2634,7 @@ impl Owner {
                 return Ok(());
             }
             Control::JoinPrepared {
+                parent,
                 generation,
                 request,
                 pending,
@@ -2496,6 +2671,7 @@ impl Owner {
                 self.active_join_operation = Some(request.operation_id);
                 let (reply, _) = oneshot::channel();
                 let result = self.control(Control::BeginJoin {
+                    parent,
                     generation,
                     source: request.formation_id,
                     target: request.material.formation_id,
@@ -2526,6 +2702,7 @@ impl Owner {
                 return result;
             }
             Control::BeginJoin {
+                parent,
                 generation,
                 source,
                 target,
@@ -2547,6 +2724,7 @@ impl Owner {
                     return Ok(());
                 }
                 self.outbound_join = Some(JoinTransport {
+                    parent,
                     attempt_id: SecretToken::generate()
                         .map_err(|_| DriverError::Entropy)?
                         .expose()
@@ -2893,7 +3071,14 @@ impl Owner {
                 self.pending_catchup = None;
                 self.catchup_started = None;
                 self.catchup_attempts = 0;
+                self.catchup_route_notified = false;
                 self.catchup_failed = false;
+                self.catchup_route = self
+                    .outbound_join
+                    .as_ref()
+                    .and_then(|join| join.route.as_ref())
+                    .filter(|route| route.formation == *transition.model.formation())
+                    .map(|route| (route.node.clone(), route.fingerprint));
                 self.outbound_join = None;
                 self.admission_replays = Default::default();
                 self.lock_operations.clear();
@@ -2969,20 +3154,32 @@ impl Owner {
                     }
                     Effect::SelectPeers {
                         request,
+                        purpose,
                         count,
                         exclude,
-                        ..
                     } => {
                         let model = self.model.as_ref().expect("installed model");
-                        // O(members log members), once per protocol round, outside
-                        // any simulation hot path. Independent random sort keys
-                        // avoid deterministic preference for lexical node IDs.
+                        // O(members log members) sorting plus at most one bounded
+                        // registry revalidation per reconciliation candidate.
+                        // Outside simulation hot paths; independent random keys
+                        // avoid preference for lexical node IDs.
                         let mut eligible = Vec::new();
                         for member in model.members().values().filter(|member| {
                             matches!(member.liveness, Liveness::Alive | Liveness::Suspected)
                                 && &member.id != model.local_id()
                                 && !exclude.contains(&member.id)
                         }) {
+                            // Reconciliation needs an existing reliable route;
+                            // an unsent pull must not occupy the round deadline.
+                            // SWIM still selects disconnected members normally.
+                            if matches!(purpose, orishu_membership::SelectionPurpose::AntiEntropy)
+                                && self
+                                    .sessions
+                                    .member_connection(model, self.view.generation, &member.id)
+                                    .is_none()
+                            {
+                                continue;
+                            }
                             let random =
                                 SecretToken::generate().map_err(|_| DriverError::Entropy)?;
                             eligible.push((random.expose().to_owned(), member.id.clone()));
@@ -3072,6 +3269,24 @@ impl Owner {
                                 &join.target,
                             ) && self.sends.len() < MAX_RELIABLE_SENDS
                             {
+                                // Only the identified join owns this ancestry.
+                                // Retries retain it; unrelated owner work never
+                                // reads a last-client/global context slot.
+                                #[cfg(feature = "otlp-tracing")]
+                                let active = self.tracing.get().and_then(|queue| {
+                                    queue.try_begin_with_parent(
+                                        crate::trace_export::Operation::PeerExchange,
+                                        join.parent,
+                                    )
+                                });
+                                #[cfg(not(feature = "otlp-tracing"))]
+                                let _ = join.parent;
+                                #[cfg(feature = "otlp-tracing")]
+                                let encoded = encoded.with_parent(
+                                    active
+                                        .as_ref()
+                                        .map(crate::trace_export::ActiveSpan::context),
+                                );
                                 let generation = self.view.generation;
                                 self.outbound_join.as_mut().expect("active join").emitted = true;
                                 if let Some(id) = &self.active_join_operation {
@@ -3084,17 +3299,22 @@ impl Owner {
                                 }
                                 let exchange = self.exchanges.clone();
                                 self.sends.spawn(async move {
-                                    (
-                                        generation,
-                                        session,
-                                        exchange
-                                            .request(
-                                                &connection,
-                                                &encoded.bytes,
-                                                crate::peer::exchange::Phase::Membership,
-                                            )
-                                            .await,
-                                    )
+                                    let result = exchange
+                                        .request(
+                                            &connection,
+                                            &encoded.bytes,
+                                            crate::peer::exchange::Phase::Membership,
+                                        )
+                                        .await;
+                                    #[cfg(feature = "otlp-tracing")]
+                                    if let Some(active) = active {
+                                        active.finish(if result.is_ok() {
+                                            crate::trace_export::Outcome::Completed
+                                        } else {
+                                            crate::trace_export::Outcome::Failed
+                                        });
+                                    }
+                                    (generation, session, result)
                                 });
                             } else {
                                 self.view.failed_sends = self.view.failed_sends.saturating_add(1);
@@ -3130,6 +3350,14 @@ impl Owner {
                         };
                         if packet.response.is_some() {
                             return Err(DriverError::Limit);
+                        }
+                        #[cfg(feature = "otlp-tracing")]
+                        if matches!(
+                            message.body,
+                            orishu_membership::OutboundBody::JoinRejected { .. }
+                                | orishu_membership::OutboundBody::JoinRedirect { .. }
+                        ) {
+                            packet.admission_outcome = crate::trace_export::Outcome::Rejected;
                         }
                         let model = self.model.as_ref().expect("installed model");
                         let encoded = crate::peer::wire::encode(
@@ -3216,20 +3444,38 @@ impl Owner {
                     }
                     Effect::Send {
                         destination: orishu_membership::Destination::Member(node),
-                        message,
+                        mut message,
                     } => {
                         let model = self.model.as_ref().expect("installed model");
                         let response = matches!(
                             &message.body,
                             orishu_membership::OutboundBody::PullReply { .. }
                         );
-                        let encoded = crate::peer::wire::encode(
+                        let route = if response {
+                            None
+                        } else {
+                            self.sessions
+                                .member_connection(model, self.view.generation, &node)
+                        };
+                        // Preparing a send is not transmission: a missing route
+                        // must not consume any of its offered gossip allowance.
+                        let unsent = if !response && route.is_none() {
+                            std::mem::take(&mut message.gossip)
+                        } else {
+                            Vec::new()
+                        };
+                        let (encoded, trimmed) = crate::peer::wire::encode_member(
                             message,
                             model.formation().clone(),
                             orishu_membership::SenderIdentity::Admitted(model.local_id().clone()),
-                            None,
                         )
                         .map_err(|_| DriverError::Limit)?;
+                        let deferred = if !unsent.is_empty() { unsent } else { trimmed };
+                        if !deferred.is_empty() {
+                            pending.push_back(Message::Outcome(EffectOutcome::GossipDeferred {
+                                deltas: deferred,
+                            }));
+                        }
                         if response {
                             let packet = self
                                 .packet
@@ -3244,10 +3490,7 @@ impl Owner {
                                 return Err(DriverError::Limit);
                             }
                             packet.response = Some(encoded);
-                        } else if let Some((session, connection)) =
-                            self.sessions
-                                .member_connection(model, self.view.generation, &node)
-                        {
+                        } else if let Some((session, connection)) = route {
                             if encoded.transport == crate::peer::wire::Transport::Datagram {
                                 if self.packet_io.submit(&connection, encoded).is_err() {
                                     self.view.failed_sends =
@@ -3315,6 +3558,7 @@ impl Owner {
         self.join_token = None;
         self.pending_catchup = None;
         self.catchup_started = None;
+        self.catchup_route = None;
         self.outbound_join = None;
         self.timers.clear();
         self.sends.abort_all();
@@ -3401,7 +3645,13 @@ impl Owner {
                     .map_err(|_| DriverError::Limit)?;
             }
         }
-        self.published.send_replace(self.view.clone());
+        let previous = self.published.send_replace(self.view.clone());
+        if self.view.summary.participation == Participation::CatchingUp
+            && (previous.generation != self.view.generation
+                || previous.summary.participation != Participation::CatchingUp)
+        {
+            self.formation_adopted.notify_one();
+        }
         Ok(())
     }
 }
@@ -3445,6 +3695,31 @@ fn introducer_ready(model: &Membership, participation: Participation, has_token:
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "otlp-tracing")]
+    #[test]
+    fn admission_trace_parent_requires_the_current_join_credential() {
+        let expected = super::SecretToken::parse("a".repeat(64)).unwrap();
+        let wrong = super::SecretToken::parse("b".repeat(64)).unwrap();
+        for sampled in [false, true] {
+            let parent = crate::trace_context::TraceParent::new([1; 16], [2; 8], sampled);
+            assert_eq!(
+                super::admission_trace_parent(Some(&expected), Some(&expected), parent),
+                parent
+            );
+            for (current, presented) in [
+                (Some(&expected), Some(&wrong)),
+                (None, Some(&expected)),
+                (Some(&expected), None),
+                (None, None),
+            ] {
+                assert!(super::admission_trace_parent(current, presented, parent).is_none());
+            }
+            assert!(
+                super::admission_trace_parent(Some(&expected), Some(&expected), None).is_none()
+            );
+        }
+    }
+
     use super::*;
     use orishu_membership::{ClusterName, FormationId, testing};
 
@@ -3774,7 +4049,10 @@ mod tests {
         };
         let (handle, task) = spawn_standalone(model);
         let PreparedJoin::Start(job) = handle
-            .prepare_join(request.clone())
+            .prepare_join_with_parent(
+                request.clone(),
+                crate::trace_context::TraceParent::new([1; 16], [2; 8], true),
+            )
             .unwrap()
             .await
             .unwrap()
@@ -3782,6 +4060,10 @@ mod tests {
         else {
             panic!("new operation");
         };
+        assert!(
+            job.parent.is_none(),
+            "runtime-disabled owner retained context"
+        );
         drop(job);
         let status = handle
             .join_status(request.operation_id.clone())
@@ -3846,8 +4128,17 @@ mod tests {
             };
             let old_id = request.operation_id.clone();
             let (handle, task) = spawn_standalone(model);
+            #[cfg(feature = "otlp-tracing")]
+            let (_queue, _receiver) = {
+                let pair = crate::trace_export::SpanQueue::new(1_000_000, 2, 2).unwrap();
+                assert!(handle.install_trace_queue(pair.0.clone()));
+                assert!(!handle.install_trace_queue(pair.0.clone()));
+                pair
+            };
+            let old_parent = crate::trace_context::TraceParent::new([1; 16], [2; 8], true);
+            let new_parent = crate::trace_context::TraceParent::new([3; 16], [4; 8], true);
             let PreparedJoin::Start(old) = handle
-                .prepare_join(request.clone())
+                .prepare_join_with_parent(request.clone(), old_parent)
                 .unwrap()
                 .await
                 .unwrap()
@@ -3855,6 +4146,31 @@ mod tests {
             else {
                 panic!("old preparation must start");
             };
+            assert_eq!(
+                old.parent,
+                if cfg!(feature = "otlp-tracing") {
+                    old_parent
+                } else {
+                    None
+                }
+            );
+            assert!(matches!(
+                handle
+                    .prepare_join_with_parent(request.clone(), new_parent)
+                    .unwrap()
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                PreparedJoin::Replay(_)
+            ));
+            assert_eq!(
+                old.parent,
+                if cfg!(feature = "otlp-tracing") {
+                    old_parent
+                } else {
+                    None
+                }
+            );
             handle
                 .try_submit(
                     Generation(0),
@@ -3869,7 +4185,7 @@ mod tests {
             request.operation_id = "new-prepare".parse().unwrap();
             request.formation_id = replacement.summary.formation_id.clone();
             let PreparedJoin::Start(new) = handle
-                .prepare_join(request.clone())
+                .prepare_join_with_parent(request.clone(), new_parent)
                 .unwrap()
                 .await
                 .unwrap()
@@ -3877,9 +4193,25 @@ mod tests {
             else {
                 panic!("new lifecycle preparation must start");
             };
+            assert_eq!(
+                new.parent,
+                if cfg!(feature = "otlp-tracing") {
+                    new_parent
+                } else {
+                    None
+                }
+            );
             // Uses the real reserved completion and its production Drop path.
             // The following status request is an ordered control-lane barrier.
             drop(old);
+            assert_eq!(
+                new.parent,
+                if cfg!(feature = "otlp-tracing") {
+                    new_parent
+                } else {
+                    None
+                }
+            );
             let status = handle
                 .join_status(request.operation_id.clone())
                 .unwrap()
@@ -4324,16 +4656,14 @@ mod tests {
                 tokio::time::timeout(Duration::from_secs(2), async {
                     loop {
                         let observed = handle.formation_counters().unwrap();
-                        if observed.get(Event::SuspicionDeadline) > 0
-                            && observed.get(Event::AntiEntropyAbandoned) > 0
-                        {
+                        if observed.get(Event::SuspicionDeadline) > 0 {
                             break;
                         }
                         tokio::task::yield_now().await;
                     }
                 })
                 .await
-                .expect("actual owner timers drive suspicion and reconciliation expiry");
+                .expect("actual owner timers drive suspicion expiry");
                 let before = handle.formation_counters().unwrap();
                 for event in [
                     Event::DirectProbeDeadline,
@@ -4344,10 +4674,13 @@ mod tests {
                 ] {
                     // No eligible helper cancels indirect probing immediately;
                     // one other admitted peer leaves its real deadline armed.
-                    let expected = if event == Event::IndirectProbeDeadline {
-                        u64::from(peers == 2)
-                    } else {
-                        1
+                    let expected = match event {
+                        Event::IndirectProbeDeadline => u64::from(peers == 2),
+                        // These fixture members have no registered routes, so
+                        // no pull is started. Real routed expiry is covered by
+                        // the departed-reconciliation transport timing test.
+                        Event::AntiEntropyDeadline | Event::AntiEntropyAbandoned => 0,
+                        _ => 1,
                     };
                     assert_eq!(before.get(event), expected, "{event:?}, peers={peers}");
                 }
@@ -4459,6 +4792,61 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(task.await.unwrap(), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn reconciliation_does_not_wait_on_a_route_that_was_never_available() {
+        let (handle, task) = spawn_standalone(testing::model_with_members(2));
+        handle
+            .try_submit(Generation(0), Message::Local(Command::StartProbeRound))
+            .unwrap();
+        handle
+            .try_submit(
+                Generation(0),
+                Message::Local(Command::StartAntiEntropyRound),
+            )
+            .unwrap();
+        let model = handle.model_snapshot().await;
+        handle.shutdown().await.unwrap();
+        assert_eq!(task.await.unwrap(), Ok(()));
+        assert!(
+            model.anti_entropy().is_none(),
+            "no unsent reconciliation may occupy its deadline"
+        );
+        assert!(
+            !model.probes().is_empty(),
+            "disconnected members must still be failure-detected"
+        );
+    }
+
+    #[tokio::test]
+    async fn gossip_without_a_member_route_is_not_charged_as_transmitted() {
+        let (handle, task) = spawn_standalone(testing::model_with_members(2));
+        let initial = handle.view().unwrap();
+        handle
+            .set_membership_lock(initial.generation, initial.summary.formation_id, true)
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+        for _ in 0..16 {
+            handle
+                .try_submit(Generation(0), Message::Local(Command::StartProbeRound))
+                .unwrap();
+        }
+        let model = handle.model_snapshot().await;
+        let view = handle.view().unwrap();
+        handle.shutdown().await.unwrap();
+        assert_eq!(task.await.unwrap(), Ok(()));
+        assert!(model.membership_locked());
+        assert!(view.failed_sends >= 16);
+        assert_eq!(view.completed_exchanges, 0);
+        assert!(
+            model.gossip().iter().any(|(key, hops, _)| *key
+                == orishu_membership::GossipKey::MembershipPolicy
+                && hops == 0),
+            "a route that never existed cannot consume the gossip allowance"
+        );
     }
 
     #[tokio::test]

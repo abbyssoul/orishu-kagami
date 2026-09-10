@@ -5,6 +5,7 @@ use salvo::prelude::*;
 use std::fmt::Write;
 use std::sync::Arc;
 
+mod logs;
 mod requests;
 pub(super) use requests::{Accounting, Requests};
 #[cfg(feature = "otlp-tracing")]
@@ -44,6 +45,7 @@ async fn not_found(res: &mut Response) {
 }
 
 struct Diagnostic {
+    log: Option<orishu_worker::operational_log::Log>,
     worker: Arc<RunningWorker>,
     requests: Arc<Requests>,
     route: Route,
@@ -241,6 +243,9 @@ impl Diagnostic {
                 }
             }
             self.requests.write(&mut body);
+            if let Some(log) = &self.log {
+                logs::write(&mut body, &log.stats());
+            }
             #[cfg(feature = "otlp-tracing")]
             if let Some(traces) = &self.traces {
                 traces.write(&mut body);
@@ -268,25 +273,27 @@ impl Diagnostic {
     }
 }
 
-#[cfg(any(test, not(feature = "otlp-tracing")))]
+#[cfg(test)]
 pub(super) fn router(
     worker: Arc<RunningWorker>,
     config: &crate::config::ObservabilityConfig,
     requests: Arc<Requests>,
 ) -> Router {
-    router_with_traces(
+    router_with_telemetry(
         worker,
         config,
         requests,
+        None,
         #[cfg(feature = "otlp-tracing")]
         None,
     )
 }
 
-pub(super) fn router_with_traces(
+pub(super) fn router_with_telemetry(
     worker: Arc<RunningWorker>,
     config: &crate::config::ObservabilityConfig,
     requests: Arc<Requests>,
+    log: Option<orishu_worker::operational_log::Log>,
     #[cfg(feature = "otlp-tracing")] traces: Option<Traces>,
 ) -> Router {
     let mut router = Router::new().goal(not_found);
@@ -305,6 +312,7 @@ pub(super) fn router_with_traces(
         }
         // Method rejection belongs to diagnostics, not framework error pages.
         router = router.push(Router::with_path(path).goal(Diagnostic {
+            log: log.clone(),
             worker: worker.clone(),
             requests: requests.clone(),
             route,

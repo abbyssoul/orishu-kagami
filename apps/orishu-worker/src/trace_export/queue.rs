@@ -1,5 +1,6 @@
-//! Non-blocking local sampling and bounded span lifecycle. No peer context yet.
+//! Non-blocking local sampling and bounded root/child span lifecycle.
 use super::{Operation, Outcome, SpanRecord};
+use crate::trace_context::TraceParent;
 use std::{
     sync::{
         Arc,
@@ -50,6 +51,7 @@ fn increment(counter: &AtomicU64) {
 /// Cloneable operation-side handle; no method waits for exporter capacity.
 #[derive(Clone)]
 pub struct SpanQueue {
+    log: Option<crate::operational_log::Log>,
     sample_ppm: u32,
     // The provider owns TLS configuration vectors, but its random source is
     // static. Resolve it once instead of rebuilding those vectors per request.
@@ -60,6 +62,13 @@ pub struct SpanQueue {
 }
 
 impl SpanQueue {
+    /// Attach explicit operational logging before cloning the queue into runtime
+    /// adapters. Only actual sampled span completions produce operation records.
+    pub fn with_log(mut self, log: crate::operational_log::Log) -> Self {
+        self.log = Some(log);
+        self
+    }
+
     /// Create separately bounded active slots and completed-span queue. The
     /// receiver belongs to the eventual export task. No task is spawned here.
     pub fn new(
@@ -74,6 +83,7 @@ impl SpanQueue {
         let (sender, receiver) = mpsc::channel(queued);
         Ok((
             Self {
+                log: None,
                 sample_ppm,
                 random: rustls::crypto::aws_lc_rs::default_provider().secure_random,
                 active: Arc::new(Semaphore::new(active)),
@@ -88,6 +98,18 @@ impl SpanQueue {
     /// provider. Zero sampling performs no clock or entropy acquisition. A shed
     /// span is `None`, never an operation failure. No caller sampling flag exists.
     pub fn try_begin(&self, operation: Operation) -> Option<ActiveSpan> {
+        self.try_begin_with_parent(operation, None)
+    }
+
+    /// Create a root or a child of context already authorized by the IO adapter.
+    /// Parent flags never override local sampling, active slots or queue limits.
+    /// No context is retained when this span is shed; periodic work must pass
+    /// `None` rather than inheriting unrelated recent request context.
+    pub fn try_begin_with_parent(
+        &self,
+        operation: Operation,
+        parent: Option<TraceParent>,
+    ) -> Option<ActiveSpan> {
         if self.sample_ppm == 0 {
             increment(&self.counters.sampled_out);
             return None;
@@ -101,10 +123,20 @@ impl SpanQueue {
             increment(&self.counters.invalid_source);
             return None;
         }
-        self.begin(operation, random)
+        self.begin_with_parent(operation, random, parent)
     }
 
+    #[cfg(test)]
     fn begin(&self, operation: Operation, random: [u8; 28]) -> Option<ActiveSpan> {
+        self.begin_with_parent(operation, random, None)
+    }
+
+    fn begin_with_parent(
+        &self,
+        operation: Operation,
+        random: [u8; 28],
+        parent: Option<TraceParent>,
+    ) -> Option<ActiveSpan> {
         let draw = u32::from_be_bytes(random[..4].try_into().unwrap());
         if !selected(draw, self.sample_ppm) {
             increment(&self.counters.sampled_out);
@@ -123,9 +155,9 @@ impl SpanQueue {
             return None;
         };
         let record = SpanRecord::new(
-            random[4..20].try_into().unwrap(),
+            parent.map_or_else(|| random[4..20].try_into().unwrap(), TraceParent::trace_id),
             random[20..].try_into().unwrap(),
-            None,
+            parent.map(TraceParent::span_id),
             operation,
             start,
             start,
@@ -173,6 +205,14 @@ pub struct ActiveSpan {
 }
 
 impl ActiveSpan {
+    /// The sampled local span's context for an explicitly causal child/exchange.
+    /// The private record remains live until this handle is consumed or dropped.
+    /// Output flags describe local sampling, never copied remote flags.
+    pub fn context(&self) -> TraceParent {
+        let record = self.record.as_ref().expect("active span owns a record");
+        TraceParent::new(record.trace, record.span, true).expect("validated active span IDs")
+    }
+
     /// Finish once with the adapter's actual outcome. Publication cannot wait.
     pub fn finish(mut self, outcome: Outcome) {
         if let Some(record) = &mut self.record {
@@ -188,6 +228,9 @@ impl ActiveSpan {
         // Use elapsed monotonic time so wall-clock adjustment cannot reverse a span.
         let elapsed = self.started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
         record.end = record.start.saturating_add(elapsed);
+        if let Some(log) = &self.queue.log {
+            let _ = log.try_record(record.log_record());
+        }
         match self.queue.sender.try_send(record) {
             Ok(()) => increment(&self.queue.counters.enqueued),
             Err(mpsc::error::TrySendError::Full(_)) => increment(&self.queue.counters.queue_full),
@@ -334,6 +377,128 @@ mod tests {
             .store(u64::MAX, Ordering::Relaxed);
         assert!(queue.begin(Operation::ClientRequest, [0; 28]).is_none());
         assert_eq!(queue.stats().invalid_source, u64::MAX);
+    }
+
+    #[test]
+    fn child_context_and_actual_otlp_bytes_preserve_parent_identity() {
+        use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+        use prost::Message;
+
+        let (queue, mut receiver) = SpanQueue::new(1_000_000, 2, 2).unwrap();
+        let root = queue.try_begin(Operation::ClientRequest).unwrap();
+        // Exercise the same fixed wire-value representation future adapters use.
+        let parent = TraceParent::parse(&root.context().encode()).unwrap();
+        let child = queue
+            .try_begin_with_parent(Operation::PeerExchange, Some(parent))
+            .unwrap();
+        let context = child.context();
+        assert_eq!(context.trace_id(), parent.trace_id());
+        assert_ne!(context.span_id(), parent.span_id());
+        assert!(context.sampled());
+        child.finish(Outcome::Completed);
+        root.finish(Outcome::Completed);
+        let batch = BatchLimits::new(2, 1024)
+            .unwrap()
+            .encode(&[receiver.try_recv().unwrap(), receiver.try_recv().unwrap()])
+            .unwrap();
+        let decoded = ExportTraceServiceRequest::decode(batch.body()).unwrap();
+        let spans = &decoded.resource_spans[0].scope_spans[0].spans;
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].trace_id, spans[1].trace_id);
+        assert_eq!(spans[0].parent_span_id, spans[1].span_id);
+        assert_eq!(spans[0].span_id, context.span_id());
+        assert_eq!(spans[0].flags, 1);
+        assert!(spans[1].parent_span_id.is_empty());
+    }
+
+    #[test]
+    fn remote_flags_never_override_local_sampling_or_reserve_capacity() {
+        let (mut queue, mut receiver) = SpanQueue::new(1000, 1, 1).unwrap();
+        for sampled in [false, true] {
+            let parent = TraceParent::new([7; 16], [8; 8], sampled).unwrap();
+            assert!(
+                queue
+                    .begin_with_parent(Operation::PeerExchange, [255; 28], Some(parent))
+                    .is_none()
+            );
+            let mut random = [0; 28];
+            random[20..].fill(9);
+            let active = queue
+                .begin_with_parent(Operation::PeerExchange, random, Some(parent))
+                .unwrap();
+            assert_eq!(
+                active.context(),
+                TraceParent::new([7; 16], [9; 8], true).unwrap()
+            );
+            drop(active);
+            let record = receiver.try_recv().unwrap();
+            assert_eq!(record.parent, Some([8; 8]));
+            assert!(matches!(record.outcome, Outcome::Cancelled));
+        }
+        assert_eq!(queue.stats().sampled_out, 2);
+        #[derive(Debug)]
+        struct NoEntropy;
+        impl rustls::crypto::SecureRandom for NoEntropy {
+            fn fill(&self, _: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
+                panic!("zero sampling must not acquire entropy")
+            }
+        }
+        queue.sample_ppm = 0;
+        queue.random = &NoEntropy;
+        assert!(
+            queue
+                .try_begin_with_parent(
+                    Operation::PeerExchange,
+                    TraceParent::new([7; 16], [8; 8], true),
+                )
+                .is_none()
+        );
+        assert_eq!(queue.active.available_permits(), 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn parent_collision_and_child_pressure_release_slots_without_root_contamination() {
+        let (queue, mut receiver) = SpanQueue::new(1_000_000, 1, 1).unwrap();
+        let parent = TraceParent::new([7; 16], [8; 8], true).unwrap();
+        let mut random = [0; 28];
+        random[20..].fill(8);
+        assert!(
+            queue
+                .begin_with_parent(Operation::PeerExchange, random, Some(parent))
+                .is_none()
+        );
+        assert_eq!(queue.stats().invalid_source, 1);
+        assert_eq!(queue.active.available_permits(), 1);
+        let active = queue
+            .try_begin_with_parent(Operation::PeerExchange, Some(parent))
+            .unwrap();
+        assert!(
+            queue
+                .try_begin_with_parent(Operation::PeerExchange, Some(parent))
+                .is_none()
+        );
+        active.finish(Outcome::Completed);
+        drop(
+            queue
+                .try_begin_with_parent(Operation::PeerExchange, Some(parent))
+                .unwrap(),
+        );
+        assert_eq!(queue.stats().active_full, 1);
+        assert_eq!(queue.stats().queue_full, 1);
+        assert_eq!(queue.active.available_permits(), 1);
+        receiver.try_recv().unwrap();
+        drop(queue.try_begin(Operation::Admission).unwrap());
+        let unrelated = receiver.try_recv().unwrap();
+        assert!(unrelated.parent.is_none());
+        assert_ne!(unrelated.trace, parent.trace_id());
+        drop(receiver);
+        assert!(
+            queue
+                .try_begin_with_parent(Operation::PeerExchange, Some(parent))
+                .is_none()
+        );
+        assert_eq!(queue.stats().closed, 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

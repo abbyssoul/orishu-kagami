@@ -79,6 +79,12 @@ impl Drop for Collector {
 #[ignore = "manual Linux measurement; run optimized, alone, with --nocapture"]
 async fn measure_local_telemetry_overhead() {
     require_optimized_build();
+    // V1 depends on the old synchronous final stderr accounting. Never
+    // substitute pre-shutdown counters or silently change that report schema.
+    let legacy_worker = std::env::var_os("ORISHU_BENCH_LEGACY_WORKER")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute() && path.is_file())
+        .expect("v1 overhead requires ORISHU_BENCH_LEGACY_WORKER: an explicit historical release binary with final stderr trace accounting; current M4 measurements require the reviewed v2 plan");
     // Explicit create-new artifact: preserve partial rounds on failure and
     // never replace another result. This IO is outside every timed window.
     let mut artifact = std::env::var_os("ORISHU_BENCH_REPORT").map(|path| {
@@ -109,7 +115,7 @@ async fn measure_local_telemetry_overhead() {
                 let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
                 let diagnostics = reservation.local_addr().unwrap();
                 drop(reservation);
-                let mut command = Command::new(env!("CARGO_BIN_EXE_orishu-worker"));
+                let mut command = Command::new(&legacy_worker);
                 for (key, _) in std::env::vars_os() {
                     if key.to_string_lossy().starts_with("ORISHU_") { command.env_remove(key); }
                 }

@@ -30,7 +30,7 @@ def unique_object(pairs):
     return result
 
 
-def read_spans(path, forbidden=(), complete=False):
+def read_spans(path, forbidden=(), complete=False, admission=False):
     """Read only complete, byte-bounded JSONL records; never print their content."""
     if not path.exists():
         return []
@@ -59,9 +59,20 @@ def read_spans(path, forbidden=(), complete=False):
                     "kind", "startTimeUnixNano", "endTimeUnixNano", "attributes",
                     "droppedAttributesCount", "events", "droppedEventsCount", "links",
                     "droppedLinksCount", "status"}, "unexpected span field"
-                assert span["name"] == "orishu.client.request"
-                assert span["kind"] == 2, "expected client-service server span"
-                assert not span.get("parentSpanId"), "local span unexpectedly has a parent"
+                if admission:
+                    kinds = {"orishu.client.request": 2, "orishu.peer.exchange": 3,
+                             "orishu.admission": 2}
+                    assert span["name"] in kinds, "unknown formation span"
+                    assert span["kind"] == kinds[span["name"]], "incorrect formation span kind"
+                    assert span.get("flags") == 1, "expected locally sampled span"
+                    parent = span.get("parentSpanId")
+                    if parent:
+                        assert re.fullmatch("[0-9a-f]{16}", parent) and int(parent, 16)
+                        assert parent != span["spanId"], "self-parented span"
+                else:
+                    assert span["name"] == "orishu.client.request"
+                    assert span["kind"] == 2, "expected client-service server span"
+                    assert not span.get("parentSpanId"), "local span unexpectedly has a parent"
                 assert not span.get("traceState")
                 assert not span.get("events") and not span.get("links")
                 assert not span.get("status", {}).get("message")
@@ -76,27 +87,29 @@ def read_spans(path, forbidden=(), complete=False):
                     {"stringValue": "completed"}, {"stringValue": "rejected"},
                     {"stringValue": "failed"}, {"stringValue": "cancelled"})
                 spans.append(span)
-                assert len(spans) <= MAX_SPANS, "collector receipt exceeded span budget"
+                assert len(spans) <= (256 if admission else MAX_SPANS), "collector receipt exceeded span budget"
     ids = {(span["traceId"], span["spanId"]) for span in spans}
     assert len(ids) == len(spans), "duplicate collected span"
     return spans
 
 
-def run(command, environment, success=True, cwd=None):
+def run(command, environment, success=True, cwd=None, max_output_bytes=16384):
     # Known tools emit small output in these bounded invocations. Keep it private.
+    assert 0 < max_output_bytes <= 65536, "invalid command output budget"
     with tempfile.TemporaryFile() as output:
         result = subprocess.run(command, env=environment, stdout=output,
                                 stderr=subprocess.STDOUT, timeout=10, check=False, cwd=cwd)
         output.seek(0)
-        body = output.read(16385)
-    assert len(body) <= 16384, "command output exceeded test budget"
+        body = output.read(max_output_bytes + 1)
+    assert len(body) <= max_output_bytes, "command output exceeded test budget"
     assert (result.returncode == 0) == success, "unexpected command exit status"
     return body
 
 
 @contextlib.contextmanager
-def process(command, environment, cwd=None):
-    child = subprocess.Popen(command, env=environment, stdout=subprocess.DEVNULL,
+def process(command, environment, cwd=None, stdout=None):
+    child = subprocess.Popen(command, env=environment,
+                             stdout=subprocess.DEVNULL if stdout is None else stdout,
                              stderr=subprocess.DEVNULL, umask=0o077, cwd=cwd)
     failed = False
     try:

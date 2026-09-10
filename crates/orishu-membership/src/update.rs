@@ -1700,6 +1700,41 @@ fn handle_clear_tombstone(ctx: &mut Context, node: NodeId) {
 
 fn handle_outcome(ctx: &mut Context, outcome: EffectOutcome) {
     match outcome {
+        EffectOutcome::GossipDeferred { deltas } => {
+            let limits = ctx.model.limits().clone();
+            if deltas.len() > limits.max_gossip_per_message() {
+                ctx.note(Diagnostic::LimitExceeded {
+                    limit: "maxGossipPerMessage",
+                    value: deltas.len(),
+                    max: limits.max_gossip_per_message(),
+                });
+                return;
+            }
+            let max_hops = limits.effective_gossip_hops(ctx.model.scale_size());
+            for delta in deltas {
+                if delta.hops == 0 || delta.hops > max_hops {
+                    continue;
+                }
+                let current = match &delta.body {
+                    DeltaBody::MembershipUpdate(member) => {
+                        ctx.model.member(&member.id) == Some(member)
+                    }
+                    DeltaBody::TombstoneUpdate(tombstone) => {
+                        ctx.model.tombstones().get(&tombstone.node_id) == Some(tombstone)
+                    }
+                    DeltaBody::BlocklistUpdate(entry) => {
+                        ctx.model.blocklist().get(&entry.key) == Some(entry)
+                    }
+                    DeltaBody::MembershipPolicyUpdate(policy) => {
+                        ctx.model.membership_policy() == Some(policy)
+                    }
+                    DeltaBody::Foreign(_) => false,
+                };
+                if current {
+                    ctx.model.gossip_mut().defer(delta, max_hops, &limits);
+                }
+            }
+        }
         EffectOutcome::PeersSelected { request, peers } => {
             handle_peers_selected(ctx, request, peers)
         }

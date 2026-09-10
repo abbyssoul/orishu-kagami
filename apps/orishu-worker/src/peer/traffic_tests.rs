@@ -19,6 +19,7 @@ fn packet(bytes: Vec<u8>, transport: wire::Transport) -> wire::Encoded {
         bytes,
         transport,
         deferred_gossip: 0,
+        deferred: Vec::new(),
     }
 }
 

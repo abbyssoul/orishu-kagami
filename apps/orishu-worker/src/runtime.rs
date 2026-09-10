@@ -363,6 +363,13 @@ pub struct RunningWorker {
 }
 
 impl RunningWorker {
+    /// Install the bounded exporter queue once at startup, before opening client
+    /// service. Returns false if already installed; never changes domain state.
+    #[cfg(feature = "otlp-tracing")]
+    pub fn install_trace_queue(&self, queue: crate::trace_export::SpanQueue) -> bool {
+        self.handle.install_trace_queue(queue)
+    }
+
     /// Fixed owner deadline/abandonment observations, including after shutdown.
     #[cfg(feature = "observability")]
     pub fn formation_counters(&self) -> Option<crate::formation_metrics::Snapshot> {
@@ -589,6 +596,7 @@ impl RunningWorker {
         if slot.is_some() || self.stopping.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
+        let notifications = self.handle.clone();
         let runtime = std::sync::Arc::downgrade(self);
         *slot = Some(tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -598,6 +606,7 @@ impl RunningWorker {
             loop {
                 tokio::select! {
                     _ = tick.tick() => {},
+                    _ = notifications.first_catchup_route() => {},
                     _ = jobs.join_next(), if !jobs.is_empty() => { continue; }
                 }
                 let Some(runtime) = runtime.upgrade() else {
@@ -648,6 +657,7 @@ impl RunningWorker {
         if slot.is_some() || self.stopping.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
+        let notifications = self.handle.clone();
         let runtime = std::sync::Arc::downgrade(self);
         *slot = Some(tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -659,6 +669,7 @@ impl RunningWorker {
             loop {
                 tokio::select! {
                     _ = tick.tick() => {},
+                    _ = notifications.formation_adopted() => {},
                     result = tasks.join_next(), if !tasks.is_empty() => {
                         if let Some(Ok(node)) = result { active.remove(&node); }
                         continue;
@@ -694,66 +705,76 @@ impl RunningWorker {
                 let Some(endpoint) = endpoint else {
                     continue;
                 };
-                let Ok(reply) = runtime.handle.member_dial(after.clone()) else {
-                    continue;
-                };
-                let Ok(Ok(page)) =
-                    tokio::time::timeout(std::time::Duration::from_secs(1), reply).await
-                else {
-                    continue;
-                };
-                after = page.after;
-                if page.generation != current {
-                    continue;
-                }
-                let Some(plan) = page.plan else {
-                    continue;
-                };
-                if !active.insert(plan.node.clone()) {
-                    continue;
-                }
-                tasks.spawn(async move {
-                    let run = async {
-                        let pool = runtime.handle.exchange_pool();
-                        let pending_result = runtime
-                            .dialer
-                            .member_handshake(
-                                &endpoint,
-                                &runtime.credentials.identity,
-                                &plan.local,
-                                &plan.target,
+                // Use the existing four handshake slots, without a waiter
+                // queue or repeated cursor wrap inside one tick. All owner
+                // queries share the same one-second preparation deadline.
+                let query_deadline =
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+                for _ in 0..4 {
+                    if tasks.len() >= 64 {
+                        break;
+                    }
+                    let Ok(reply) = runtime.handle.member_dial(after.clone()) else {
+                        break;
+                    };
+                    let Ok(Ok(page)) = tokio::time::timeout_at(query_deadline, reply).await else {
+                        break;
+                    };
+                    after = page.after;
+                    if page.generation != current {
+                        break;
+                    }
+                    let Some(plan) = page.plan else {
+                        break;
+                    };
+                    if !active.insert(plan.node.clone()) {
+                        continue;
+                    }
+                    let runtime = runtime.clone();
+                    let endpoint = endpoint.clone();
+                    tasks.spawn(async move {
+                        let run = async {
+                            let pool = runtime.handle.exchange_pool();
+                            let pending_result = runtime
+                                .dialer
+                                .member_handshake(
+                                    &endpoint,
+                                    &runtime.credentials.identity,
+                                    &plan.local,
+                                    &plan.target,
+                                    &pool,
+                                )
+                                .await;
+                            let pending = pending_result.ok()?;
+                            let (connection, bytes) = pending.into_parts();
+                            let connection = crate::peer::server::ConnectionLease(connection);
+                            let reply = runtime
+                                .handle
+                                .accept_member_handshake_reply(current, connection.0.clone(), bytes)
+                                .ok()?;
+                            let accepted_result =
+                                tokio::time::timeout(std::time::Duration::from_secs(5), reply)
+                                    .await
+                                    .ok()?
+                                    .ok()?;
+                            let accepted = accepted_result.ok()?;
+                            crate::peer::server::serve_registered(
+                                &connection.0,
+                                &runtime.handle,
+                                current,
+                                accepted.session,
                                 &pool,
                             )
                             .await;
-                        let pending = pending_result.ok()?;
-                        let (connection, bytes) = pending.into_parts();
-                        let connection = crate::peer::server::ConnectionLease(connection);
-                        let reply = runtime
-                            .handle
-                            .accept_member_handshake_reply(current, connection.0.clone(), bytes)
-                            .ok()?;
-                        let accepted_result =
-                            tokio::time::timeout(std::time::Duration::from_secs(5), reply)
-                                .await
-                                .ok()?
-                                .ok()?;
-                        let accepted = accepted_result.ok()?;
-                        crate::peer::server::serve_registered(
-                            &connection.0,
-                            &runtime.handle,
-                            current,
-                            accepted.session,
-                            &pool,
-                        )
-                        .await;
-                        Some(())
-                    };
-                    tokio::select! {
-                        _ = runtime.handle.closed() => {},
-                        _ = run => {},
-                    }
-                    plan.node
-                });
+                            Some(())
+                        };
+                        tokio::select! {
+                            _ = runtime.handle.closed() => {},
+                            _ = run => {},
+                        }
+                        plan.node
+                    });
+                }
             }
             tasks.shutdown().await;
         }));
@@ -764,12 +785,23 @@ impl RunningWorker {
         self: &std::sync::Arc<Self>,
         request: orishu::model::cluster::JoinRequest,
     ) -> Result<orishu::model::cluster::JoinOperation, JoinSubmitError> {
+        self.submit_join_with_parent(request, None).await
+    }
+
+    /// Authorized IO adapter entry point with optional request-local ancestry.
+    /// Context is discarded without an installed tracing queue and never enters
+    /// the operation identity, request digest or retained operation receipt.
+    pub async fn submit_join_with_parent(
+        self: &std::sync::Arc<Self>,
+        request: orishu::model::cluster::JoinRequest,
+        parent: Option<crate::trace_context::TraceParent>,
+    ) -> Result<orishu::model::cluster::JoinOperation, JoinSubmitError> {
         if self.stopping.load(std::sync::atomic::Ordering::Acquire) {
             return Err(crate::driver::DriverError::Closed.into());
         }
         let prepared = self
             .handle
-            .prepare_join(request)?
+            .prepare_join_with_parent(request, parent)?
             .await
             .map_err(|_| crate::driver::DriverError::Closed)??;
         match prepared {
@@ -1001,6 +1033,222 @@ pub enum JoinSubmitError {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn first_catchup_reacts_to_adoption_and_route_without_waiting_for_ticks() {
+        let root = tempfile::tempdir().unwrap();
+        let create = |name: &str| {
+            WorkerRuntime::standalone(
+                WorkerCredentials::load_or_create(&root.path().join(name)).unwrap(),
+                WorkerName::new(name).unwrap(),
+                ClusterName::new("cluster").unwrap(),
+                vec![],
+            )
+            .unwrap()
+            .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+            .unwrap()
+            .with_peer_admission(true)
+            .unwrap()
+            .start()
+        };
+        let (target, target_task) = create("target");
+        let (source, source_task) = create("source");
+        let source = std::sync::Arc::new(source);
+        source.start_peer_maintenance();
+        source.start_catchup_maintenance();
+        // Consume initial interval ticks while still standalone. Admission
+        // and a real registered TLS route must wake the first attempt themselves.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let request = orishu::model::cluster::JoinRequest {
+            schema_version: 1,
+            operation_id: "prompt-catchup".parse().unwrap(),
+            formation_id: source.summary().unwrap().formation_id,
+            material: target.join_material().unwrap().await.unwrap().unwrap(),
+        };
+        let completed = tokio::time::timeout(std::time::Duration::from_millis(800), async {
+            source.submit_join(request).await.unwrap();
+            while source.summary().unwrap().participation != Participation::Joined {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .is_ok();
+        source.shutdown().await.unwrap();
+        target.shutdown().await.unwrap();
+        assert_eq!(source_task.await.unwrap(), Ok(()));
+        assert_eq!(target_task.await.unwrap(), Ok(()));
+        assert!(
+            completed,
+            "first catch-up should not wait for either one-second tick"
+        );
+    }
+
+    #[cfg(feature = "observability")]
+    #[tokio::test]
+    async fn member_maintenance_uses_the_existing_four_dial_slots_in_one_tick() {
+        let root = tempfile::tempdir().unwrap();
+        let mut runtimes = Vec::new();
+        for index in 0..5 {
+            let name = format!("node-{index}");
+            let runtime = WorkerRuntime::standalone(
+                WorkerCredentials::load_or_create(&root.path().join(&name)).unwrap(),
+                WorkerName::new(&name).unwrap(),
+                ClusterName::new("cluster").unwrap(),
+                vec![],
+            )
+            .unwrap()
+            .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+            .unwrap()
+            .with_peer_admission(true)
+            .unwrap()
+            .with_peer_metrics(true);
+            runtimes.push(runtime);
+        }
+        // Pre-admitted fixture isolates connection scheduling; every actual
+        // connection must still pass the production TLS/member handshake.
+        let formation = runtimes[0].membership.formation().clone();
+        let locals: Vec<_> = runtimes
+            .iter()
+            .enumerate()
+            .map(|(index, runtime)| {
+                let mut local = runtime.membership.local().clone();
+                local.node_id = NodeId::new(format!("node-{index}")).unwrap();
+                local
+            })
+            .collect();
+        let members: Vec<_> = locals
+            .iter()
+            .map(|local| {
+                Membership::standalone(
+                    formation.clone(),
+                    ClusterName::new("cluster").unwrap(),
+                    local.clone(),
+                    Default::default(),
+                    Limits::default(),
+                )
+                .unwrap()
+                .member(&local.node_id)
+                .unwrap()
+                .clone()
+            })
+            .collect();
+        for (runtime, local) in runtimes.iter_mut().zip(locals) {
+            runtime.membership = Membership::standalone(
+                formation.clone(),
+                ClusterName::new("cluster").unwrap(),
+                local,
+                runtime.membership.policy().clone(),
+                Limits::default(),
+            )
+            .unwrap();
+            for member in &members {
+                orishu_membership::testing::insert_member(&mut runtime.membership, member.clone());
+            }
+        }
+        let (workers, tasks): (Vec<_>, Vec<_>) = runtimes
+            .into_iter()
+            .map(|runtime| {
+                let (worker, task) = runtime.start();
+                (std::sync::Arc::new(worker), task)
+            })
+            .unzip();
+        workers[0].start_peer_maintenance();
+        let completed = tokio::time::timeout(std::time::Duration::from_millis(800), async {
+            while workers[0]
+                .formation_counters()
+                .unwrap()
+                .registry_pressure()
+                .slots_in_use
+                != 4
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .is_ok();
+        for worker in workers {
+            worker.shutdown().await.unwrap();
+        }
+        for task in tasks {
+            assert_eq!(task.await.unwrap(), Ok(()));
+        }
+        assert!(
+            completed,
+            "four free handshake slots should be used before the second tick"
+        );
+    }
+
+    #[tokio::test]
+    async fn adopted_joiner_prioritizes_its_known_introducer_once_before_canonical_scan() {
+        let root = tempfile::tempdir().unwrap();
+        let create = |name: &str| {
+            WorkerRuntime::standalone(
+                WorkerCredentials::load_or_create(&root.path().join(name)).unwrap(),
+                WorkerName::new(name).unwrap(),
+                ClusterName::new("cluster").unwrap(),
+                vec![],
+            )
+            .unwrap()
+        };
+        let mut target = create("target");
+        // Every generated hexadecimal assigned ID sorts after this prefix.
+        // The ordinary canonical dial rule therefore skips this introducer.
+        let mut local = target.membership.local().clone();
+        local.node_id = NodeId::new("0").unwrap();
+        target.membership = Membership::standalone(
+            target.membership.formation().clone(),
+            target.membership.cluster_name().clone(),
+            local,
+            target.membership.policy().clone(),
+            target.membership.limits().clone(),
+        )
+        .unwrap();
+        let start = |runtime: WorkerRuntime| {
+            runtime
+                .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+                .unwrap()
+                .with_peer_admission(true)
+                .unwrap()
+                .start()
+        };
+        let (target, target_task) = start(target);
+        let (source, source_task) = start(create("source"));
+        let source = std::sync::Arc::new(source);
+        let request = orishu::model::cluster::JoinRequest {
+            schema_version: 1,
+            operation_id: "preferred-introducer".parse().unwrap(),
+            formation_id: source.summary().unwrap().formation_id,
+            material: target.join_material().unwrap().await.unwrap().unwrap(),
+        };
+        source.submit_join(request).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while source.summary().unwrap().participation != Participation::CatchingUp {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // No maintenance loop has run: test the production owner's first plan,
+        // after actual serialized admission, not a fabricated catch-up state.
+        let first = source.handle.member_dial(None).unwrap().await.unwrap();
+        let second = source.handle.member_dial(None).unwrap().await.unwrap();
+        source.shutdown().await.unwrap();
+        target.shutdown().await.unwrap();
+        assert_eq!(source_task.await.unwrap(), Ok(()));
+        assert_eq!(target_task.await.unwrap(), Ok(()));
+        assert_eq!(
+            first.plan.map(|plan| plan.node),
+            Some(NodeId::new("0").unwrap())
+        );
+        assert!(
+            first.after.is_none(),
+            "priority does not skip the ordinary cursor"
+        );
+        assert!(
+            second.plan.is_none(),
+            "the exception is consumed once, not a retry loop"
+        );
+    }
 
     #[tokio::test]
     async fn explicit_introducer_runtime_admits_but_adoption_withholds_readiness() {

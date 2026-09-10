@@ -149,8 +149,85 @@ formerly joined worker again.
 Remove only the stopped container with `podman rm orishu-poc-worker` when it is
 no longer needed. That does not delete its host bind-mounted state. Do not use
 volume deletion, `prune`, or credential removal as a recovery procedure.
-Container log capture remains ordinary stdout/stderr, not the pending bounded
-trace-correlated logging implementation or durable audit.
+Container log capture remains ordinary stdout/stderr. The
+[bounded stdout adapter](../apps/orishu-worker/README.md#structured-stdout-logs)
+is implemented; this base recipe leaves logging/tracing disabled and checks only
+credential exclusion in captured output. The
+[enabled collection check](#verify-enabled-container-and-trace-collection)
+below verifies actual runtime/Collector receipts separately; neither output
+capture nor a matching trace ID promises durable audit.
+
+## Verify enabled container and trace collection
+
+The [current-build verification](tasks/cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09)
+reruns both this collection extension and the five-mode base recipe after the
+formation/shutdown fixes. It does not grant overhead or release acceptance.
+
+The selected M4 extension runs a combined-feature worker and official Collector
+0.160.0 in rootless Podman, using the same evaluation Containerfile. It requires
+the pinned base already pulled and an idle worker/CLI build, plus the
+[verified Collector binary](testing-worker-otelcol.md#pinned-prerequisites):
+
+```sh
+python3 scripts/test_worker_deployment_receipts.py
+python3 scripts/check-worker-deployment-logs.py --deployment container --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --otelcol /absolute/path/to/otelcol --podman podman
+```
+
+`make test-worker-deployment-logs OTELCOL=/absolute/path/to/otelcol
+WORKER_SERVICE_TARGET_DIR=target/formation-flow-observability` builds the worker
+and runs both this and the [systemd check](testing-worker-user-service.md#verify-enabled-journal-and-trace-collection).
+The harness snapshots executables, builds a uniquely tagged image from those
+worker/CLI copies and prints hashes and runtime-package versions. Base pulling
+is disabled; the existing Containerfile's apt step can access Debian repositories
+inside the build container. This is not an offline-build guarantee. It installs
+no host packages and uses no workspace/credential build context.
+
+The Collector starts with `--network=none`; the worker explicitly shares only
+that namespace using `--network=container:<collector-name>`. Neither publishes
+a port or has external runtime networking. OTLP uses `127.0.0.1:4318`; worker
+probes/metrics use `127.0.0.1:9168` and are read with curl inside the worker.
+The Collector mounts only its configuration/receipt directory and its read-only
+executable. Worker state, operator credentials and the client socket are not
+mounted into it. Host-side CLI requests use the worker's private bind-mounted
+Unix socket, not a new network administration listener.
+
+Both containers retain keep-id non-root execution, a read-only root filesystem,
+dropped capabilities, no-new-privileges, no automatic restart and finite log/PID
+limits. The worker explicitly enables stdout logging and full trace sampling
+with the same small queue/batch/shutdown profile as the systemd extension.
+This deliberate namespace-sharing topology is local loopback trust, not mTLS
+identity isolation or a recommendation to expose plaintext OTLP remotely.
+
+Across two explicit worker starts, eight CLI requests per start exercise exact
+identity/membership reads, unauthorized-lock refusal and authenticated
+lock/unlock. Probes and live trace/log counters remain healthy. Each stop must
+exit zero and remove the socket within twelve seconds around Podman's ten-second
+stop allowance; forced kill does not pass. Restart retains private credentials
+but creates fresh formation/node identities.
+
+The verifier reads actual `podman logs --tail=513` output after each stop, with
+a 128-KiB cap. The second read must retain the complete first prefix and supply
+new records; rotation/truncation cannot silently satisfy receipt checks. Each
+start contributes eight operation records, three lifecycle records and twelve
+final accounting records. All sixteen operation records must match distinct
+received Collector spans by IDs, event, outcome and timestamp, without seeded
+credentials/names. No missing export is hidden by matching only a subset.
+
+For an operator-managed instance with logging enabled, `podman logs
+orishu-poc-worker` exposes its structured records. Preserve invocation boundaries
+using your runtime's collection metadata; stdout records do not carry formation
+identity. Compare their `trace_id`/`span_id` with received spans, not timestamps
+alone. The fixture's prefix check is a bounded two-start test, not a general
+rotation or durable-retention algorithm.
+
+The script has a 360-second alarm, 180-second image-build limit, fifteen-second
+ordinary tool calls and ten-second observation budgets. Cleanup verifies UUID
+labels before stopping/removing only fixture containers and their image; private
+files are removed, while the pinned base and reusable build cache remain.
+See the [recorded evidence](tasks/cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09).
+This verifies runtime collection and local-root receipt, not three-worker
+formation inside containers, new Prometheus ingestion, cross-host security,
+published images, Kubernetes/cloud qualification, durable logs or overhead.
 
 ## Reproduce the acceptance
 
@@ -173,5 +250,6 @@ fifteen-second budgets. Only UUID-named, matching-label fixture containers and
 images are stopped/removed. Temporary test state is removed afterward. Downloaded
 base images and reusable build cache remain; no global prune or host-package
 change occurs. There is no published image, Docker/ARM/SELinux/Kubernetes
-acceptance, full formation rerun, trace-export/correlation acceptance or overhead
-claim. See the [exact evidence](tasks/cluster-formation-conformance.md#source-built-rootless-container-monitoring--2026-09-08).
+acceptance, full formation rerun or overhead claim. The base five-mode test does
+not establish enabled trace/log collection; that has the separate extension above.
+See the [base evidence](tasks/cluster-formation-conformance.md#source-built-rootless-container-monitoring--2026-09-08).

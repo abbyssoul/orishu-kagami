@@ -19,17 +19,39 @@ health from service/container state and keep local namespace access separate
 from remote monitoring authorization; neither qualifies a published deployment.
 
 The [tracing configuration](orishu-configuration.md#implemented-tracing-budget-configuration-exporter-unavailable)
-now enables local client-service spans in builds with `otlp-tracing`.
+now enables local client-service and outbound join-exchange spans in builds
+with `otlp-tracing`.
 The capability remains excluded from default features and disabled at runtime
 by default. Enabling an omitted feature or omitting the explicit collector
 endpoint fails startup; credential errors fail before worker state/listeners.
 Disabled tracing does not load credential files or create an exporter.
 
-Enabled client-service middleware samples fixed-name root spans, retaining no
-request paths, headers, credentials or payloads. Handler HTTP 4xx/5xx responses
+Enabled client-service middleware samples fixed-name spans, retaining only
+validated diagnostic IDs/flags, never raw request paths, headers, credentials
+or payloads. It adopts a bounded incoming parent only with one valid worker
+operator Bearer credential, even for otherwise unauthenticated local reads.
+See the [client context contract](protocol-client.md#planned-client-trace-context).
+Handler HTTP 4xx/5xx responses
 map to rejected/failed diagnostics; successful handler completion is neither
 domain acceptance nor response delivery. Cancellation sheds a cancelled span
-best-effort. No client trace context is consumed and no peer context propagates.
+best-effort. Profile 5 now carries sampled outbound join context.
+
+An authorized new join retains the sampled local client span as IO-only ancestry
+through its generation-fenced preparation and join transport. Outbound attempts
+sample `orishu.peer.exchange` children under the same local limits; exchange
+completion reports receipt of a transport response, not admission acceptance.
+Cancellation drops its active permit and records cancellation best-effort.
+Replaying a retained operation can create a new client span but does not replace
+the original join parent or start new peer work. The [two-process receipt test](tasks/cluster-formation-conformance.md#owned-join-exchange-parent-receipt--2026-09-09)
+proves spans emitted by the initiating worker. The later
+[three-worker receipt test](tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09)
+also verifies the receiving worker's `orishu.admission` server span as a child
+of the outbound exchange. The receiver checks its bound session/generation and
+current join credential before adopting ancestry; admission decisions still
+run independently. Receiver sampling/capacity remain local, so a remote sampled
+flag cannot force export. Rejections are diagnostic outcomes, not durable audit
+receipts. Other peer operations currently emit no context; periodic work does
+not inherit a last-client context.
 
 The worker wires the existing bounded `SpanQueue`, protobuf codec,
 `CollectorFiles` and `ExportLoop` to the typed startup budgets. HTTP delivery
@@ -47,15 +69,18 @@ requests are not retried, and late active spans cannot extend the drain.
 A fixed aggregate delivery report and queue sampling/drop counts are emitted
 on shutdown. When metrics and tracing are both enabled, the existing `/metrics`
 route also exposes [live trace counters](#live-trace-delivery-and-loss-counters).
-Trace/span-correlated logs remain unfinished.
+The independent [structured stdout adapter](#bounded-operational-log-adapter)
+now supplies sampled trace/span-correlated records and bounded loss accounting.
 
 The real worker executable has local-collector evidence for a cluster-summary
 request, no collector connection while disabled or enabled with zero sampling, payload-label exclusion,
 collector-outage status continuity and graceful shutdown. Primitive mTLS,
 partial-response, byte/count/timer and stalled-drain fixtures supplement this
 process test; they do not establish the complete secured-deployment or
-distributed-tracing matrix. M4 still requires cross-peer traces, broader
-formation instrumentation, overhead evidence and the operator handoff.
+distributed-tracing matrix. The [official Collector formation walkthrough](testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+adds both admission chains matched to per-worker stdout, with direct scrapes
+and probes. Reviewed overhead and the final selected-deployment handoff remain
+M4 gates.
 
 A real-worker mTLS fixture now loads its configured CA, client certificate/key
 and collector-only token, verifies client certificate possession at the receiver,
@@ -735,6 +760,171 @@ These are not separate-process or secure remote deployment tests. See the
 and the
 [HTTP failure evidence](tasks/cluster-formation-conformance.md#catch-up-exchange-failure-through-http-probes--2026-09-07).
 
+## Bounded operational-log adapter
+
+Status: **implemented for source-built Unix workers; Linux process evidence**.
+Runtime configuration, lifecycle/span wiring and live loss counters are present.
+The [runtime evidence](tasks/cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09)
+distinguishes tested local receipt/pressure from the remaining combined operator
+handoff. The earlier
+[adapter evidence](tasks/cluster-formation-conformance.md#bounded-log-adapter-primitives--2026-09-09)
+retains its original primitive-only scope.
+
+The worker-owned `operational_log` module accepts typed, finite-vocabulary
+records and uses Rust's standard [`Write` interface](https://doc.rust-lang.org/std/io/trait.Write.html)
+as its replaceable sink seam. The
+[logging ecosystem review](tasks/implement-worker-observability.md#rust-logging-ecosystem-review--2026-09-08)
+did not identify an off-the-shelf appender that meets all byte, formatting and
+shutdown requirements unchanged. This adapter adds no dependency or public
+logging framework, no ambient subscriber and no dependency-event capture.
+Future instrumentation integration must retain these bounds rather than feed
+unrestricted `Debug`/`Display` values into its encoder.
+
+### Record and resource contract
+
+Each record is one newline-terminated JSON object, version 1. Required fields
+are `version`, `event`, `outcome` and `unix_nanos` (an unsigned 64-bit Unix
+nanosecond timestamp). Optional `trace_id` and `span_id` occur together as
+32/16 lowercase hexadecimal characters from the actual local OTLP span.
+They are neither incoming-header trust nor subscriber-local identity. No
+names, paths, error messages, arbitrary attributes or raw input fields exist.
+
+The event catalogue is `orishu.worker.ready`, `orishu.worker.stopping`,
+`orishu.worker.stopped`, `orishu.worker.failed`, `orishu.diagnostics.failed`,
+`orishu.trace_exporter.failed`, `orishu.client.request`, `orishu.admission`
+and `orishu.peer.exchange`. A final `orishu.trace.accounting` snapshot emits
+twelve records with two additional fields: finite `counter` and unsigned
+64-bit `value`, never trace/span IDs. Counter names are `sampled_out`,
+`active_full`, `queue_full`, `closed`, `invalid_source`, `enqueued`, `accepted`,
+`rejected`, `failed`, `encoding_dropped`, `shutdown_dropped` and `warnings`.
+These are final trace exporter/queue values, not the logger's own final losses.
+Outcomes are `completed`, `rejected`, `failed` and `cancelled`; none is an
+authoritative command receipt. Encoding is stack-only with a 320-byte complete
+record cap, including the newline. A future catalogue change that exceeds the
+cap is an encoding refusal, never heap growth or partial enqueue.
+
+The runtime defaults are `logging.enabled=false`,
+`logging.queueRecords=256` (range 1–4096) and `logging.shutdownMs=250` (range
+0–2000), using normal file < environment < CLI precedence. Logging is separate
+from both optional telemetry features; enabling it must not enable trace export
+or diagnostics. When enabled, lifecycle/failure records are unsampled, while
+operation records follow actual locally sampled spans. Disabled or zero-sampled
+tracing therefore produces no operation records or invented trace IDs, but
+does not suppress enabled lifecycle/failure records. See the
+[file/environment/CLI settings](orishu-configuration.md#implemented-structured-stdout-logging).
+The log record is emitted independently of successful span enqueue or collector
+delivery; matching IDs do not prove that both diagnostic destinations received
+the record. No log output or thread is created when logging is disabled.
+The [Prometheus logging-counter walkthrough](testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+verifies real backend ingestion, independent enablement, terminal broken-pipe
+failure and new write/closure samples after scraper outage. Its null/closed
+stdout destinations do not establish retained log content or durability.
+The initial catalogue has no free-text message or log-level/filter selector;
+`event` and `outcome` classify the fixed records. This is not an implicit request
+to enable a general-purpose logger's default level or dependency events.
+
+The adapter preallocates its queue. Default queued payload capacity is 81,920
+bytes; the hard maximum is 1,310,720 bytes. Each allocated slot additionally
+stores one `usize` length; collection bookkeeping is fixed-size. Backing capacity
+is checked against the hard slot maximum and never grows during enqueue.
+There is at most one extra in-flight frame, one stack frame per concurrent
+producer (a bounded twelve-frame encoding batch for final trace accounting),
+and one requested 256 KiB writer stack (plus OS minimum/guard-page
+overhead). Output has no separate growable formatting or batching buffer.
+Allocator and OS pipe buffers are not counted as queued record payload.
+
+Producers use a non-waiting queue lock attempt. Full or contended queues shed
+records immediately. One dedicated OS thread writes and flushes outside every
+queue lock; it is not a Tokio blocking task. The Unix stdout sink duplicates
+the inherited descriptor with close-on-exec, without changing its shared file
+status flags, opening/truncating a file, or taking Rust's global stdout lock.
+Future `Write` adapters must not panic, emit fallback diagnostics, acquire global
+standard-stream locks or introduce unbounded internal buffering.
+
+### Loss, failure and shutdown interpretation
+
+Independent saturating counters distinguish accepted, written, queue-full,
+queue-contended, encoding-failed, invalid-source, output-failed, closed and shutdown-dropped
+records. Acceptance means queued. Written means the sink acknowledged a complete
+write and flush, not collector receipt or durability. `invalid_source` counts
+lifecycle timestamp failures. With logging and the optional metrics route enabled,
+nine unlabelled `orishu_worker_log_<name>_total` counters use these suffixes:
+`accepted`, `written`, `queue_full`, `contended`, `encoding_failed`,
+`invalid_source`, `output_failed`, `closed` and `shutdown_dropped`.
+The additional exposition is under 3072 bytes even at saturated counters and
+keeps the complete scrape within 32 KiB. Logging disabled omits these series;
+metrics disabled still permits logging but exposes no log counters. Shutdown
+normally stops the HTTP listener before final draining, so a last scrape is not
+final process accounting and cannot prove zero shutdown loss. When logging and
+tracing are enabled, the final twelve trace-accounting records are offered as
+one all-or-none queue transaction before the logger drains. Fewer than twelve
+free slots sheds the batch and adds twelve to logging queue loss; zero sampling
+does not suppress this fixed final accounting. The writer can still fail or
+time out after writing only a prefix of that batch. Do not interpret absent
+counter records as zero, and never treat partial receipt as a complete snapshot.
+The output guard's
+cutoff report is tested internally; the worker does not print a potentially
+blocking final report after closing its sink.
+
+Positive short writes advance through at most 320 bytes. At most eight
+`Interrupted` retries are allowed per record. Any other write error, invalid
+write count, zero progress, exhausted interruption budget or failed flush is
+terminal for this output instance: the current and queued records count as
+output failures, future producers are refused, and no subsequent JSON line is
+appended after a potentially truncated prefix. There is no synchronous fallback
+or automatic reopen. A slow sink that resumes before cutoff can drain normally;
+a closed pipe requires restarting/reconfiguring the output, not an implicit
+destination change.
+
+Explicit shutdown first closes admission, then waits up to its configured drain
+interval. After successful worker shutdown, `stopped` is offered within that
+same closing queue transaction, after producers stop, rather than through the
+ordinary lossy producer try-lock. Brief writer bookkeeping contention therefore
+cannot alone shed this final event. Queue capacity, terminal output failure,
+timestamp/encoding validation and drain limits still apply; no slot is reserved,
+no capacity retry occurs and successful shutdown does not promise log delivery.
+The failure exit path does not emit a successful `stopped` event. See the
+[shutdown contention regression](measurements/formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09).
+At cutoff, queued never-started records become `shutdown_dropped`;
+an outstanding write/flush is reported separately as one **unconfirmed** record.
+It may have written nothing, a prefix or the whole record, so calling it a
+definite drop would be incorrect. Sink destruction also runs on the writer
+thread. No potentially blocked thread is joined: Rust's
+[`JoinHandle` drop detaches it](https://doc.rust-lang.org/std/thread/struct.JoinHandle.html).
+The OS releases a permanently blocked sink when the process exits. Ordinary
+scheduling and bounded queue cleanup remain outside the sink-wait interval.
+Dropping the output guard without explicit shutdown discards queued work with
+no drain wait. Neither path prints diagnostics.
+
+Ordinary successful runtime startup/shutdown no longer prints listener paths,
+signal messages or final trace statistics synchronously. Lifecycle records go
+through the adapter; normal disabled logging is quiet. Configuration/credential/
+listener startup errors and CLI help remain synchronous stderr/help output before
+successful initialization; they are not covered by runtime drain guarantees.
+Unexpected panics and explicitly enabled development fault markers likewise
+are not the production structured-event interface. No runtime output failure
+falls back to stderr.
+
+Both the primitive held-stdout child and real-worker process tests retain their
+unread output handles through exit. The worker test composes the actual owner,
+HTTP service, failing OTLP destination and logger, serves continued requests,
+observes output loss with unchanged readiness, and terminates within the normal
+three-second fixture deadline with a 20 ms logging drain and 100 ms exporter
+shutdown setting. This is scoped source-built Linux evidence, not a guarantee
+for every configuration, platform, panic path or deployment. Combined
+three-worker operator recipes and reviewed overhead still need acceptance.
+
+The [real-worker reader-recovery test](tasks/cluster-formation-conformance.md#real-worker-stdout-reader-recovery--2026-09-09)
+reuses the same observed pressure precondition, then resumes only the parent
+stdout reader. Previously accepted records drain, acknowledged writes catch up,
+and existing queue-loss counts remain visible without output failure or closure.
+A subsequent authenticated request with a unique trace ID produces one complete
+new correlated JSON record. Formation/node identity, membership policy and
+readiness remain unchanged. Capture is limited to 512 KiB for the complete
+fixture, with every individual line checked against the 320-byte contract.
+This proves pipe-reader recovery, not a retry/reopen after terminal output
+failure, collector recovery, log retention or recovery of already-shed records.
+
 ## What operators will receive
 
 - A configurable, separately bound worker HTTP listener serving Prometheus
@@ -879,7 +1069,8 @@ outcomes from owner adoption/fencing. Inbound refusal
 totals are historical counts, outbound slots measure attempts, and reliable
 slots measure stream work; none is a total established-peer-connection count.
 The finite formation-metrics inventory is covered at its recorded boundaries;
-trace/log correlation, reviewed overhead and full operator handoff remain open.
+local official-Collector trace/log correlation is verified, while reviewed
+overhead and the full selected-deployment operator handoff remain open.
 This does not promise per-peer attribution or convergence/step latency metrics.
 
 The first slice instruments local process and formation operations alongside
@@ -890,16 +1081,18 @@ measurements but validates scientific equivalence separately.
 
 [ADR 0025](adr/0025-version-peer-trace-context-propagation.md) accepts the
 profile-5-only change and IO-only context ownership, with coordinated restart
-and no profile-4 fallback. Implementation is pending: profile 4 still rejects
-the added field. Existing bounded local span delivery remains distinct from
-the unimplemented incoming-context extraction and cross-peer propagation.
+and no profile-4 fallback. Profile 5 is active, including client extraction,
+bounded join context and receiving admission spans. All feature builds use the
+same wire grammar. This does not complete the log, overhead or operator gates.
 
 The [accepted operational-log refinement](adr/0017-worker-operational-observability.md#correlated-operational-logs--decision-refinement-2026-09-08)
 selects structured stdout by default behind a bounded asynchronous output
 adapter. The [Rust ecosystem review](tasks/implement-worker-observability.md#rust-logging-ecosystem-review--2026-09-08)
 identifies candidate instrumentation/writer interfaces and the additional
-formatting, byte-budget and shutdown work required. This is not implemented
-logging or an accepted vendor sink; future destinations retain the same bounds.
+formatting, byte-budget and shutdown work required. The
+[bounded adapter](#bounded-operational-log-adapter) now has runtime integration,
+local received-span correlation and held-stdout worker tests. Vendor sinks are
+not implemented. Future destinations retain the same bounds.
 
 The [operator documentation task](tasks/document-worker-observability.md)
 must publish and exercise configuration/feature matrices, Prometheus scraping,

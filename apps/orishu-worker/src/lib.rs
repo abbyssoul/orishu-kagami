@@ -7,8 +7,10 @@ pub mod formation_metrics;
 pub mod health;
 pub mod join_operations;
 mod membership_view;
+pub mod operational_log;
 pub mod peer;
 pub mod runtime;
+pub mod trace_context;
 pub mod trace_destination;
 #[cfg(feature = "otlp-tracing")]
 pub mod trace_export;

@@ -1,7 +1,13 @@
 # 0017 — Expose bounded worker metrics, traces and health probes
 
-Status: **accepted; implementation planned**
+Status: **accepted**
 Date: **2026-09-05**
+
+Implementation update, **2026-09-09**: formation-stage source-built Linux
+metrics, probes, trace export and structured stdout are implemented with
+[scoped validation](../tasks/cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09).
+This does not close combined M4 performance acceptance, qualify published
+packages/images, or implement later workload instruments.
 
 ## Context
 
@@ -24,7 +30,9 @@ authority to monitoring infrastructure.
 Provide an `observability` Cargo feature in `orishu-worker` for a dedicated
 HTTP diagnostics listener exposing Prometheus metrics and process probes.
 Provide a separate `otlp-tracing` feature for OpenTelemetry-compatible trace
-export over OTLP. These are planned feature names, not current CLI capabilities.
+export over OTLP. Both feature names are implemented; runtime settings and
+the supported local surface are documented in the
+[observability guide](../orishu-observability.md#implemented-local-surface).
 Keep optional exporter dependencies in the worker IO shell; neither feature
 may add dependencies to the sans-IO membership core.
 
@@ -36,7 +44,7 @@ an unavailable capability is a startup error, never a silent no-op.
 
 The diagnostics listener has an explicit bind address and port, separate from
 peer and client admission flags. When enabled without a bind override it uses
-loopback; the implementation task selects and documents the port. It supports
+loopback; the implemented default is `127.0.0.1:9168`. It supports
 HTTP/1.1 for standard scrapers and probe clients. No external collector,
 Prometheus installation or companion configuration is required to run a worker.
 
@@ -130,8 +138,17 @@ in the IO shell. Unix-datagram and vendor sinks are future adapter extensions,
 not PoC implementations, a new plugin registry or a reason to extract a crate.
 Each future sink must preserve the same bounded/nonblocking contract.
 
-This design is accepted; logging implementation and deployment evidence remain
-pending in the [owning task](../tasks/implement-worker-observability.md#accepted-logging-output-decision).
+This design is accepted. The 2026-09-09
+[runtime implementation evidence](../tasks/cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09)
+covers local span/log receipt, explicit settings, live loss counters and held
+stdout worker exit, with later
+[reader recovery evidence](../tasks/cluster-formation-conformance.md#real-worker-stdout-reader-recovery--2026-09-09).
+The [official Collector three-worker walkthrough](../tasks/cluster-formation-conformance.md#official-collector-formation-and-log-correlation--2026-09-09)
+also verifies admission chains against the participating workers' stdout logs.
+The selected [systemd/rootless-container extensions](../tasks/cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09)
+now verify records collected by those runtimes against received local spans.
+Final checkpoint/applicability and reviewed-overhead gates
+remain in the [owning task](../tasks/implement-worker-observability.md#accepted-logging-output-decision).
 
 ### Access and configuration
 

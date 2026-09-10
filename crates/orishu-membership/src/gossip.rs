@@ -206,6 +206,24 @@ impl GossipQueue {
         self.entries.insert(key, QueuedDelta { hops: 0, body });
     }
 
+    /// Local omission is not a dissemination attempt. Unlike a duplicate peer
+    /// delta it may restore priority, using only the owner's current record.
+    pub(crate) fn defer(&mut self, delta: GossipDelta, max_hops: u32, limits: &Limits) {
+        let key = delta.body.key();
+        // Other sends from the same transition may already have advanced or
+        // retired this record. Undo one charge, not all later transmissions.
+        let previous_hops = key
+            .as_ref()
+            .and_then(|key| self.entries.get(key))
+            .filter(|entry| entry.body == delta.body)
+            .map_or(max_hops, |entry| entry.hops)
+            .saturating_sub(1);
+        self.enqueue(delta.body, limits);
+        if let Some(entry) = key.and_then(|key| self.entries.get_mut(&key)) {
+            entry.hops = previous_hops;
+        }
+    }
+
     /// Removes the delta with the highest hop count, breaking ties by key so
     /// eviction is deterministic.
     fn evict_one(&mut self) {
@@ -289,6 +307,22 @@ mod tests {
             );
         }
         (queue, limits)
+    }
+
+    #[test]
+    fn deferring_earlier_sends_preserves_later_transmission_charges() {
+        for maximum in [3, 4] {
+            let (mut queue, limits) = queue_with(1);
+            let first = queue.take(1, maximum).pop().unwrap();
+            let _transmitted = queue.take(1, maximum).pop().unwrap();
+            let third = queue.take(1, maximum).pop().unwrap();
+            // One transition can emit several sends before local outcomes
+            // return. Only the first and third were omitted; the middle one
+            // remains charged even when the third selection retired the entry.
+            queue.defer(first, maximum, &limits);
+            queue.defer(third, maximum, &limits);
+            assert_eq!(queue.iter().next().unwrap().1, 1);
+        }
     }
 
     #[test]

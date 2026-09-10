@@ -11,7 +11,8 @@ Decisions: [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) and
 
 Accepted companion decision: [ADR 0025](../adr/0025-version-peer-trace-context-propagation.md)
 selects profile 5 only, with coordinated rebuild/restart and no profile-4
-fallback. Implementation remains pending; current workers still use profile 4.
+fallback. Profile 5 is now active with
+[three-worker causal receipt and compatibility evidence](cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
 The separate logging decision is also accepted: structured stdout by default,
 bounded asynchronous delivery and a replaceable worker-owned sink adapter;
 Unix-datagram/vendor sinks remain future work.
@@ -48,7 +49,8 @@ not a greenfield implementation brief.
 
 | Read first | Purpose |
 | --- | --- |
-| [Open M4 work](#open-m4-work-selection) | Four remaining deliverables, their owners and decision gates |
+| [Open M4 work](#open-m4-work-selection) | Remaining deliverables, their owners and decision gates |
+| [M4 checklist](cluster-formation-m4-checklist.md) | Finite requirement/evidence map; deployment choice accepted and scoped collection verified, overhead/final acceptance pending |
 | [Scope and companion ownership](#roadmap-placement-and-dependencies) | Separate formation, telemetry and operator-documentation obligations |
 | [Operator journey](#m4-operator-journey) and [capability/runtime matrix](#m4-capability-and-runtime-matrix) | Observable behavior the companion delivery must demonstrate |
 | [Acceptance criteria](#acceptance-criteria) and [conformance ledger](cluster-formation-conformance.md) | Completion contract versus recorded evidence and its applicable checkpoint |
@@ -107,8 +109,10 @@ Preserve these companion increments at their recorded boundaries:
   lost-ACK uncertainty and admission refusal.
 - The [local Collector recipe](../testing-worker-otelcol.md) and
   [mTLS extension](../testing-worker-otelcol-mtls.md) establish scoped receipt,
-  outage and security evidence on loopback, not cross-host deployment,
-  credential lifecycle or cross-peer/log correlation.
+  outage and security evidence on loopback. The additional
+  [three-worker walkthrough](../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+  adds admission/log correlation and direct metrics/probes, not cross-host
+  deployment, credential lifecycle or combined service/container qualification.
 - The [local overhead baseline](../testing-worker-overhead.md) is measurement
   evidence, not an accepted budget or a concurrent three-worker result.
 
@@ -133,7 +137,7 @@ validation, not on increasing that budget alone.
 | Catch-up and lifecycle fencing | Real receiver completion fenced after leave/ejection/shutdown/session loss/deadline; bounded attempt exhaustion; expired/truncated/cross-snapshot/bad-digest receiver failures and clean retry; post-adoption wire self-ejection and late admitted-peer handshake evidence; companion malformed/partial-baseline HTTP failure/recovery tests | Formation gate accepted; companion HTTP fixtures do not close the remaining P-OBSERVABILITY role/pressure and deployment matrix |
 | Leave and ordinary restart | CLI leave/readmission, lost departure announcements with SWIM fallback, discarded public leave response with exact receipt recovery, SIGKILL/suspicion/death and restart with retained credentials/fresh identities; separate excluded-restart evidence | Accepted with final process reruns under the corrected readmission budget; no unspecified Cartesian product of faults |
 | Interrupted admission | Profile-4 original-assignment replay; public lost-ACK recovery; issuer/source history loss and Dead/removed/certificate-blocked assignments have independent-process stop evidence; original-issuer ejection covers unavailable accepted history with unchanged issuer identity | Accepted; preserve the recovery mapping and tested stop procedures, with no additional unavailable-history combination currently named as missing |
-| Operational handoff | ADR 0017 is accepted; the [observability guide](../orishu-observability.md#implemented-local-surface) and ledger record the finite formation-metrics inventory, process probes and local OTLP receipt; the [local Prometheus guide](../testing-worker-prometheus.md) and [mTLS-proxy guide](../testing-worker-monitoring-proxy.md) record scoped scrape/security/pressure evidence | Preserve completed metric and foundation evidence. Cross-peer/log correlation, reviewed overhead and the remaining operator/deployment handoff stay open; neither companion task is complete |
+| Operational handoff | ADR 0017 is accepted; the [observability guide](../orishu-observability.md#implemented-local-surface) and ledger record the finite formation-metrics inventory, process probes and local official-Collector admission/log correlation; the [local Prometheus guide](../testing-worker-prometheus.md) and [mTLS-proxy guide](../testing-worker-monitoring-proxy.md) record scoped scrape/security/pressure evidence | Preserve completed metric, foundation and local correlation evidence. Reviewed overhead and the remaining selected-deployment handoff stay open; neither companion task is complete |
 
 ### Remaining reviewable increments
 
@@ -155,34 +159,81 @@ evidence. These are work-selection categories, not instructions to implement
 all remaining M4 work together. The owning tasks retain the detailed acceptance
 criteria; completed formation reviews below are reference material.
 
+The [formation setup prerequisite](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09)
+now has six passing bounded checks at 3/10/30 workers with telemetry omitted
+and metrics enabled, under the explicitly approved shared 60-second setup
+policy. Earlier short-gate failures remain historical failures. This scoped
+check does not qualify overhead or guarantee every full-curve cell will pass.
+
+Trace/log correlation and the selected formation-stage operator recipes are
+now [verified at the post-reliability source checkpoint](cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09),
+including both deployment styles, real ingestion, security/pressure, alerts,
+dashboard queries and incident controls. Their former open implementation rows
+are closed for that scope. Preserve their evidence; reassess only affected
+checks if subsequent source/profile changes require it.
+
 | Open item | Owner | Decision or input needed first | Bounded exit artifact |
 | --- | --- | --- | --- |
-| Trace/log correlation | P-OBSERVABILITY slice 3; P-OBS-DOCS | Implement the [accepted stdout adapter](implement-worker-observability.md#accepted-logging-output-decision), using the Rust ecosystem review and explicit record/queue limits and disabled/sampling behavior | Received local span matched to a bounded, secret-free operational record; real stdout pressure, loss and shutdown evidence; tested manual. Peer propagation is not a prerequisite. |
-| Cross-peer traces | P-OBSERVABILITY slice 3 | ADR 0025 accepted: implement profile 5 only and its bounded IO-owned context contract; validate before activation | Compatibility and serialized-context fixtures; received causal client-to-peer relationship across real workers; documented coordinated-restart consequences. Log delivery remains a separate gate. |
-| Formation telemetry overhead | P-OBSERVABILITY slices 1–3 | Review the [proposed experiment and budgets](../measurements/formation-telemetry-plan.md); distinguish its unimplemented three-worker experiment from the [historical local baseline](../testing-worker-overhead.md) | Reproducible omitted-feature/disabled/enabled comparisons with concurrent three-worker load; latency, throughput, CPU, memory, scrape and loss results against reviewed limits. Final acceptance covers the delivered peer-tracing/logging configuration, not an exploratory substitute. |
-| Operator handoff | P-OBS-DOCS formation portions | Name the applicable source-built deployment recipes and any exact missing assertion; final correlation instructions depend on the two correlation deliveries | Tested commands, expected signals, safe actions and feature/platform limits; reconciled worker/CLI manuals and both operator story sets. Link completed recipes instead of reimplementing them. |
+| Formation telemetry overhead | P-OBSERVABILITY slices 1–3 | Review retained baseline noise, full-sampling cost/loss, the [shutdown fix's applicability](../measurements/formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09) and [per-size budget feasibility](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09), then freeze the next pre-run manifest. Curve, cost bands and the 90-minute execution budget remain accepted; the setup-policy revision does not enlarge the 30-minute per-size limit | Reproducible omitted-feature/disabled/enabled comparisons with concurrent load at 3/10/30 workers; latency, throughput, CPU, memory, scrape and loss results against reviewed limits. Final acceptance covers the delivered peer-tracing/logging configuration, not an exploratory substitute. |
+| Final M4 acceptance | N-FORMATION and companion owners | Resolve the performance gate, identify the delivered source/build/profile and assess any changes since the [passing correctness checkpoint](cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09) | One final requirement-to-evidence disposition, retaining scoped formation/operator passes, unresolved findings, exact measurement identities and any affected reruns. Do not infer completion of later release/workload obligations. |
 
-The operator row's [recipe-to-criterion map](cluster-formation-conformance.md#m4-operator-recipe-applicability--2026-09-08)
-now records the local scrape, secured proxy, Collector, user-service,
-rootless-container, dashboard and incident boundaries. It identifies the
-remaining correlation/configuration checks without claiming fresh runtime
-validation. Maintain that map when selecting work. Distinguish a missing
+The historical [recipe-to-criterion map](cluster-formation-conformance.md#m4-operator-recipe-applicability--2026-09-08)
+records the local scrape, secured proxy, Collector, user-service,
+rootless-container, dashboard and incident boundaries. Its then-pending
+correlation/configuration checks now have the current-checkpoint verification
+above. Maintain that distinction when selecting work. Distinguish a missing
 combined-deployment assertion from an entirely missing recipe. Published
 packages/images, optional Kubernetes and later workload examples do not become
 new M4 prerequisites merely because they remain unfinished in P-OBS-DOCS.
 Do not move an existing M4 requirement to a later milestone without review.
 
-Both peer-profile and logging-output decisions are accepted; overhead
-profile/budgets still need review. Decision acceptance does not qualify
-performance. Peer propagation can be implemented independently of logging,
+The subsequent [logging-counter backend check](cluster-formation-conformance.md#logging-counter-prometheus-ingestion--2026-09-09)
+closes the named local Prometheus-ingestion gap for the nine logging counters,
+including independent enablement, broken output and fresh scraper recovery.
+Keep its one-worker backend boundary separate from the three-worker official
+Collector receipt and the remaining selected-deployment review.
+
+On 2026-09-09 the operator selected **both existing deployment examples** for
+enabled trace/log collection: systemd user services and rootless Podman
+containers. Those [bounded collection extensions](cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09)
+now pass alongside the original five-mode deployment regressions. Retain them
+under the [M4 checklist](cluster-formation-m4-checklist.md), together with the
+ordinary-process causal proof. Overhead harness validation, measurements and
+final acceptance remain open; curve and budget are accepted in the linked plan.
+
+Profile-5 admission propagation now has [activation evidence](cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09):
+client → outbound join exchange → receiving admission spans across the public
+A-admits-B, B-admits-C journey, with independent runtime controls and a
+feature-omitted peer. Preserve its codec, replay, compatibility and receipt
+regressions. This closes the initial cross-peer trace deliverable, not log
+correlation, the combined monitoring walkthrough or reviewed overhead.
+
+Both peer-profile and logging-output decisions are accepted, as are the normal
+instrumentation cost goal and full 3/10/30-worker curve with up to 90 minutes of
+measurement excluding builds. Harness validation and the pre-run manifest freeze
+remain implementation work. Decision acceptance does not qualify
+performance. Peer propagation was implemented independently of logging,
 but final M4 correlation/overhead evidence must cover both delivered contracts.
 The decision Q&A itself does not start an implementation increment.
+
+The approved quiet-host measurement was subsequently attempted once. It
+completed all three-worker cells but could not reach ten-worker timed load;
+thirty workers remain unmeasured. The report's noise and full-sampling cost/loss
+findings prevent overhead acceptance. A separate
+[shutdown follow-up](../measurements/formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09)
+fixes reproduced final-event contention and verifies real three-worker
+zero-sampling load/shutdown; it does not replace the original failed cell.
+Preserve that regression and the now-passing scoped setup checks above; review
+the remaining findings and per-size feasibility before rerunning
+the unchanged or explicitly revised measurement plan; no automatic retry or
+silent budget fitting.
 
 The [formation monitoring runbook](../worker-monitoring-runbook.md) supplies
 the read-only peer-loss, unreadiness and missing-telemetry incident procedure.
 Its [scoped evidence](cluster-formation-conformance.md#formation-monitoring-incident-runbook--2026-09-08)
-does not close the operator-handoff row: applicable deployment and correlation
-walkthroughs remain required. The dashboard example is tracked separately below.
+is one part of the now-verified operator handoff; the linked current-checkpoint
+refresh supplies deployment and correlation checks separately. The dashboard
+example is tracked separately below.
 Preserve the tested procedure rather than selecting it again as an unspecified
 missing runbook.
 
@@ -215,10 +266,11 @@ and explicit stop/restart. It closes that local example, not published-image,
 Kubernetes or remote-proxy/collector co-deployment acceptance. No automatic
 readmission or telemetry-driven restart is introduced.
 
-For overhead, agree the measured operation, load, comparison modes, sampling and
-scrape rates, repetitions, finite run budget and acceptance budget before the
-acceptance run. The linked experiment is a proposal, including its numerical
-budgets; this task review does not approve them. Keep exploratory measurements
+For overhead, the operator accepted the linked 3/10/30-worker experiment, six
+modes and six rounds per size, with 30 minutes per size / 90 minutes total
+excluding builds. The p95/CPU normal goal is below 10%, up to 20% is temporary
+only and above 25% belongs to troubleshooting. Freeze executable/configuration
+identities before the acceptance run. Keep exploratory measurements
 distinct from budget acceptance; report all repetitions, drops and failures.
 Later trace/log changes require an
 explicit assessment of which earlier measurements remain applicable, not an
@@ -1304,11 +1356,11 @@ a partial row to passed.
   client-to-peer trace in a test OTLP receiver. Keep this in a feature-enabled
   companion harness; the formation harness must also pass with optional
   telemetry compiled out and with exporters disabled.
-- Implement the accepted [trace profile ADR](../adr/0025-version-peer-trace-context-propagation.md)
-  and its compatibility fixtures before activating peer context propagation.
-  Profile 4 still rejects added envelope fields; profile 5 requires a
-  coordinated rebuild/restart with no fallback. Decision acceptance is not
-  implemented propagation or collector receipt evidence.
+- Preserve the implemented [trace profile ADR](../adr/0025-version-peer-trace-context-propagation.md)
+  and [activation evidence](cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
+  Profile 5 requires a coordinated rebuild/restart with no fallback. The initial
+  admission propagation is delivered; log correlation and the combined operator/
+  overhead acceptance still require their own evidence.
 - Verify telemetry outage/overload does not change admission, lock, leave or
   SWIM outcomes, and a stalled driver cannot hide behind a responsive HTTP
   exporter. Validate bounded trace context on the serialized peer/client path.
@@ -1324,8 +1376,9 @@ a partial row to passed.
 #### M4 operator journey
 
 Use the existing three-worker public journey as the domain control and extend
-its companion evidence. This is the remaining handoff contract, not a claim
-that cross-peer or log correlation already works. Before running it, name the
+its companion evidence. The [official Collector walkthrough](../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+now supplies local admission/log correlation; this contract still requires a
+final applicability review across all companion runs. Before running it, name the
 chosen client operation and its causally related peer exchange, expected
 observations, configuration, finite deadlines and applicable evidence to reuse.
 
@@ -1357,8 +1410,9 @@ observations, configuration, finite deadlines and applicable evidence to reuse.
 These assertions may be established by linked, bounded companion runs; they
 do not require one monolithic test or every fault combined in every feature
 mode. Reuse scoped security and pressure evidence where its contract and build
-remain applicable. A missing correlation decision leaves that gate open, not
-the independent metrics/probe work blocked.
+remain applicable. The peer-profile, stdout, scaling curve and cost decisions
+are accepted; outstanding measurement and final-checkpoint work does not
+invalidate independent metrics/probe or correlation evidence.
 
 #### M4 capability and runtime matrix
 

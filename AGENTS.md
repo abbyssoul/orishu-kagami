@@ -73,8 +73,11 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   enforces that against the resolved dependency graph.
 - `crates/orishu-variables`: the shared idCVar-inspired variables and
   expressions engine — namespaced variables, retained expression source,
-  stable handles, and cycle-detecting resolution. Deliberately generic: it
-  knows nothing of documents, catalogs, dimensions, or units.
+  stable handles, cycle-detecting resolution, the dimension/unit table the
+  evaluator reads, and caller-supplied resource bounds on source bytes, parse
+  depth, node count, variable count, dependency depth, and evaluation work.
+  Deliberately generic: it knows nothing of documents, catalogs, or schemas,
+  and its bounds are an owned value rather than ambient state.
 - `crates/kagami-catalog`: Kagami's object-template catalog — format, bounded
   loading, the read-only variable projection, safe writes, self-contained
   instantiation, and the catalog authority. UI and MCP are adapters over that

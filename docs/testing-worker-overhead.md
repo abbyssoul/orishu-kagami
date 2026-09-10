@@ -1,18 +1,100 @@
 # Measure local worker telemetry overhead
 
-Status: **manual measurement harness; full M4 performance acceptance remains open**
+Status: **quiet-host curve incomplete at ten-worker formation; M4 acceptance open**
+
+## Current formation scaling experiment
+
+The [approved plan](measurements/formation-telemetry-plan.md) measures 3, 10 and
+30 ordinary source-built Linux workers, six modes and six rounds per size.
+The limit is 30 minutes per size / 90 minutes total excluding builds, with no
+automatic retries. A separate one-round `--smoke` run validates the harness;
+it cannot satisfy the full matrix. Do not run either alongside builds/tests.
+The [validation record](tasks/cluster-formation-conformance.md#approved-scaling-curve-and-v2-harness-validation--2026-09-09)
+retains failed preflights, the completed smoke matrix and its limitations.
+The subsequent [quiet-host report](measurements/formation-telemetry-2026-09-09.md)
+retains 36 complete three-worker cells and the failed first ten-worker setup.
+No thirty-worker overhead result exists. The separate
+[reliability follow-up](measurements/formation-reliability-2026-09-09.md) records
+worker/verifier fixes and the original short-gate failures. The operator-approved
+[convergence policy](measurements/formation-telemetry-plan.md#shared-setup-convergence-policy--2026-09-09)
+now lets post-admission membership, summary and lock/unlock visibility use the
+remaining original 60-second setup budget, without resetting it between stages.
+Startup/join observations keep their ten-second limits, and all identity,
+liveness and policy predicates remain unchanged. The six bounded 3/10/30-worker
+checks passed under this policy. A separate
+[shutdown follow-up](measurements/formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09)
+fixes final-event contention and verifies one three-worker zero-sampling
+load/shutdown. Review remaining noise, full-sampling cost/loss and checkpoint applicability
+and the documented per-size budget feasibility risk before another acceptance
+run; do not retry the matrix automatically.
+`scripts/check-formation-scaling.py` runs one
+formation-only regression with the same exact predicates and writes a new,
+private evidence directory; it does not run timed load or grant acceptance.
+
+```sh
+make build-formation-telemetry
+make measure-formation-telemetry OTELCOL=/absolute/path/to/otelcol FORMATION_TELEMETRY_OUTPUT=/tmp/orishu-telemetry-new-run
+python3 scripts/summarize-formation-telemetry.py /tmp/orishu-telemetry-new-run
+```
+
+Use the existing pinned Collector 0.160.0 binary. The output directory must not
+already exist; the runner creates it privately and snapshots the executables.
+It retains a versioned source/tool/profile manifest, official-Collector causal
+preflight result, and one bounded JSON artifact per cell. A failed cell stops
+the run and retains available evidence; do not overwrite or silently resume it.
+The summary can inspect a partial matrix but labels missing comparisons.
+For a smoke run, add `FORMATION_TELEMETRY_ARGS=--smoke` and a fresh output path.
+
+The Rust probe uses two persistent typed clients per worker and validates every
+response. It collects raw latency samples before computing per-worker p95,
+excluding post-window completions from timed throughput. Its separately spawned
+loopback collector decodes actual OTLP with the final three-operation catalogue.
+The runner continuously drains bounded stdout records and samples each process
+at 20 Hz. Worker, collector, client, and runner/log-sink CPU/RSS remain separate.
+CPU uses a recorded external start/end bracket; scheduling skew is reported,
+not silently treated as an exact ten-second CPU interval.
+
+Trace queues/batches/flush/attempt/shutdown retain 1024/128/1000 ms/2000 ms/3000 ms;
+active capacity is 128, export bytes 1 MiB and response bytes 16 KiB. Logging
+uses 256 records and 250 ms shutdown. Zero/default/full modes enable stdout
+logging; zero sampling produces lifecycle/final accounting, not operation logs.
+The causal preflight uses full sampling and batch size one for exact ID-chain
+verification. Timed cells retain bounded receipt counts, not unbounded span-ID
+history; their counters are not a durable delivery or exact per-span audit.
+Before/after receipt snapshots are observed cumulative counters, not a claim
+that every delivered span was produced inside the timed window.
+
+Temporary worker credentials and sockets are removed by fixture cleanup; retained
+results contain no credential bytes. Only the fixture's child PIDs are stopped.
+No host governor, affinity, service policy or runtime defaults are changed.
+Scientific workloads, network scaling across machines, and service/container
+overhead remain outside this single-host control-plane experiment.
+
+## Historical single-worker v1 experiment
+
+The current worker no longer prints synchronous final trace statistics to stderr.
+V1 requires those exact final counters and therefore now requires an explicit
+absolute `ORISHU_BENCH_LEGACY_WORKER` path to a retained, compatible historical
+release binary. Without it the harness refuses before creating an artifact or
+starting workers. Do not point it at the current binary or substitute a last
+scrape for final shutdown accounting. Existing v1 artifacts and their report
+reader remain unchanged. The separate v2 curve and budgets are now approved;
+v1 observations do not qualify the final profile-5/logging implementation.
 
 This compares one source-built Linux worker's local control-plane request path
 with runtime telemetry disabled and enabled. It is not a three-worker formation,
 scientific workload, fleet-scale, TLS-collector or production SLO benchmark.
-No reviewed overhead threshold is currently specified; report measurements and
+V1 has no retrospectively applied acceptance threshold; report measurements and
 limitations rather than deriving a passing budget from the results.
 
 ## Reproduction
 
 Run alone on a quiet host, without concurrent builds or test suites. Local TCP
 and Unix sockets, readable `/proc`, and the checked-in Rust toolchain are
-required. The test refuses debug builds and is ignored during ordinary tests:
+required. First set `ORISHU_BENCH_LEGACY_WORKER` to the retained compatible
+release binary and record its checkpoint/hash. The test refuses debug builds
+and is ignored during ordinary tests. These commands are historical-recipe
+reproduction, not a supported current-worker benchmark:
 
 ```sh
 getconf CLK_TCK
@@ -20,7 +102,7 @@ uname -srmo
 lscpu
 measurement_dir=$(mktemp -d)
 ORISHU_BENCH_REPORT="$measurement_dir/measurements.jsonl" cargo test --locked --offline --release -p orishu-worker --features observability,otlp-tracing --test standalone measure_local_telemetry_overhead --target-dir target/formation-flow-observability -- --ignored --nocapture --test-threads=1
-sha256sum target/formation-flow-observability/release/orishu-worker
+sha256sum "$ORISHU_BENCH_LEGACY_WORKER"
 ```
 
 The test prints fifteen `OVERHEAD` JSON records. `ORISHU_BENCH_REPORT` additionally

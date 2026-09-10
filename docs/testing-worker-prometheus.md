@@ -173,6 +173,61 @@ oversized-body refusal before reading and silent-input expiry. This does not
 establish production alert thresholds, multi-worker correlation, native remote
 monitoring or supported release artifacts.
 
+### Ingest logging counters through Prometheus
+
+The logging option is independent of trace export. With the same pinned 3.5.0
+tools, run all three logging profiles:
+
+```sh
+make test-worker-log-prometheus PROMTOOL=/path/to/promtool PROMETHEUS=/path/to/prometheus WORKER_PROMETHEUS_TARGET_DIR=target/formation-flow-observability
+```
+
+This target builds both telemetry capabilities into the specified idle target
+directory (default `target/worker-prometheus`), runs the logging validator and
+bounded HTTP collector fixture tests, then checks these profiles sequentially:
+
+| Harness options | Ingested worker series | Logging behavior |
+| --- | --- | --- |
+| `--log-metrics` | 160 | Lifecycle output; tracing disabled, no trace counters |
+| `--log-metrics --trace-metrics --formation-alerts` | 172 | Lifecycle and fully sampled operation output; twelve existing alert expressions evaluated |
+| `--log-metrics --trace-metrics --closed-log-output` | 172 | Real stdout pipe has no reader; terminal output failure and subsequent closure refusals, with healthy worker control/probes |
+
+For existing binaries, pass any row's options to this command without rebuilding:
+
+```sh
+python3 scripts/check-worker-prometheus.py --log-metrics --trace-metrics --formation-alerts --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --promtool /path/to/promtool --prometheus /path/to/prometheus
+```
+
+The nine `orishu_worker_log_*_total` counters must have the exact finite catalogue,
+non-negative integer values and only Prometheus target labels. Parser acceptance
+and real query results are both required. The normal fixture sends stdout to
+the null device: it requires acknowledged writes, not retained log content or
+durability. Its queue/encoding/output/closure/shutdown loss counters stay zero.
+The closed-pipe profile instead requires exactly one terminal output failure
+and zero acknowledged writes; it must never reopen/retry the sink or restart
+the worker to pass. The same authenticated identity, membership-policy and
+probe assertions run during collector and scraper outages.
+
+In both trace-enabled logging profiles, operator operations while Prometheus
+is stopped must advance `written` or, for the broken pipe, `closed`. Restarted
+Prometheus must ingest that new value, in addition to the existing fresh
+membership and trace counters. Retained pre-outage TSDB samples cannot pass.
+In the tracing-disabled profile, no new operation log is expected: enabled
+lifecycle logging remains independent, and only the existing membership counter
+must advance across scraper outage. Disabled-logging recipes retain their
+151/163-series catalogues; absence is not a zero-valued log instrument.
+
+The existing ten-second observation/command, one-second HTTP and three-second
+process-exit budgets apply, with unchanged 32 KiB exposition and 64 KiB query
+response limits. Negative controls cover missing/invalid/fractional counters,
+unexpected loss, fake closed-pipe writes/retries and stale TSDB values, plus a
+subprocess proving the pipe has no reader. The trace receiver remains a bounded
+HTTP fixture, not the official Collector. Use the separate
+[formation/log receipt walkthrough](testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+for content and causal evidence. These checks do not establish remote-proxy
+ingestion, new log alert policies, shutdown-final log accounting, retention,
+service/container deployment or overhead budgets.
+
 ### Base catalogue and scraper recovery
 
 The main `make test-worker-prometheus` harness establishes:

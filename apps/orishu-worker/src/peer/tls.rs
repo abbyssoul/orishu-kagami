@@ -12,7 +12,7 @@ use rustls::{DigitallySignedStruct, DistinguishedName, RootCertStore, SignatureS
 use sha2::{Digest, Sha256};
 
 /// Negotiated profile; excludes historical policy-unaware peers.
-pub const ALPN: &[u8] = b"orishu-membership/4";
+pub const ALPN: &[u8] = b"orishu-membership/5";
 /// Certificate DNS identity, independent of display labels and dial addresses.
 pub const SERVER_NAME: &str = "orishu-worker";
 const MAX_CERTIFICATE_BYTES: usize = 16_384;
@@ -363,7 +363,10 @@ mod tests {
         .with_root_certificates(roots)
         .with_client_auth_cert(vec![peer.certificate.clone()], peer.key.clone_key())
         .unwrap();
-        tls.alpn_protocols = vec![b"orishu-membership/3".to_vec()];
+        tls.alpn_protocols = vec![
+            b"orishu-membership/4".to_vec(),
+            b"orishu-membership/3".to_vec(),
+        ];
         let config = quinn::ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(tls).unwrap(),
         ));

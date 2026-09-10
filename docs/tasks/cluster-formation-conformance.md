@@ -1,13 +1,963 @@
 # Cluster-formation conformance ledger
 
 Status: **N-FORMATION accepted for the tested source-built Linux scope; combined M4 incomplete**
-Checkpoint: **2026-09-08**
+Checkpoint: **2026-09-09**
 Owner: [N-FORMATION](implement-cluster-formation-poc.md)
 
 This maps the task's required failure rows to inspected tests and remaining
 work. It does not replace the task's other acceptance criteria or the combined
 M4 observability gate. Keep historical narratives in the integration
 record; update this table when a specific requirement gains evidence.
+
+## Shared setup convergence policy verified — 2026-09-09
+
+Latest applicability: the [post-fix correctness checkpoint](cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09)
+and [current-build operator recipes](cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09)
+verify the delivered formation/correlation and selected source-built deployment
+scope. Only the performance experiment and final combined acceptance remain
+open in the owning task; earlier pending-recipe narratives below are historical.
+
+The operator approved letting post-admission membership, summary and lock/unlock
+visibility use the remaining original 60-second setup budget, with no reset
+between stages. Startup/join observations retain ten-second limits. Worker
+timers, exact identity/liveness/readiness/policy checks and every other experiment
+budget remain unchanged. New manifests name `remaining_whole_setup_v1`.
+
+The [six predeclared formation-only cases](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09)
+all passed: 3, 10 and 30 workers with telemetry omitted and with metrics enabled.
+Thirty-worker full setup, including policy visibility, took 46.615/51.287 seconds.
+Every fixture cleaned up and retained unchanged executable identities. This
+verifies the scoped setup prerequisite under the accepted revised policy, not
+the full overhead curve or a production convergence SLO. Original short-gate
+failures remain failed historical results. Before another curve, review noise,
+shutdown disposition and the now-explicit 30-minute per-size feasibility risk;
+no further budget increase is authorized here. The separate
+[shutdown follow-up](../measurements/formation-telemetry-2026-09-09.md#shutdown-log-follow-up--2026-09-09)
+fixes reproduced final-event contention. Subsequent
+[correctness revalidation](cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09)
+records current workspace/release checks and process evidence without replacing
+historical failures or granting overhead acceptance.
+
+## Formation reliability fixes and remaining convergence gate — 2026-09-09
+
+The [investigation report](../measurements/formation-reliability-2026-09-09.md)
+records reproducible gossip loss before wire submission, unroutable
+reconciliation selection, serialized first-catch-up delays, recoverable status
+handling and the thirty-member listing cap. Corrections have focused red/green
+tests, actual owner/datagram coverage and affected-crate validation.
+
+The final three ten-worker diagnostics passed twice and missed the unchanged
+ten-second exact-members gate once. Thirty-worker admission/catch-up completed
+in about five seconds, but the short convergence gate failed. One failed
+formation subsequently became exact/all-alive at 34.352 seconds, and the final
+batched-accounting build repeated late convergence at 37.868 seconds; each remains a
+failed gate result, not a replacement measurement cell. The explicit choice
+between remaining-whole-setup convergence time and a sub-ten-second optimization
+target was subsequently resolved by the accepted policy and new checks above.
+No full curve, overhead or combined M4 acceptance is claimed.
+All original and intermediate failures remain historical evidence below and
+in the reports; helper-only passes do not certify owner integration.
+
+## Quiet-host curve stopped at ten-worker formation — 2026-09-09
+
+After the operator supplied a quiet host window, the approved full curve ran
+once against refreshed release binaries. The [measurement report](../measurements/formation-telemetry-2026-09-09.md)
+records exact commands, hashes, preserved artifacts, limits and findings:
+
+- All **36 three-worker cells completed**. The first ten-worker cell failed
+  during formation setup, before timed load; thirty workers were not attempted.
+  The run exited 2 after approximately 10 minutes 26 seconds, well before its
+  whole-batch limit. No automatic retry or threshold/deadline change was made.
+- Three-worker paired medians were approximately metrics p95 **+0.91%**, CPU
+  per request **+0.02%**; default-sampled trace/log p95 **+6.81%**, CPU **+15.66%**.
+  These are **not accepted budgets**: disabled baseline throughput max/min was
+  1.778 and per-role p95 ratios 1.923–1.960, exceeding the approved noise limit.
+- One zero-sampling cell lacked its final worker-stopped log record. Full
+  sampling had explicit log loss/receipt mismatches and 191 missed resource
+  sampling intervals across six cells. All these observations remain retained.
+- Separate bounded formation-only diagnostics with the same omitted-feature
+  binaries and unchanged deadlines produced one successful ten-worker
+  formation (35.327 seconds), and one **`catchUpFailed` at the sixth worker**.
+  The original observation timeout and this catch-up failure are not yet
+  proven to share a root cause. Neither diagnostic replaces a measurement cell.
+- The complete source inventory was unchanged across the actual measurement
+  run, checked before these documentation updates. The causal Collector
+  preflight passed with 115 matched spans/logs. Earlier preflight failures are
+  not erased. All fixture children were reaped; no unrelated process stopped.
+
+The quiet-window prerequisite is resolved. The next bounded prerequisite is
+reliable multi-worker formation/catch-up, with explicit failure-phase evidence,
+followed by timing-baseline and shutdown-log review. The historical accepted
+three-worker formation evidence remains distinct from this newly exercised
+scaling requirement. No ten/thirty-worker overhead or final M4 acceptance is
+claimed. See the report for the retained full-run and diagnostic locations.
+
+## Approved scaling curve and v2 harness validation — 2026-09-09
+
+The operator approved the full **3/10/30-worker** curve: six configurations,
+six rounds per size, at most 30 minutes per size / 90 minutes total excluding
+builds, retained partial results and no automatic retries. Normal p95 and
+worker CPU overhead should be below 10%; up to 20% is temporary only, above
+20% through 25% is outside that tolerance, and above 25% belongs to a separately
+scoped troubleshooting exercise. The [measurement plan](../measurements/formation-telemetry-plan.md)
+and [source-built recipe](../testing-worker-overhead.md#current-formation-scaling-experiment)
+record these decisions without claiming measured compliance.
+
+Implemented a separate Rust `formation-telemetry-probe` example and Python
+runner/report reader. No worker authority, protocol, production instrumentation,
+runtime defaults or new dependency was introduced. The helper reuses the typed
+client and production OTLP encoder contract. The runner uses fresh authenticated
+join chains, exact identity/certificate/liveness checks, identified lock/unlock,
+two persistent clients per worker, independent scheduled scrapes, bounded
+streaming stdout validation and separate worker/collector/client/runner CPU/RSS.
+It snapshots executables, records a versioned source/profile manifest and
+creates new per-cell artifacts; an incomplete result is not a successful curve.
+
+Validation at this increment:
+
+- `python3 scripts/test_formation_telemetry.py`: **19 passed**, covering partial
+  matrices, mismatched identities/windows, absent instruments, sample caps,
+  zero/non-finite ratios, loss retention, output preservation and the
+  competing-build/test guard.
+- `cargo test --locked --offline -p orishu-worker --example
+  formation-telemetry-probe --features observability,otlp-tracing --target-dir
+  target/formation-flow-observability`: **5 passed** with loopback permission.
+  The initial sandbox run passed four tests and denied socket creation in the
+  fifth; the permitted rerun exercised real HTTP/protobuf exchange.
+- Clippy for the new example with both features and `-D warnings`: **passed**.
+  Existing formation/Collector receipt validators: **8 + 9 passed**.
+- Scoped Rust formatting and diff whitespace checks: **passed**. The earlier
+  workspace formatting check also found an unrelated existing change in
+  `crates/kagami-session/src/default_view.rs`; it was not reformatted here.
+- Documentation check: **130 Markdown files passed**. Full workspace/optional-
+  feature/fault matrices were not rerun by this tooling increment.
+
+Release builds used the checked-in Rust 1.97 toolchain and locked offline
+dependencies, with separate `target/formation-telemetry-enabled` and
+`target/formation-telemetry-omitted` directories. The existing
+`proc-macro-error2 2.0.1` future-incompatibility warning remains. Smoke manifests
+retain executable hashes and source inventory rather than assuming HEAD
+identifies the dirty worktree.
+
+Retained local validation artifacts, not accepted performance evidence:
+
+- `/tmp/orishu-curve-check.so7Ibv/smoke`: causal preflight failed after both
+  admissions, before any timed cell. Initial error capture retained a hash
+  but not the assertion location, so the precise cause remains unavailable.
+- A separately invoked causal preflight with those exact frozen binaries
+  passed with 108 matched spans/logs. This does not erase the failed attempt.
+- `/tmp/orishu-curve-check.so7Ibv/smoke-diagnostic`: another preflight failed
+  with an unclassified `AssertionError`, again before measurement. Error
+  capture now retains traceback locations, and existing bare preflight
+  assertions have fixed descriptive messages; no condition was weakened.
+- `/tmp/orishu-curve-check.so7Ibv/smoke-location`: causal preflight passed with
+  103 matched spans/logs; all six three-worker smoke cells completed in
+  **102.809 seconds** including preflight. Fixture workers exited cleanly.
+  Full sampling retained 23 missed resource-sampling intervals and per-worker
+  log loss/receipt-count differences. The first five modes had no report-reader
+  instrumentation issues. This was one round, with source changes and confirmed
+  competing host tests; its timings do **not** qualify an overhead budget or a
+  scaling point.
+
+A host check found another `cargo` and worker-test process. They were not
+stopped. A later check was quiet, but a new build/test started before the full
+run; the added guard refused execution before creating its output directory or
+starting fixture workers. **The full curve has not run. No 10/30-worker result
+or accepted overhead claim exists.** Coordinate a quiet host window before
+the next bounded run. If causal preflight fails again, retain its newly
+classified assertion and investigate it; do not automatically retry until it
+passes. Earlier intermittent failures remain open for final M4 review.
+
+Temporary fixture credentials/sockets were removed by normal cleanup; listed
+reports and binary snapshots remain available. Nothing belonging to another
+build, test, worker or host service was stopped or removed.
+
+## Enabled systemd and rootless-container log collection — 2026-09-09
+
+The operator selected **Option A: verify both existing deployment examples**,
+explicitly permitting installed rootless Podman. The checklist records that
+accepted scope independently of the still-unapproved overhead proposal. The
+[systemd manual](../testing-worker-user-service.md#verify-enabled-journal-and-trace-collection)
+and [container manual](../testing-worker-container.md#verify-enabled-container-and-trace-collection)
+now provide reproducible enabled-log/Collector checks. No production Rust,
+wire contract, permanent unit, boot policy or host package was changed.
+
+`scripts/check-worker-deployment-logs.py` reuses the existing systemd template,
+Containerfile, runtime-unit cleanup helper, Collector configuration and strict
+JSON/OTLP readers. It snapshots worker/CLI/Collector executables into private
+temporary state. Each deployment starts one worker twice through its actual
+supervisor, with explicit logging/full sampling, a 256-record queue, 250 ms log
+drain and 1000 ms exporter attempt/drain settings. It requires:
+
+- Eight real CLI requests per start, including unauthorized-lock refusal,
+  authenticated lock/unlock and exact identity/certificate/liveness reads.
+  Probes stay healthy; the 21 live trace/log counters confirm eight delivered
+  spans and nine acknowledged pre-shutdown records without quiet-fixture loss.
+- Graceful stop and socket removal, within ten seconds for systemd and twelve
+  seconds around Podman's ten-second stop allowance. Restart retains credentials
+  but creates fresh formation/node identities; no automatic restart is enabled.
+- Eight operation, three lifecycle and twelve final trace-accounting records
+  per start. **All sixteen received spans per deployment** match actual
+  journal/container-runtime records by trace/span IDs, event, outcome and end
+  timestamp. Old logs or partial receipt subsets cannot satisfy the second start.
+- Journal collection scoped to the unit, invocation ID, worker PID and standard
+  stream. Container collection uses actual `podman logs`, retaining the first
+  invocation's complete prefix before selecting the second. Credentials are
+  excluded from all inspected journal fields and runtime output; worker JSON
+  additionally excludes the seeded public name and operation markers.
+
+The Collector container has `--network=none`; the worker shares that isolated
+namespace explicitly. Neither publishes ports or has external runtime network
+access. The Collector receives only its configuration/receipt directory and
+read-only executable, never worker credentials/state/socket mounts. Both retain
+non-root keep-id execution, read-only roots, dropped capabilities and bounded
+logging/PID settings. CLI control uses the private host-visible Unix socket;
+probes run inside the worker namespace. This is local loopback trust, not
+cross-host/mTLS co-deployment or three-worker formation under a supervisor.
+
+The whole new script has a 360-second alarm, 180-second image-build limit,
+fifteen-second ordinary commands and ten-second observation budgets. Journal
+reads are limited to 512 KiB/512 records, extracted worker logs to 128 KiB and
+320 bytes per record, and Collector receipt reads to 256 KiB/32 spans. Cleanup
+stops/unlinks only UUID-named fixture units and label-verified containers/images;
+temporary credentials/receipts are removed. Journal records, the pinned base
+image and reusable build cache remain. No shared journal deletion or global
+container prune is performed.
+
+Validation **passed**: seven deployment-receipt negative controls, eight existing
+formation-receipt controls and nine existing Collector-reader tests; both new
+deployment journeys; both original five-mode service/container regression suites,
+including omitted-capability refusal and separate/shared network probes. The
+minimal worker/CLI were rebuilt from the current source before those regressions.
+The build retained the existing `proc-macro-error2 v2.0.1` future-incompatibility
+warning. These checks do not constitute new full-workspace or fault-matrix
+acceptance, representative overhead, backend retention or release qualification.
+
+Two harness issues were resolved without changing worker behavior or deadlines:
+
+1. A network-disabled image build lacked a reusable apt layer and failed with
+   package-repository DNS unavailable. Restoring the existing recipe's in-image
+   repository access fixed the build; runtime namespace isolation remained intact.
+2. A raw-journal public-name exclusion also matched journald's `_CMDLINE`.
+   A bounded, field-name-only inspection confirmed the marker occurred only in
+   `_CMDLINE`, not `MESSAGE`. The verifier now distinguishes platform metadata
+   from the worker record schema while still rejecting credentials everywhere;
+   a regression rejects names in `MESSAGE` and credentials in `_CMDLINE`.
+
+Commands run sequentially from the repository root:
+
+```sh
+cargo build --locked --offline -p orishu-worker -p orishuctl --target-dir target/worker-service-minimal
+python3 scripts/test_worker_deployment_receipts.py
+python3 scripts/test_worker_formation_receipts.py
+python3 scripts/test_worker_otelcol.py
+python3 scripts/check-worker-deployment-logs.py --deployment both --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --otelcol /tmp/orishu-otelcol-check.JlHHuV/otelcol
+python3 scripts/check-worker-user-service.py --worker target/formation-flow-observability/debug/orishu-worker --minimal-worker target/worker-service-minimal/debug/orishu-worker --ctl target/worker-service-minimal/debug/orishuctl --promtool /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/promtool
+python3 scripts/check-worker-container.py --podman podman --base-image docker.io/library/debian@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f --worker target/formation-flow-observability/debug/orishu-worker --minimal-worker target/worker-service-minimal/debug/orishu-worker --ctl target/worker-service-minimal/debug/orishuctl --promtool /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/promtool
+```
+
+Tools: systemd `257.9-0ubuntu2.5`, Podman `5.4.2`, official Collector `0.160.0`,
+promtool `3.5.0`. Runtime image packages: ca-certificates `20250419`, curl
+`8.14.1-2+deb13u4`, libc6 `2.41-12+deb13u3`, libgcc-s1 `14.2.0-19`.
+The new receipt image ID was
+`3cb82b62d9e0020406eff67e4abd00aebf3ae547c3795e9c6886119033b47bfa`;
+the image was removed after verification. This identifies an observed build,
+not reproducible package resolution from the base digest alone.
+
+Checkpoint: HEAD `51251791654425566d8392848b347f32c7258cb9` plus dirty changes.
+Executable SHA-256 identities:
+
+- Combined worker: `ee58b5a895e59812849e8c9e03d08a8468efbb8d5171f3397e448aaebd013427`.
+- Combined-check CLI: `589a2e83cb1bad4f5af787d2beeb0bf5ea1033000311bd77adc5ef8aa9cfef1e`.
+- Minimal worker: `85ea985c6f96ca0068cdf9e3ff043ca0f8735da687253c03ca7d23fd7be817b8`.
+- Base-regression CLI: `2dda026ff70e0fea00cb62fd6c57ce26df0193a0a069cd070cf3dee168ae829d`.
+- Collector: `abe338fa33865e54412566db5cea4adc82374594b65b49c1099048cdf8cf2451`.
+
+The Make target's command expansion is checked; the recorded run used its
+direct commands against the stated combined artifacts rather than rebuilding
+them through that target. Final verification-script SHA-256 identities:
+`check-worker-deployment-logs.py`:
+`7c49fac52070a2c3b2d84f7df1c95a6ff2e1c5bec4d5d336e9ff867e7befedd2`;
+`worker_deployment_receipts.py`:
+`eb090681f87a9d3dde4fe62c4943d9dcec754fc78ef75cc14d992bab9d433b50`;
+`test_worker_deployment_receipts.py`:
+`3cb497972e2c4a731b8b8d618ccdffd4e26529ff26b1270c0fa3b17f0cf9d903`.
+The read-only cleanup audit found no remaining labeled fixture containers,
+tagged fixture images or runtime-linked fixture units. `make docs-check` passed
+for 129 Markdown files; scoped whitespace checks passed.
+The selected collection extensions are delivered.
+Final checkpoint/applicability reconciliation, approved overhead profile/budgets
+and subsequent final M4 acceptance remain open. No service/container overhead
+requirement is inferred from this functional verification.
+
+## Proposed final M4 checklist — 2026-09-09
+
+The [review checklist](cluster-formation-m4-checklist.md) now maps the ten
+remaining acceptance categories to their owning requirements, existing scoped
+evidence and final checkpoint obligations. This is a documentation/applicability
+review, not a validation batch or approval. It preserves N-FORMATION's historical
+acceptance and the completed local Collector/logging/Prometheus increments.
+
+Inspection of `check-worker-user-service.py` and `check-worker-container.py`
+confirms their output assertions check credential exclusion, not receipt of
+enabled structured records. Their manuals now correctly distinguish implemented
+stdout logging from unverified journal/container-runtime collection. The mTLS
+Collector manual likewise separates its local-root receipt from the newer HTTP
+formation chains. No runtime, service, container or protocol was changed.
+
+The proposed checklist names that deployment decision instead of inventing a
+new full supervisor/formation fault matrix. Both existing deployment collection
+extensions are recommended for review; ordinary-process causal evidence remains
+separate. The performance plan's stale implementation prerequisites now link
+delivered profile-5/logging evidence and the actual zero-sampling semantics,
+without changing or approving numerical budgets. Exact logging settings and
+any additional measured deployment profile still require review.
+
+`make docs-check` passes for 129 Markdown files; scoped whitespace checks pass.
+No final acceptance manifest is frozen, no new overhead harness or measurements
+were produced, and no deployment option is selected by this documentation work.
+M4 remains open pending those decisions and the required subsequent execution.
+
+## Logging-counter Prometheus ingestion — 2026-09-09
+
+The existing [Prometheus walkthrough](../testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+now accepts independent `--log-metrics` and an explicit `--closed-log-output`
+fault profile. No production worker changes were needed. The real Prometheus
+3.5.0 parser/backend journey passed four sequential profiles:
+
+| Options | Result |
+| --- | --- |
+| `--log-metrics` | 160 series, three loaded/live-evaluated alert expressions; lifecycle logging works without tracing |
+| `--log-metrics --trace-metrics --formation-alerts` | 172 series, twelve loaded/live-evaluated expressions; collector failure/recovery and scraper outage/recovery pass |
+| `--log-metrics --trace-metrics --closed-log-output` | 172 series, six loaded/live-evaluated expressions; one terminal stdout failure, no acknowledged writes, later closure refusals and healthy control/probes |
+| `--trace-metrics` | Existing 163-series/six-expression recipe still passes with logging disabled and log instruments absent |
+
+All profiles retain the exact catalogue, finite values, target-only labels,
+bounded response reads, exact operator identity/source checks and membership
+policy mutations used as fault controls. In the two trace-enabled log profiles,
+operations during actual scraper shutdown advance acknowledged writes or
+closure refusals; the restarted scraper must ingest that new counter value,
+not merely recover its old TSDB samples. The tracing-disabled profile does not
+invent operation logs to obtain progress; its existing membership-counter
+recovery assertion remains the fresh-ingestion evidence.
+
+Normal output goes to the null device, so acknowledged writes here prove sink
+progress, not receipt content, storage or durability. The closed-output profile
+passes an actual OS pipe with no reader, not a fake writer. Failure never causes
+sink reopening, worker restart, identity replacement or readiness failure.
+The existing HTTP trace fixture returns bounded failure/success replies; it is
+not an OTLP decoder. The separate official-Collector formation walkthrough
+below remains the causal/content evidence. No remote-proxy, service/container,
+shutdown-final logging-loss, log-alert policy or overhead acceptance is implied.
+
+Six new validator tests pass for catalogue combinations, real counter progress,
+missing/invalid/fractional values, unexpected loss, false closed-pipe writes or
+retries, stale TSDB values and a real subprocess broken-pipe control. The three
+existing collector fixture tests also pass with local sockets permitted. Their
+initial sandboxed run failed at socket creation with `PermissionError`, before
+exercising behavior; no code or timeout adjustment was made for that restriction.
+
+Commands used (the four process checks ran sequentially):
+
+```sh
+python3 scripts/test_worker_prometheus_logs.py
+python3 scripts/test_worker_trace_collector.py
+python3 scripts/check-worker-prometheus.py --log-metrics --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --promtool /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/promtool --prometheus /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/prometheus
+python3 scripts/check-worker-prometheus.py --log-metrics --trace-metrics --formation-alerts --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --promtool /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/promtool --prometheus /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/prometheus
+python3 scripts/check-worker-prometheus.py --log-metrics --trace-metrics --closed-log-output --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --promtool /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/promtool --prometheus /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/prometheus
+python3 scripts/check-worker-prometheus.py --trace-metrics --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl --promtool /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/promtool --prometheus /tmp/orishu-prometheus-check.r4ZZNx/prometheus-3.5.0.linux-amd64/prometheus
+```
+
+The [manual](../testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+provides a literal command and a Make target that builds and runs all three
+logging profiles sequentially. The recorded run used the existing combined
+binaries; it did not rerun the target's build or full workspace validation.
+`make docs-check` passed for 128 Markdown files, scoped `git diff --check`
+passed, and the new Make target's command expansion was checked with `make -n`.
+
+Checkpoint: HEAD `51251791654425566d8392848b347f32c7258cb9` plus dirty changes.
+SHA-256 identities rechecked for this increment:
+
+- Prometheus: `4ee49f574d80682b6571f017c8f42f2532aa3603b725b51ecb0cb864f06c2282`.
+- promtool: `e59210d5474e2c811a4460fb1593d708b94d58107ae62e9d44e88029bb7e5805`.
+- Worker: `ee58b5a895e59812849e8c9e03d08a8468efbb8d5171f3397e448aaebd013427`.
+- CLI: `589a2e83cb1bad4f5af787d2beeb0bf5ea1033000311bd77adc5ef8aa9cfef1e`.
+- Harness: `31e62edea070b0f1e205177f1ed477be21c2f42c5c7ae6fd021f2d428d75f22f`.
+- Validator tests: `4b46f3756a3e0fa20b96e8c41e745b239ff6b4e9ca16b1e6ba66cda717c07a10`.
+
+This closes the previously named local backend-ingestion gap for the nine
+logging counters. Historical direct-scrape and 151/163-series results retain
+their original scopes. Final selected-deployment reconciliation, reviewed
+overhead profile/budgets and the combined M4 acceptance checklist remain open.
+
+## Official Collector formation and log correlation — 2026-09-09
+
+The [three-worker operator walkthrough](../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+now passes against official Collector 0.160.0 and ordinary combined-feature
+worker/CLI executables. This adds received cross-peer/log evidence to the
+earlier local-root Collector and bounded-test-receiver checks; it does not
+replace their disabled, security, outage or pressure coverage.
+
+`scripts/check-worker-formation-otelcol.py` drives public authenticated
+A-admits-B, B-admits-C joins, complete introducer catch-up, exact three-worker
+formation/node/certificate/liveness views, lock through A and unlock through C.
+Each join has a received client → outbound peer exchange → receiving admission
+chain. `scripts/worker_formation_receipts.py` matches every received operation
+to exactly one stdout record with the same trace/span IDs, name, outcome and
+completion timestamp, using separately captured process handles for worker
+ownership. It also rejects logged operations with no receipt. This run observed
+**52 matched spans/logs**, including exactly two admission chains; client polling
+counts are deliberately not a fixed pass threshold.
+
+Every worker exposed **172 metric series** by direct HTTP scrape, healthy
+startup/liveness/readiness probes, responsive owners and no quiet-fixture
+telemetry loss. After workers stop before the Collector, all twelve final
+trace-accounting records per worker reconcile accepted/enqueued counts with
+its operation logs, with no failed exports or shutdown drops. These are scoped
+lossless happy-path observations, not a durable-delivery promise.
+
+The validator retains a separate formation profile (256 spans/256 KiB) without
+relaxing the existing 32-span local-root recipe. Each stdout pipe is continuously
+drained on a reader thread, with persisted capture capped at 128 KiB and overflow
+reported as failure. Records are capped at 320 bytes/512 per worker. All fixture
+files use private temporary state and are removed at exit. The script has a
+120-second alarm, finite command/poll/HTTP/process-exit budgets and a 64-command
+cap per worker. Unit controls cover wrong roles/parents/kinds/IDs, unmatched and
+duplicate receipts, inconsistent timestamps/outcomes, secret markers, malformed
+records and capture overflow; the overflow test proves the child still drains.
+
+Validation: **9 existing Collector validator tests and 8 formation validator
+tests passed**. The new real-process journey passed, followed by the existing
+official-Collector HTTP disabled/zero/enabled, rejection/redaction and actual
+shutdown/recovery recipe. The existing mTLS recipe also passed, including
+startup trust/key refusals, missing/wrong client credentials, wrong server
+trust/name, disabled/zero/enabled modes and actual outage/recovery. The prior
+session handle was missing and its final
+result unavailable, so this entry relies on the fresh completed run, not an
+assumed result. Commands run from the repository root:
+
+```sh
+python3 scripts/test_worker_otelcol.py
+python3 scripts/test_worker_formation_receipts.py
+python3 scripts/check-worker-formation-otelcol.py --otelcol /tmp/orishu-otelcol-check.JlHHuV/otelcol --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl
+python3 scripts/check-worker-otelcol.py --otelcol /tmp/orishu-otelcol-check.JlHHuV/otelcol --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl
+python3 scripts/check-worker-otelcol.py --mtls --otelcol /tmp/orishu-otelcol-check.JlHHuV/otelcol --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl
+```
+
+Checkpoint: HEAD `51251791654425566d8392848b347f32c7258cb9` plus dirty changes.
+Rechecked executable SHA-256 identities:
+
+- Collector: `abe338fa33865e54412566db5cea4adc82374594b65b49c1099048cdf8cf2451`.
+- Worker: `ee58b5a895e59812849e8c9e03d08a8468efbb8d5171f3397e448aaebd013427`.
+- CLI: `589a2e83cb1bad4f5af787d2beeb0bf5ea1033000311bd77adc5ef8aa9cfef1e`.
+
+The documented Make target adds the build and both validator suites; this run
+used its direct commands against the existing hash-identified binaries, without
+rebuilding them. Its command expansion was checked with `make -n`.
+`make docs-check` passed for 128 Markdown files, and scoped `git diff --check`
+passed. No production Rust or protocol changes were made for this
+walkthrough. No new full-workspace/fault-build acceptance is claimed.
+
+Current recipe applicability: local official-Collector formation/log correlation
+is delivered; previous root-only HTTP/mTLS, Prometheus, proxy, dashboard, alert,
+incident, user-service and container results retain their original boundaries.
+Direct 172-series exposition here is **not Prometheus backend ingestion** of the
+nine new logging counters. This run uses local HTTP, not a new mTLS or combined
+service/container qualification. Selected-deployment reconciliation, the reviewed
+overhead experiment and the final combined acceptance checklist remain open.
+No overhead profile or budget approval is inferred; M4 remains incomplete.
+
+## Real-worker stdout reader recovery — 2026-09-09
+
+The remaining local logging recovery assertion now passes against the real
+worker. No production change was needed. The fixture in
+`apps/orishu-worker/tests/support/logging.rs` reuses the existing held-output
+scenario rather than substituting a fake writer or accepting pressure merely
+because a pipe was configured.
+
+The combined-feature case:
+
+1. Leaves the real stdout pipe unread while 1024 requests through one persistent
+   typed client preserve formation/liveness. Eight more successful requests
+   observe unchanged acknowledged writes and increasing queue loss; readiness
+   remains 200. The independent OTLP destination stays unavailable.
+2. Resumes only the parent pipe reader, with a 512 KiB capture cap. Within three
+   seconds, all previously accepted records are acknowledged as written,
+   existing queue-loss counts remain unchanged, and output-failure/closed
+   counters remain zero. No worker restart, configuration change, exporter
+   repair, trace resampling or domain mutation is used to obtain recovery.
+3. Sends a fresh authenticated request with a unique valid trace parent, then
+   verifies unchanged formation ID, node ID, liveness, membership-lock state
+   and readiness. After ordinary bounded shutdown, every captured line decodes
+   within the 320-byte record cap, contains no token/authored-name marker, and
+   exactly one new client-operation record carries the recovery trace ID.
+   Stderr stays empty. This distinguishes newly working output from merely
+   draining old buffered bytes; already-shed records are not replayed.
+
+The original unrecovered case still holds both output handles unread through
+process exit. The recovery reader uses a separate bounded capture thread and
+completion channel, so it does not block the async fixture while waiting for
+EOF; worker cleanup releases the pipe on assertion failure. The complete
+scenario retains its thirty-second budget and existing three-second worker
+termination deadline. It does not claim terminal broken-pipe reopening,
+collector recovery, systemd/container collection, retention or cloud qualification.
+
+Validation at HEAD `51251791654425566d8392848b347f32c7258cb9` plus the current
+dirty checkout: standalone-target Clippy with warnings denied passed in all
+four telemetry feature combinations. Logging executable tests passed:
+**2 default**, **2 metrics-only**, **4 tracing-only**, **5 combined**. The combined
+batch completed in 0.71 seconds. An initial tracing-only lint run caught a
+test-only unreachable `return` after the feature-omitted recovery guard; the
+return now lives in the enabled branch, and the corrected combinations passed.
+No production behavior or timeout was changed to satisfy that check.
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo clippy --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --test standalone \
+    --target-dir target/formation-flow-observability -- -D warnings || exit
+  cargo test --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --test standalone logging_ \
+    --target-dir target/formation-flow-observability --quiet || exit
+done
+```
+
+The focused design, worker manual, owning implementation/documentation tasks,
+ADR implementation note and roadmap now distinguish completed local recovery
+from the remaining combined operator walkthrough. The official Collector
+artifact is still available and was rechecked for the next dependent local
+walkthrough: version 0.160.0, SHA-256
+`abe338fa33865e54412566db5cea4adc82374594b65b49c1099048cdf8cf2451`.
+This is a prerequisite check, not new Collector receipt evidence. The overhead
+profile/budgets have been submitted for operator review; no approval, harness
+implementation or accepted measurement is implied. Full M4 remains open.
+
+## Runtime logging and local span receipt — 2026-09-09
+
+The current worker wires the bounded stdout adapter into normal configuration,
+lifecycle records and actual sampled-span completions. It exposes nine optional
+unlabelled logging counters through the existing metrics route, independent of
+trace export. The [runtime contract](../orishu-observability.md#bounded-operational-log-adapter),
+[configuration table](../orishu-configuration.md#implemented-structured-stdout-logging)
+and [worker manual](../../apps/orishu-worker/README.md#structured-stdout-logs)
+describe the delivered behavior; worker and cluster operator stories are updated.
+HEAD remains `51251791654425566d8392848b347f32c7258cb9` plus dirty changes;
+no supported-release compatibility claim is made.
+
+Executable evidence in `tests/support/logging.rs`:
+
+- Default logging is quiet; a file enables lifecycle output, environment false
+  disables it, and explicit CLI true overrides that environment value. Ordinary
+  ready/stopping/stopped records decode as bounded JSON without names or IDs.
+- An actual OTLP/HTTP-received client span matches the stdout record's trace ID,
+  span ID and completion timestamp. Logging disabled leaves export working;
+  zero-sampled or disabled tracing leaves lifecycle logs but no operation logs,
+  invented IDs or collector connections. This fixture uses the existing bounded
+  protobuf receiver, not a new official-Collector recipe.
+- With a real closed stdout pipe, the worker continues serving the same
+  formation/node identity and exits normally with empty stderr. Metrics-enabled
+  builds observe one output failure, nine logging series and readiness 200.
+- With stdout and stderr held open and unread, 1024 requests through one
+  persistent typed client retain formation/liveness. In the combined feature
+  build, metrics show queue loss; eight more successful requests show unchanged
+  acknowledged writes and increasing queue loss, while readiness remains 200.
+  The worker exits within the existing three-second `terminate` fixture before
+  either pipe is released. Logging uses a 20 ms drain and tracing a 100 ms
+  shutdown budget; the valid OTLP destination deliberately does not accept.
+  This demonstrates composed shutdown under those settings, not every possible
+  service drain/export timeout or a production SLO.
+
+All-target worker Clippy passed in all four telemetry feature combinations.
+Three configuration/CLI tests passed in each combination. The default and
+metrics-only builds each passed two executable logging tests; tracing-only and
+combined builds each passed four. The focused adapter catalogue still checks
+all finite events/outcomes, now including trace-exporter task failure.
+
+Failures retained: the first executable batch failed startup because Clap's
+flattened tracing/logging structs both used the internal ID `enabled`. Logging
+now has a distinct ID, and a full CLI `debug_assert` regression catches future
+collisions. A later tracing-only pressure run exhausted its 30-second fixture
+budget while repeatedly constructing clients through the startup/retry helper.
+The corrected fixture keeps the same 1024 requests/deadline but reuses one typed
+client, with no per-request retries. All four logging tests then passed in
+0.70 seconds tracing-only and 0.64 seconds combined. This is a fixture correction,
+not a claimed runtime performance improvement or an accepted overhead result.
+
+The existing trace saturation regression initially failed because it still
+read synchronous final stderr counts. It now enables logging and decodes
+bounded stdout `orishu.trace.accounting` records, preserving its exact final
+assertions: accepted 2, rejected/failed 0, shutdown-dropped 1, queue-full 4,
+enqueued 3, with all twelve counters present. Enabling logging also adds nine
+metrics, so that fixture's complete catalogue assertion is now 172 rather than
+163; its twelve trace-series assertions are unchanged. The corrected focused
+regression passed. Final accounting uses a fixed twelve-record all-or-none
+enqueue; a deterministic held-writer unit test verifies capacity loss is twelve
+and no partial batch enters the queue. Delivery after enqueue remains best-effort.
+
+Final logging-source validation passed: fourteen adapter tests per feature
+combination (one separately parent-invoked child ignored by direct selection),
+all-target Clippy across all four combinations, two logging process tests in
+default/metrics-only builds and four in tracing-only/combined builds. The
+combined worker suite passed **211 library tests, 2 ignored**, **49 binary
+tests**, and **9 existing tracing process tests**, including exact final
+accounting. `make docs-check` passed (128 Markdown files); scoped Rust formatting
+and whitespace checks passed. Full workspace/release/fault-feature validation
+is not claimed by this increment.
+
+The ordinary real CLI journey also passed against the combined-capability
+worker: three-worker introducer handoff, leave, crash/restart and readmission.
+This preserves ordinary formation behavior, not the full fault-conformance
+matrix. Command and executable SHA-256 values:
+
+```sh
+python3 scripts/check-formation-cli.py \
+  --worker target/formation-flow-observability/debug/orishu-worker \
+  --ctl target/formation-flow-observability/debug/orishuctl
+```
+
+- worker: `ee58b5a895e59812849e8c9e03d08a8468efbb8d5171f3397e448aaebd013427`
+- CLI: `589a2e83cb1bad4f5af787d2beeb0bf5ea1033000311bd77adc5ef8aa9cfef1e`
+
+One validation batch stopped at a linker bus error while the workspace had
+only 244 MiB available. With build handles terminal and no observed active
+compiler, five generated worker incremental-cache directories (2.5 GiB) were
+moved, not deleted, from the formation target to
+`/tmp/orishu-log-cache.ywKkJi`. Source, dependency libraries, test executables and
+recorded artifacts were preserved. The same failed checks passed after space
+was available; 2.4 GiB remained free after validation. The moved directories
+are regenerable and recoverable until temporary storage is cleared; this is
+not a portable prerequisite or an instruction to delete unrelated caches.
+
+Reproduction (local socket/private credential fixture access required):
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo clippy --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --all-targets \
+    --target-dir target/formation-flow-observability -- -D warnings || exit
+  cargo test --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --bin orishu-worker logging \
+    --target-dir target/formation-flow-observability --quiet || exit
+  cargo test --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --test standalone logging_ \
+    --target-dir target/formation-flow-observability --quiet || exit
+done
+```
+
+Compatibility and limits: normal synchronous listener, signal and final trace
+statistics prints are removed. The historical v1 overhead harness now requires
+an explicitly selected compatible `ORISHU_BENCH_LEGACY_WORKER`; it does not
+substitute live counters for final accounting or rewrite existing artifacts.
+Its current-worker successor remains the proposed experiment requiring operator
+review. Startup errors/help, unexpected panics and development fault markers
+are outside the production structured runtime-output contract. Real-worker
+slow-reader recovery, the combined deployment/operator walkthrough, reviewed
+overhead and final M4 acceptance remain open. This increment does not claim
+durable logging, vendor adapters, supported packages or Kubernetes qualification.
+
+## Bounded log adapter primitives — 2026-09-09
+
+Implemented the worker-owned `operational_log` adapter, not runtime logging
+activation. The [focused contract](../orishu-observability.md#bounded-operational-log-adapter)
+specifies fixed JSON fields/catalogue, 320-byte records, preallocated queue
+limits, intended runtime defaults/sampling, stdout ownership and finite shutdown.
+No dependency was added; the sink seam is the standard `Write` interface.
+
+Evidence at HEAD `51251791654425566d8392848b347f32c7258cb9` plus the dirty worker
+and documentation changes (unrelated Kagami changes preserved):
+
+- Twelve adapter tests passed in each of the four `observability`/`otlp-tracing`
+  feature combinations. The separately ignored held-stdout child is invoked by
+  its parent test, not skipped as pressure evidence. The parent holds stdout
+  unread and open until the subprocess has exited successfully. The child uses
+  the real duplicated stdout sink, observes acknowledged writes followed by a
+  full queue and outstanding write, then reports two never-started records shed
+  and one unconfirmed record at the 20 ms test cutoff. It calls normal Rust
+  process-exit cleanup without libtest's own post-test stdout report.
+- Tests additionally cover the complete event/outcome/context catalogue,
+  maximal timestamps and exact IDs, bounded encoder refusal, queue-full and
+  queue-lock-contention loss, slow-sink recovery, guard drop, short writes,
+  bounded interruption retries, actual closed OS pipe, partial-output terminal
+  failure, flush failure, blocked flush and blocked sink destruction. After a
+  possibly partial failed write no later line is emitted.
+- All-target worker Clippy passed with warnings denied in all four feature
+  combinations. The combined-feature worker library suite passed: **209 passed,
+  2 ignored** (manual allocation profile and explicitly parent-invoked child).
+  The library regression suite ran with local socket/private-credential fixture
+  access. Membership dependency-contract tests passed: **3 passed**.
+- `make docs-check` passed (128 Markdown files) and scoped Rust formatting
+  passed. Whole-worktree `git diff --check` reported trailing whitespace in
+  unrelated ongoing `TODO.md` and three Kagami task edits; those files were
+  preserved. The scoped logging/formation documentation diff check passed.
+
+Commands, each completed without an automatic retry loop:
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --lib operational_log \
+    --target-dir target/formation-flow-observability --quiet || exit
+  cargo clippy --locked --offline -p orishu-worker --no-default-features \
+    --features "$worker_features" --all-targets \
+    --target-dir target/formation-flow-observability -- -D warnings || exit
+done
+cargo test --locked --offline -p orishu-worker --no-default-features \
+  --features observability,otlp-tracing --lib \
+  --target-dir target/formation-flow-observability --quiet
+cargo test --locked --offline -p orishu-membership --test dependencies \
+  --target-dir target/formation-membership-contract --quiet
+```
+
+Adapter source SHA-256 at this checkpoint:
+
+| File under `apps/orishu-worker/src/` | SHA-256 |
+| --- | --- |
+| `operational_log.rs` | `e0b6ead9a522501d921f601b5f60f76cbee0172f310a18bc9d62583ed2247b78` |
+| `operational_log/record.rs` | `22a22c5f49e85d004794c0bdb91f650bd59c65efcfee0b82ec2cd839b114a7d1` |
+| `operational_log/tests.rs` | `3daf35ad4d6e4e730d2338d00a5a2840e40d7543eec187c49b5659bfde34ab2f` |
+
+Limits and next work: no main/configuration or span-completion call site uses
+the adapter yet. This does not establish real-worker trace/log receipt,
+disabled/zero-sampling behavior, live loss-counter exposition, reconciliation
+of existing prints, or complete worker shutdown with blocked stdout/stderr.
+The subprocess establishes the output adapter's boundary, not the owner/server/
+exporter shutdown composition. Wire the documented settings and event producers,
+then test that real composition and update the operator manual. No standalone
+formation rerun, new official-Collector recipe, overhead experiment, or full
+workspace validation is claimed. All remaining M4 gates stay open.
+
+## Profile-5 activation and cross-worker receipt — 2026-09-09
+
+The worker now negotiates only `orishu-membership/5`. Its ordinary receive path
+uses the validated optional-context grammar, and sampled outbound join exchanges
+append their local span context only when it fits the already selected packet.
+All feature builds use the same grammar. Profile 4 is not a runtime option or
+fallback; workers must be rebuilt/restarted together. Semantic `proto: 1`,
+admission identities/digests, policy hashes, handshakes and catch-up DTOs remain
+unchanged. This is a coordinated PoC restart, not persisted-state migration.
+
+On the receiving worker, registry session, source, sequence and generation checks
+precede span creation. The current join credential is additionally required to
+adopt the supplied parent, without bypassing the core's admission policy. The
+new `orishu.admission` server span records bounded completed/rejected/failed/
+cancelled adapter outcomes. Local sampling and active/queue limits remain
+authoritative. Invalid/missing credentials cannot choose ancestry; absent or
+discarded metadata produces a fresh locally sampled trace. Existing operation
+and generation fences own context lifetime; unrelated periodic work does not
+inherit it. Replies and baseline transfers currently carry no context.
+
+The [three-worker test](../../apps/orishu-worker/tests/support/tracing_peer.rs)
+starts private A/B/C processes and a separate bounded receiver endpoint for each
+worker. It obtains public authenticated material, completes A-admits-B and then
+B-admits-C, verifies Joined-assigned IDs and introducer readiness, and checks
+the common formation with three live members at every worker. Decoded OTLP must
+prove both causal chains: client → outbound exchange on the joiner → admission
+on the receiver. The captured endpoint identifies the exporting process; matching
+IDs or timestamps alone cannot pass. Replaying C's completed operation with a
+different parent produces only its new client span, not another peer exchange
+or admission. The ordinary full-sampling case has seven relevant records.
+
+Independent controls make B runtime-disabled or zero-sampled while A/C remain
+enabled. B still joins and admits C; A's admission of B becomes a fresh root and
+C's trace ends at its outbound exchange. No B record may satisfy these cases.
+An explicitly selected additional case uses a separately built feature-omitted
+A; it accepts B's context-bearing profile-5 traffic without exporting and still
+participates in the three-worker formation. This is a real mixed-build check,
+not just a shared codec compilation. The fixture has a sixty-second whole-run
+budget, finite collector requests/records and the shared 4 KiB header, 1 KiB
+protobuf and 8 KiB client-response bounds. No collector installation is needed.
+
+Activation verification:
+
+- Four feature builds: all 14 wire tests and all-target worker Clippy passed.
+  Golden absent/present bytes, invalid context versus domain failures, unchanged
+  admission digests, exact stream/datagram omission and structural caps remain.
+- The TLS test with valid mutual credential configuration rejects a client
+  offering only profiles 4 and 3; ordinary profile-5 handshakes succeed in the
+  same library suite and actual worker journey.
+- The current-join-credential parent gate has positive, missing and incorrect
+  credential tests for both remote sampling flags; registry/core credential
+  tests remain independent of this diagnostic gate.
+- Combined-feature worker library: 197 passed; one existing manual allocation
+  profile ignored. Tracing process suite: 9 passed in each tracing-only and
+  combined build, including receiver receipt, prior security/pressure/recovery
+  and shutdown regressions. The combined run selects the minimal peer case.
+- The ordinary formation CLI journey passed on the profile-5 minimal executable:
+  public handoff, leave, crash/restart and readmission. It is not a new complete
+  fault-feature matrix or full-workspace qualification.
+- Membership dependency-purity tests, scoped rustfmt/whitespace and docs checks
+  passed. No dependency was introduced into the core or worker by activation.
+
+The feature-omitted worker was built with `cargo build --locked --offline -p
+orishu-worker --no-default-features --target-dir target/formation-flow-observability`
+while the build directory was idle, then copied to the newly created private
+directory `/tmp/orishu-profile5-minimal.9Mxq1y/` before enabling feature builds.
+Its SHA-256 is `e43a1bcee5d560d684015825ed9cef566960b28ffdb3e35775e4b5c82c6def39`.
+That path is a local retained test artifact, not a portable prerequisite; create
+your own isolated copy and substitute it below. Never rebuild a live executable.
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --lib peer::wire --target-dir target/formation-flow-observability --quiet || exit
+  cargo clippy --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --all-targets --target-dir target/formation-flow-observability -- -D warnings || exit
+done
+cargo test --locked --offline -p orishu-worker --no-default-features --features observability,otlp-tracing --lib --target-dir target/formation-flow-observability --quiet
+cargo test --locked --offline -p orishu-worker --no-default-features --features otlp-tracing --test standalone tracing_ --target-dir target/formation-flow-observability --quiet
+ORISHU_TEST_MINIMAL_WORKER=/tmp/orishu-profile5-minimal.9Mxq1y/orishu-worker cargo test --locked --offline -p orishu-worker --no-default-features --features observability,otlp-tracing --test standalone tracing_ --target-dir target/formation-flow-observability --quiet
+cargo build --locked --offline -p orishuctl --target-dir target/formation-flow-observability --quiet
+python3 scripts/check-formation-cli.py --worker /tmp/orishu-profile5-minimal.9Mxq1y/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl
+cargo test --locked --offline -p orishu-membership --test dependencies --target-dir target/formation-flow-observability --quiet
+make docs-check
+```
+
+Checkpoint: `51251791654425566d8392848b347f32c7258cb9` plus the earlier uncommitted
+trace increments and this activation/receiver/test change. The minimal artifact
+predates extraction of the feature-gated diagnostic credential helper, which is
+omitted from that build. Concurrent authoring/roadmap work was preserved. All
+runtime tests passed without changed production limits. Socket/process fixtures
+used approved local access. The operator guide now supplies the bounded receiver
+command, but the official Collector/file recipe was not rerun for these new span
+types. The initial formation propagation deliverable is complete at this scope;
+stdout log correlation, reviewed performance and combined operator monitoring/
+deployment acceptance remain open. Combined M4 and the overall task are not
+complete. Historical profile-4 sections below retain their original checkpoints.
+
+## Owned join-exchange parent receipt — 2026-09-09
+
+The sampled local client span is now available as request-local IO metadata.
+The authorized join route copies that fixed parent into a fresh owner
+reservation, through its generation-fenced `JoinPreparation` completion and
+into the existing `JoinTransport`. No parent enters the domain request,
+operation receipt/history, membership core or admission digest. A startup-only
+shared queue is installed once; it holds no last-client ancestry. Without an
+installed queue, join submission discards context.
+
+Each sampled outbound join exchange uses the retained client span as parent.
+Its RAII span travels with the existing bounded send task: response receipt
+finishes it, failure records a failed exchange, and task cancellation drops its
+permit with a best-effort cancelled record. These are transport observations,
+not admission acceptance. The retry identity/budget and generation checks are
+unchanged. Other peer work does not read this parent. No context is emitted on
+profile 4; receiving-worker spans and profile-5 activation remain pending.
+
+The new `tracing_join_exchange_retains_client_parent_and_replay_starts_no_peer_work`
+[process test](../../apps/orishu-worker/tests/support/tracing_context.rs) starts
+two actual workers with authenticated public join material and real peer IO.
+The source submits an authenticated HTTP join with a supplied parent; after
+the operation reaches Joined, it replays the same request with another parent.
+The bounded receiver decodes actual OTLP and verifies three matching records:
+the original client span, its child `orishu.peer.exchange`, and the replay's
+client span. The replay has no new peer exchange and does not overwrite the
+original ancestry. Source formation/member-count assertions confirm the join
+completed. These spans are all exported by the **initiating worker**, not the
+receiver. Runtime-disabled and zero-sampled repetitions still join/replay with
+no exports. Both processes terminate normally. The test has a thirty-second
+outer budget and bounded collector request, response, protobuf and record limits;
+it is not a measured overhead or loss-tolerance experiment.
+
+The owner cancellation/generation tests now supply distinct old/new parents,
+check replay preservation, and show a stale preparation cannot change the new
+operation's context or state. They run in all four feature combinations;
+omitted/disabled queues discard context. A middleware test verifies that a
+downstream child uses the new local span ID, not the remote parent ID, and that
+normal completion and a zero-sampled subsequent request leave no old context.
+Existing cancellation, active/queue-pressure and exporter shutdown tests remain.
+
+Verification passed:
+
+- Two owner preparation tests and all-target worker Clippy in each feature build.
+- Combined-feature complete worker library: 196 passed; one existing manual
+  allocation profile ignored.
+- Eight tracing process tests in each of tracing-only and combined builds,
+  including auth/context, collector security, pressure/recovery and shutdown.
+- Membership dependency-purity checks, scoped rustfmt/whitespace and docs checks.
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --lib join_preparation --target-dir target/formation-flow-observability --quiet || exit
+  cargo clippy --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --all-targets --target-dir target/formation-flow-observability -- -D warnings || exit
+done
+cargo test --locked --offline -p orishu-worker --no-default-features --features observability,otlp-tracing --lib --target-dir target/formation-flow-observability --quiet
+for worker_features in otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --test standalone tracing_ --target-dir target/formation-flow-observability --quiet || exit
+done
+cargo test --locked --offline -p orishu-membership --test dependencies --target-dir target/formation-flow-observability --quiet
+rustfmt --edition 2024 --config skip_children=true --check apps/orishu-worker/src/driver.rs apps/orishu-worker/src/runtime.rs apps/orishu-worker/src/main.rs apps/orishu-worker/src/trace_export.rs apps/orishu-worker/src/trace_export/requests.rs apps/orishu-worker/tests/support/tracing_context.rs
+make docs-check
+```
+
+Checkpoint: `51251791654425566d8392848b347f32c7258cb9` plus the earlier trace/codec
+increments and this owner/runtime/request-middleware/test wiring. Existing
+concurrent authoring work was preserved. Initial fixture compilation used the
+wrong client method and Joined enum shape; correcting the fixture to the typed
+membership API resolved those errors. Deprecated Depot aliases were replaced
+with the current typed methods before Clippy. Runtime assertions passed without
+relaxed limits. Socket/credential fixtures used approved access. No full-workspace,
+formation-fault batch, cross-worker exporter or operator Collector walkthrough
+is claimed here. Remaining M4 work includes receiver context/spans and profile-5
+activation, stdout log correlation, reviewed overhead and operator handoff.
+
+## Staged profile-5 wire codec — 2026-09-09
+
+[`peer::wire::profile5`](../../apps/orishu-worker/src/peer/wire/profile5.rs)
+implements the accepted optional-context grammar without changing negotiated
+ALPN or production owner call sites. The current profile-4 decoder remains
+strict and its golden bytes unchanged. This staging boundary is temporary,
+not a dual-profile runtime option or an accepted fallback policy.
+
+Both codecs share authenticated-session, transport, domain and CBOR checks.
+Profile 5 alone permits the optional field; it borrows capped text after those
+checks, retains only validated fixed-size IDs/flags and ignores invalid or
+non-text metadata. Duplicate keys, unknown domain fields and malformed packets
+still fail normally. Context remains outside `PeerInput` and admission digests.
+
+The encoder selects/encodes the domain packet first and appends the canonical
+69-byte field only if byte and structural-work limits permit it. Omission
+preserves the original packet bytes, payload, selected gossip, deferred-gossip
+count and delivery class. The append uses fallible bounded extra reservation
+and a full structural check, O(encoded packet bytes); these bounds are not an
+accepted telemetry-overhead measurement.
+
+Six new serialized-path tests cover absent/present golden bytes and profile-4
+refusal, all truncated prefixes and duplicate keys, malformed/oversized/non-text
+metadata versus domain/session/transport failures, unchanged admission attempt/
+digest/credential separation, exact 1,200-byte datagram and 1 MiB stream fit/
+omission boundaries, retained snapshot byte measurements, ordinary gossip
+deferral and exhausted CBOR work-budget omission. The work-budget append test
+uses a structural fixture, not a claimed valid membership message. Stream
+boundary snapshots are codec fixtures, not a claim that an operator can admit
+those endpoint records. No new dependency or core/persisted-format change.
+
+Verification passed at `51251791654425566d8392848b347f32c7258cb9` plus the earlier
+uncommitted trace implementation and this codec increment:
+
+- All 14 wire tests in each of the four telemetry feature builds.
+- Combined-feature peer suite: 95 passed, including existing TLS, transport,
+  server and catch-up regressions, with approved local socket/credential access.
+- Worker all-target Clippy with warnings denied in all four feature builds;
+  membership dependency-purity tests: 3 passed.
+- Scoped rustfmt/whitespace and documentation checks.
+
+```sh
+for worker_features in '' observability otlp-tracing observability,otlp-tracing; do
+  cargo test --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --lib peer::wire --target-dir target/formation-flow-observability --quiet || exit
+  cargo clippy --locked --offline -p orishu-worker --no-default-features --features "$worker_features" --all-targets --target-dir target/formation-flow-observability -- -D warnings || exit
+done
+cargo test --locked --offline -p orishu-worker --no-default-features --features observability,otlp-tracing --lib peer:: --target-dir target/formation-flow-observability --quiet
+cargo test --locked --offline -p orishu-membership --test dependencies --target-dir target/formation-flow-observability --quiet
+rustfmt --edition 2024 --config skip_children=true --check apps/orishu-worker/src/peer/wire.rs apps/orishu-worker/src/peer/wire/profile5.rs apps/orishu-worker/src/peer/codec.rs
+make docs-check
+```
+
+An initial build warned about the intentionally ignored DTO field being unread;
+an explicitly renamed underscore field removed that warning before Clippy. All
+test runs passed. Concurrent authoring/session/renderer/variables/roadmap work
+was preserved and is outside this evidence. No full-workspace, process-formation
+or overhead batch was rerun. The active wire profile remains 4. Generation-fenced
+owner metadata, receiver span creation, profile-5 activation with mutually
+authenticated old-profile refusal, and real cross-worker OTLP receipt are still
+required; these codec fixtures do not replace them. Logging and final overhead/
+operator acceptance also remain open, so combined M4 is incomplete.
 
 ## Authenticated client parent receipt — 2026-09-08
 

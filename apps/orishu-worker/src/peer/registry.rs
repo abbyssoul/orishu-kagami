@@ -913,6 +913,11 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn registered_owner_retains_trimmed_gossip_until_real_datagram_submission() {
+        exercise_datagram_delivery(3).await;
+    }
+
+    #[tokio::test]
     async fn authenticated_acks_complete_only_their_outstanding_probe() {
         exercise_datagram_delivery(1).await;
     }
@@ -1082,6 +1087,22 @@ mod tests {
             .unwrap();
             testing::insert_member(&mut receiver, sender.members()[sender.local_id()].clone());
             testing::insert_member(&mut sender, receiver.members()[receiver.local_id()].clone());
+            if case == 3 {
+                let mut context = testing::peer_context(&receiver, sender.local_id(), 1);
+                context.gossip = (0..10).map(|index| orishu_membership::GossipDelta {
+                    hops: 0,
+                    body: orishu_membership::DeltaBody::MembershipUpdate(
+                        testing::member(&format!("queued-{index}"), index + 1)),
+                }).collect();
+                // Preload current authoritative news; the seam under test is
+                // the real owner's outbound encoding/routing/feedback path.
+                receiver = orishu_membership::update(receiver, Message::Peer(
+                    orishu_membership::PeerInput {
+                        context,
+                        body: PeerBody::Ack { probe: ProbeId(999), incarnation: Incarnation(0) },
+                    },
+                )).model;
+            }
             let receiver_id = receiver.local_id().clone();
             let (owner, owner_task) = crate::formation_metrics::test_owner(receiver);
             let endpoint = quinn::Endpoint::server(
@@ -1126,6 +1147,39 @@ mod tests {
                 identity.fingerprint(),
             )
             .unwrap();
+            if case == 3 {
+                let mut seen = std::collections::BTreeSet::new();
+                for seq in 100..228 {
+                    let packet = wire::encode(OutboundMessage {
+                        seq,
+                        gossip: vec![],
+                        body: OutboundBody::Ping { probe: ProbeId(seq), incarnation: Incarnation(0) },
+                    }, sender.formation().clone(), SenderIdentity::Admitted(sender.local_id().clone()), None).unwrap();
+                    connection.send_datagram(packet.bytes.into()).unwrap();
+                    loop {
+                        let bytes = connection.read_datagram().await.unwrap();
+                        assert!(bytes.len() <= wire::MAX_DATAGRAM_BYTES);
+                        let decoded = binding.decode(&bytes, &sender, Generation(0), wire::Transport::Datagram).unwrap();
+                        for delta in decoded.input.context.gossip {
+                            if let orishu_membership::DeltaBody::MembershipUpdate(member) = delta.body
+                                && member.id.as_str().starts_with("queued-")
+                            {
+                                seen.insert(member.id);
+                            }
+                        }
+                        if matches!(decoded.input.body, PeerBody::Ack { probe, .. } if probe == ProbeId(seq)) {
+                            break;
+                        }
+                    }
+                }
+                let queued = owner.model_snapshot().await.gossip().len();
+                owner.shutdown().await.unwrap();
+                assert_eq!(owner_task.await.unwrap(), Ok(()));
+                dispatcher.await.unwrap();
+                assert_eq!(seen.len(), 10, "every queued record needs a real wire opportunity");
+                assert_eq!(queued, 0, "actually submitted gossip must still retire");
+                return;
+            }
             if case == 2 {
                 exercise_peer_pressure(&owner, &connection, &sender).await;
                 assert_eq!(owner_task.await.unwrap(), Ok(()));

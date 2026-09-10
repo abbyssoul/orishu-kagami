@@ -1,6 +1,6 @@
 # Receive worker traces with a local OpenTelemetry Collector
 
-Status: **verified source-built Linux walkthrough; local client-service spans only**
+Status: **verified source-built Linux walkthroughs; local requests and three-worker admission/log correlation**
 
 This uses the official **otelcol 0.160.0** binary and the checked-in
 [collector configuration](../etc/otelcol-worker-local.yml). Unlike the bounded
@@ -140,10 +140,105 @@ operation receipt. This CLI walkthrough supplies no parent and verifies local
 roots only. The API now supports [authenticated incoming client context](protocol-client.md#planned-client-trace-context),
 with separate [real-worker receipt evidence](tasks/cluster-formation-conformance.md#authenticated-client-parent-receipt--2026-09-08);
 that test uses a bounded OTLP receiver, not this official Collector recipe.
-Cross-peer propagation, command-ID attributes and trace-correlated worker logs
-remain unavailable; timestamps/counts are not causal proof for several
-concurrent operations. Normal sampling defaults to 1000 ppm; the 100% override
+Cross-peer admission propagation has separate checks below. Command-ID
+attributes remain unavailable. Enable the independent
+[structured stdout adapter](../apps/orishu-worker/README.md#structured-stdout-logs)
+to obtain matching trace/span IDs; this single-request command leaves it disabled.
+Timestamps/counts alone are not causal proof for concurrent operations.
+Normal sampling defaults to 1000 ppm; the 100% override
 is for this short test, not a fleet recommendation.
+
+## Verify cross-worker admission correlation
+
+The formation adapter now negotiates only `orishu-membership/5`. Rebuild/restart
+all participating PoC workers together; profile 4 is not a fallback. From an
+idle build directory, run the bounded three-worker receipt check:
+
+```sh
+cargo test --locked --offline -p orishu-worker --no-default-features --features observability,otlp-tracing --test standalone tracing_three_workers --target-dir target/formation-flow-observability -- --nocapture
+```
+
+It starts private A/B/C worker processes with separate loopback OTLP receiver
+endpoints, obtains authenticated join material and completes A-admits-B followed
+by B-admits-C. Decoded records must prove `client.request` → `peer.exchange`
+on the joining worker → `admission` on the receiving worker (all names have the
+`orishu.` prefix). The receiver's parent ID must equal the sender exchange's
+span ID under the same trace ID; timestamps alone cannot satisfy the test.
+Replaying a completed join with another parent must create no new peer work.
+Zero-sampling and disabled middle-worker cases still form the cluster while
+respecting each worker's independent export policy. The optional
+`ORISHU_TEST_MINIMAL_WORKER` test variable selects a separately built
+feature-omitted executable for an additional interoperability case; see the
+[activation ledger](tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09)
+for its exact build and run commands.
+
+This uses bounded test receivers, not the official Collector/file-exporter
+walkthrough above; it does not qualify remote deployment, combined scrape/log
+correlation or performance. The existing `--inspect-traces` validator above
+still verifies its specific local-root recipe, not arbitrary distributed traces.
+
+## Official Collector formation and log walkthrough
+
+Using the pinned prerequisites above, run:
+
+```sh
+make test-worker-formation-otelcol OTELCOL=/absolute/path/to/otelcol WORKER_OTELCOL_TARGET_DIR=target/formation-flow-observability
+```
+
+The target builds both telemetry capabilities, runs both receipt-validator test
+suites, then starts three ordinary workers and the official Collector. With
+already-built, idle executables, the equivalent check is:
+
+```sh
+python3 scripts/test_worker_otelcol.py
+python3 scripts/test_worker_formation_receipts.py
+python3 scripts/check-worker-formation-otelcol.py --otelcol /absolute/path/to/otelcol --worker target/formation-flow-observability/debug/orishu-worker --ctl target/formation-flow-observability/debug/orishuctl
+```
+
+The check creates private state and Unix client sockets, uses real authenticated
+CLI joins so A admits B and then B admits C, and retains each worker's stdout
+separately. Full sampling, logging and metrics are explicitly enabled. It proves:
+
+- Exact formation/node/certificate membership views converge, with completed
+  introducer catch-up. Lock through A and unlock through C become visible on
+  all workers without changing their identities.
+- Each admission has a received `orishu.client.request` →
+  `orishu.peer.exchange` → `orishu.admission` chain. The first two spans belong
+  to the joining worker; the last belongs to its introducer. Parent IDs and
+  trace IDs establish causality; separate process stdout handles establish
+  worker ownership without adding raw names or identity attributes.
+- Every received span matches exactly one operational record by trace/span
+  IDs, event, outcome and completion timestamp, and every logged operation has
+  a received span. Two admission chains are required; the total number of
+  client spans varies with convergence polling.
+- Each worker's direct HTTP scrape exposes the current 172-series catalogue,
+  no quiet-fixture telemetry loss, and healthy startup/liveness/readiness
+  probes. Final trace-accounting records agree with receipt totals after
+  workers shut down before the Collector.
+
+The script retains the 120-second whole-journey alarm, ten-second polling and
+command budgets, one-second HTTP timeout and three-second graceful process-exit
+budget. It caps operator calls at 64 per worker, Collector receipt reads at
+256 KiB/256 spans and each stdout capture at 128 KiB/512 records, with a
+320-byte record limit. A dedicated reader drains each pipe continuously but
+persists no more than its byte cap; overflow fails rather than accepting a
+truncated capture. Cleanup reaps children and removes private fixture files.
+Negative controls reject wrong worker roles, parents, IDs, kinds, outcomes,
+timestamps, duplicates, missing receipts, secret markers and oversized captures.
+
+Expected output ends with `PASS: Collector 0.160.0; A→B→C formation; two causal
+chains`, the variable matched-span count and the 172-series/probe/policy result.
+See the [recorded run](tasks/cluster-formation-conformance.md#official-collector-formation-and-log-correlation--2026-09-09).
+The original `--inspect-traces` command remains a strict local-root validator;
+it must not be used to validate this formation receipt.
+
+This is local HTTP Collector receipt and direct metric exposition, **not
+Prometheus ingestion**, a new mTLS qualification, a pressure test, or a
+service/container/Kubernetes deployment. Full sampling is a short-test setting,
+not an accepted overhead profile. Logs and Collector files remain best-effort
+diagnostics, not durable audit. Preserve the separate disabled/outage/security
+and stdout-pressure/recovery checks; this happy-path walkthrough does not replace
+them or close combined M4 acceptance.
 
 ## Limits and safe first checks
 
@@ -181,8 +276,8 @@ that distinction; do not restart/rejoin a worker or replay a mutation merely
 to regenerate telemetry. The automated outage test uses real collector
 shutdown; it does not prove queue saturation or a stalled filesystem.
 
-Remote/TLS collector deployment, cross-peer propagation, log correlation,
-dashboards, service/container/release qualification and representative overhead
+Cross-host collector deployment, combined service/container/release
+qualification and representative overhead
 remain open under [P-OBS-DOCS](tasks/document-worker-observability.md) and
 [P-OBSERVABILITY](tasks/implement-worker-observability.md). This local receipt
 recipe is not combined M4 acceptance.

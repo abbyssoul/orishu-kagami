@@ -1,23 +1,62 @@
 # Document and verify operator observability workflows
 
-Status: **partial — local/mTLS-proxy scrape and local Collector receipt recipes verified; remaining operator handoff pending**
+Status: **partial — formation-stage source-built recipes and selected deployment collection verified; final M4 performance acceptance and later release/workload handoff pending**
 
 Decision: [ADR 0017](../adr/0017-worker-operational-observability.md)
 Roadmap package: **P-OBS-DOCS**
 Dependency: [Worker observability](implement-worker-observability.md)
 
+The [structured stdout manual](../../apps/orishu-worker/README.md#structured-stdout-logs)
+and [configuration table](../orishu-configuration.md#implemented-structured-stdout-logging)
+now describe implemented settings, actual sampled IDs, finite records and
+loss/shutdown interpretation. Updated worker/cluster stories preserve the
+distinction from audit/history. The
+[Linux executable evidence](cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09)
+is supplemented by the [official Collector three-worker walkthrough](../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough):
+both admission chains match per-worker stdout records while direct scrapes,
+probes and cross-worker policy checks pass. The selected service/container
+collection is separately verified below; final M4 acceptance remains open.
+Reuse these deliveries rather than creating another sink.
+The manual's slow-reader recovery procedure now has
+[real-worker pipe recovery evidence](cluster-formation-conformance.md#real-worker-stdout-reader-recovery--2026-09-09):
+resume the reader, retain loss counts, verify a new correlated record and use
+unchanged authoritative identity/readiness as the control. This does not qualify
+service-manager/container collection or a new destination adapter.
+
+The operator selected both deployment examples on 2026-09-09. Their
+[enabled journal and container collection checks](cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09)
+now match actual runtime-collected records to official Collector spans, preserve
+credentials with fresh identities across deliberate restarts, and require
+clean shutdown. The original five-mode recipes remain separate regression
+evidence. Final checkpoint/applicability review and overhead remain open;
+this does not qualify three-worker formation under either supervisor.
+
+The [current-build recipe refresh](cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09)
+now revalidates both deployments, all ingestion catalogues, Collector HTTP/mTLS,
+proxy pressure/security and dashboard queries after the formation/shutdown fixes.
+Formation-stage recipe implementation is verified; final M4 performance and
+acceptance remain open, not another missing sink or deployment-selection choice.
+
+The [logging-counter Prometheus recipe](../testing-worker-prometheus.md#ingest-logging-counters-through-prometheus)
+now verifies actual 160/172-series ingestion with independent logging, combined
+telemetry and a real broken stdout pipe. New writes/closure refusals generated
+while Prometheus is stopped must be ingested after it restarts. This closes the
+named local logging-catalogue gap, not remote-proxy or service/container
+co-deployment. Existing 151/163-series modes retain their disabled-log semantics.
+
 ## Outcome and gap
 
-An operator can deploy a supported worker build, enable least-privilege
+The intended outcome is that an operator can deploy a supported worker build, enable least-privilege
 monitoring, scrape metrics, configure safe process probes and use correlated
-traces to diagnose an incident. The initial stories and design links are
-planned documentation; exact flags, deployment examples, dashboards and
-troubleshooting commands require the implemented contracts.
+traces to diagnose an incident. Formation-stage source-built Linux flags,
+deployment examples, dashboards and troubleshooting commands are now documented
+and verified at the scoped checkpoints below. Published supported artifacts
+and later workload workflows remain separate delivery obligations.
 
 The [local Prometheus guide](../testing-worker-prometheus.md) and
 `etc/prometheus-local.yml` now have a real source-build worker scrape and
 `promtool` validation through `make test-worker-prometheus`. Remaining work is
-deployment qualification, release artifacts, cross-peer/log correlation and
+final M4 performance acceptance, release artifacts and
 later workload-specific monitoring. The scoped scrape, collector, dashboard,
 alert and incident deliveries below do not close that broader handoff. The
 additional
@@ -55,7 +94,7 @@ The [live trace-counter catalogue](../orishu-observability.md#live-trace-deliver
 now documents sampling, delivery uncertainty, queue pressure, absent-versus-zero
 semantics and safe first checks. Its real-worker pressure fixture validates
 live exposition with optional pinned `promtool` checks. Remote collector deployment
-and cross-peer/log correlation remain open; the snapshot dashboard above includes
+and the combined deployment handoff remain open; the snapshot dashboard above includes
 trace-delivery/loss panels without establishing those capabilities. Three optional
 trace-loss warning examples now have synthetic pending/firing/recovery and
 reset/idle/disabled/unavailable-target checks, plus real-server rule loading;
@@ -70,9 +109,10 @@ validates the checked-in OTLP/HTTP configuration with official `otelcol 0.160.0`
 and receives real worker spans into inspectable JSONL. Its disabled/zero/enabled,
 rejected-mutation, actual collector shutdown/recovery and seeded-redaction
 checks pass through worker/CLI processes. This closes the local collector
-receipt recipe only: remote collector security, cross-peer/log correlation,
-collector pressure/retention testing and service/container/release delivery
-remain open. The file exporter is a disposable diagnostic sink, not a backend
+receipt recipe only; the newer three-worker walkthrough above adds admission/log
+correlation. Collector pressure/retention testing and combined
+service/container/release delivery remain open. The file exporter is a
+disposable diagnostic sink, not a backend
 durability or audit guarantee.
 
 The [Collector mTLS overlay](../testing-worker-otelcol-mtls.md) now also has
@@ -91,15 +131,17 @@ delivers a bounded portion of slice 3: actual runtime-linked systemd units,
 five capability/runtime configurations, probe/metric and authorization checks,
 graceful stop and explicit fresh-identity restart. It changes no packaged unit
 or boot policy. System-wide deployment, remote-proxy co-deployment,
-release lifecycle and trace/log correlation remain separate gaps; a working
+release lifecycle remain separate gaps; trace/log correlation is supplied by
+the separately verified collection extension. A working
 user manager is an explicit prerequisite, not silently provisioned by the test.
 
 The [rootless container recipe](../testing-worker-container.md) adds the local
 source-built container portion of slice 3: combined/minimal images, five runtime
 modes, private mounts, exec probes, explicit restart and separate/shared-network
 scraper checks. The original Dockerfile's release default, published images,
-remote proxy/collector co-deployment and Kubernetes remain unqualified. This
-recipe does not select the pending log output or deliver cross-peer correlation.
+remote proxy co-deployment, remote Collector deployment and Kubernetes remain unqualified. This
+recipe predates the accepted stdout output and does not qualify combined
+trace/log collection inside containers.
 
 The [formation monitoring runbook](../worker-monitoring-runbook.md) now covers
 bounded read-only triage for peer loss, local unreadiness and missing telemetry.
@@ -161,12 +203,13 @@ Record later release/platform and workload obligations separately, with their
 owning milestone, rather than closing this entire task when M4 passes. Required
 M4 recipes cannot be waived merely by labelling them unsupported.
 Use the [recipe-to-criterion map](cluster-formation-conformance.md#m4-operator-recipe-applicability--2026-09-08)
-and [formation task's operator-handoff row](implement-cluster-formation-poc.md#open-m4-work-selection)
+and [formation task's current handoff disposition](implement-cluster-formation-poc.md#open-m4-work-selection)
 before selecting another deployment increment. Preserve the scoped recipes
 delivered above; identify a missing
 combined-deployment check explicitly rather than treating all service/container
-work as unimplemented. The final trace/log walkthrough remains open until its
-corresponding runtime contracts are delivered and tested.
+work as unimplemented. The runtime contracts and ordinary-process trace/log
+walkthrough are delivered; the [proposed final checklist](cluster-formation-m4-checklist.md)
+records the accepted deployment selection and remaining review gates.
 
 - A fresh operator follows the manual against built release artifacts and
   sees a real scrape, expected probe transitions and a correlated trace.

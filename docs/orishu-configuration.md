@@ -17,6 +17,42 @@ System packages may use platform locations such as `/etc/orishu` and
 Credentials and private keys never belong in workload manifests, run
 references, logs, or artifact identity.
 
+## Implemented structured stdout logging
+
+Source-built Unix workers support optional version-1 JSON-line stdout logging,
+independently of both telemetry Cargo features. It is disabled by default.
+Non-Unix builds reject explicit enablement rather than choosing a blocking
+fallback. All supplied budgets are validated even while disabled.
+
+| Field under `spec.logging` | Environment | CLI | Default and bounds |
+| --- | --- | --- | --- |
+| `enabled` | `ORISHU_LOGGING_ENABLED` | `--logging.enabled` | false; explicit true/false |
+| `queueRecords` | `ORISHU_LOGGING_QUEUE_RECORDS` | `--logging.queue-records` | 256; 1–4096 records |
+| `shutdownMs` | `ORISHU_LOGGING_SHUTDOWN_MS` | `--logging.shutdown-ms` | 250; 0–2000 ms |
+
+```yaml
+spec:
+  logging:
+    enabled: true
+    queueRecords: 256
+    shutdownMs: 250
+```
+
+File < environment < CLI precedence includes explicit false and zero. Unknown
+logging fields, unsupported destinations and out-of-range budgets fail startup.
+There is no vendor sink, level selector, arbitrary dependency-log capture or
+implicit exporter activation. Lifecycle/failure events remain available with
+tracing disabled or zero-sampled; operation records require actual locally
+sampled spans and carry their exact trace/span IDs. Records contain no worker
+names, paths, credentials or arbitrary error text. Use the collector's
+process/target metadata to distinguish worker stdout streams.
+
+See the [bounded record and loss contract](orishu-observability.md#bounded-operational-log-adapter)
+and [worker manual](../apps/orishu-worker/README.md#structured-stdout-logs).
+Standard startup errors remain separate from runtime output. The logger's
+bounded drain occurs after existing owner/server/exporter shutdown; its timeout
+is not a replacement for those independent deadlines or a durable-flush promise.
+
 ## Worker configuration
 
 The implemented local diagnostics slice uses these typed settings, with normal

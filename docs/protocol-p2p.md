@@ -91,8 +91,9 @@ mailboxes still need to be integrated before this adapter enables a peer service
 
 ### Stream framing
 
-The formation PoC now negotiates ALPN `orishu-membership/4`, adding required
-admission attempt identity and assignment replay. Profiles 1/2/3 are not accepted or
+The formation PoC now negotiates ALPN `orishu-membership/5`, adding bounded
+optional trace context while retaining admission attempt identity and assignment
+replay. Profiles 1/2/3/4 are not accepted or
 silently downgraded; rebuild/restart participating PoC workers together. The
 policy-aware Merkle hash profile remains version 2: this transport extension
 does not change canonical membership hashes or non-admission membership messages.
@@ -115,11 +116,13 @@ protocol before constructing a typed payload, and measures the received
 ### Proposed trace-context extension
 
 [ADR 0025](adr/0025-version-peer-trace-context-propagation.md) accepts profile 5
-only, with coordinated rebuild/restart and no profile-4 fallback. It is not
-negotiated or implemented today. Profile 4 continues to reject added envelope
-fields, including `traceParent`; do not emit the field under profile 4.
+only, with coordinated rebuild/restart and no profile-4 fallback. It is now
+active, with [three-worker and compatibility evidence](tasks/cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
+The preceding [codec increment](tasks/cluster-formation-conformance.md#staged-profile-5-wire-codec--2026-09-09)
+established the grammar and packet-fit rules. Historical profile 4 rejects
+`traceParent` and is no longer negotiated.
 
-The planned membership envelope keeps its seven required fields and permits
+The membership envelope keeps its seven required fields and permits
 one optional `traceParent` CBOR text field. It uses the
 [client trace-context grammar](protocol-client.md#planned-client-trace-context),
 with a 128-byte context-processing cap. Invalid/missing context is discarded
@@ -135,6 +138,19 @@ the existing packet budget, preserving the already selected payload/gossip
 and delivery class. New-profile builds without tracing support the same grammar
 but need not retain metadata. The existing handshake and baseline shapes remain
 unchanged; exporter implementation must not imply context support there.
+
+The encoder first obtains the ordinary bounded domain packet, including
+its selected gossip. Its golden-tested indefinite envelope permits appending a
+69-byte canonical context field without re-encoding payloads. If that append
+would violate the byte or structural-work cap, the exact original bytes and
+deferred-gossip count are retained. The active owner now attaches its locally
+sampled join-exchange span context; the receiver creates an `orishu.admission`
+server span after registry/session/generation checks. Adopting the remote parent
+also requires the current join credential; admission policy and credential
+decisions still run normally. Invalid credentials cannot select diagnostic
+ancestry. Missing/invalid context yields a fresh locally sampled trace.
+Responses, handshakes, catch-up DTOs and periodic gossip currently emit no
+context. There is no operator-selectable dual-profile mode or fallback.
 
 ### Formation profile 2 membership payloads
 
@@ -168,7 +184,16 @@ the decoded transport DTO separately from the secret-free core input.
 
 The 1,200-byte PoC datagram ceiling includes the entire CBOR envelope. Encoding
 removes trailing piggyback deltas until it fits and reports how many were
-deferred; membership state remains available for later reconciliation. An
+deferred. The owner returns locally trimmed deltas that could fit by themselves,
+or all offered gossip when no member route exists, through a bounded
+`GossipDeferred` effect outcome. The core accepts only exact
+current records and undoes only the omitted transmission charge, including
+for a just-retired entry. Other sends emitted by the same transition remain
+charged if submitted; feedback never merges into membership or policy.
+The existing queue capacity still applies. A record too large for even a bare
+datagram is not continually requeued: its authoritative state remains available
+through reliable anti-entropy. Submission and receipt are still distinct;
+ordinary transport loss has no delivery guarantee. An
 unencodable base message is an error, never a stream fallback. The receiver
 rejects stream-only bodies on datagrams and SWIM bodies on streams. Applicant
 sessions carry only `JoinReq`; a label matching a member ID cannot upgrade a
@@ -732,8 +757,13 @@ an advertised introducer role. Up to three prepared attempts are allowed within
 90 seconds of adoption, including time waiting for a route; no route does not
 consume an attempt. Successive attempts rotate across available candidate
 routes. Production runtime scheduling checks eligibility once per second with
-missed ticks skipped, permits one active transfer, and bounds owner preparation
-waiting to one second. Generation/participation changes cancel obsolete jobs;
+missed ticks skipped. Registration of the first current admitted route after
+adoption also wakes initial preparation once, without waiting for that tick.
+The coalesced IO notification carries no authority or credentials; preparation
+still revalidates the current generation, route and eligibility. Failed attempts
+retain the periodic retry cadence. Scheduling permits one active transfer and
+bounds owner preparation waiting to one second. Generation/participation changes
+cancel obsolete jobs;
 shutdown stops scheduling and aborts outstanding work before stopping the owner.
 The receiver's existing overall transfer deadline still applies.
 
@@ -851,7 +881,7 @@ an IO helper alone is not evidence of autonomous worker reconnection.
 
 #### PoC reconnect scheduling
 
-When both members advertise usable peer endpoints, only the lower assigned
+Ordinarily, when both members advertise usable peer endpoints, only the lower assigned
 `NodeId` initiates a missing member connection. A local worker without an
 advertised endpoint initiates toward the remote advertised endpoint regardless
 of ID ordering. No route is invented when neither side advertises one. This
@@ -861,8 +891,24 @@ admission of an unknown worker. Stable advertisements and all-to-all reachabilit
 are the supported three-worker profile; asymmetric reachability and live
 advertisement/topology changes require further collision/fallback evidence.
 
+After formation adoption, one exception prioritizes a fresh admitted handshake
+to the original introducer, which already knows the assigned joiner. The hint
+retains only its node ID/certificate pin, is checked against current membership,
+and is consumed by one maintenance query without advancing the ordinary cursor.
+It may dial against the usual ID direction; subsequent attempts use the normal
+scan. It does not retain the old session, send a join token, renew admission or
+catch-up budgets, or bypass current-owner handshake validation. Leave/ejection
+and successful catch-up clear the hint. Publishing adoption wakes this first
+scan through a coalesced IO notification instead of waiting for the next tick;
+the owner still constructs and validates the plan. The real-QUIC regression exercises
+adoption with the introducer sorting before the assigned joiner and proves both
+the first preference and return to the canonical rule.
+
 One worker-local maintenance loop ticks every second, skipping missed ticks.
-Each owner query scans at most 64 ordered member records, returning at most one
+It makes at most four owner queries per tick to use the existing four shared
+handshake slots, stopping on an empty plan, generation mismatch or unavailable
+owner. The queries share one one-second preparation deadline. Each owner query
+scans at most 64 ordered member records, returning at most one
 missing canonical route and a continuation cursor; a completed scan wraps to
 the beginning. Selection is permitted while standalone, catching up or joined,
 but does not establish introducer readiness. The runtime retains at most 64
@@ -871,7 +917,9 @@ the four concurrent handshake permits with operator bootstrap, not a new dial
 pool. A failed attempt releases its target slot and retries only on a later
 cursor visit: there is no immediate retry loop or offline send queue. The
 one-second scheduler cadence is this PoC's fixed minimum retry spacing, not an
-exponential fleet-scale retry policy. Owner-query wait is bounded to one second;
+exponential fleet-scale retry policy. Active target IDs remain held throughout
+the batch, so a quickly failed job cannot be retried within that batch.
+Owner-query batch wait is bounded to one second;
 member ACK registration adds at most five seconds to the 15-second dial budget.
 
 Generation changes cancel/drain old tasks and reset cursors. Owner registration
@@ -883,6 +931,14 @@ membership tombstone or mark a member alive. Periodic peer selection includes
 Alive and Suspected members so a restored route can carry SWIM/refutation and
 anti-entropy; Dead and Left members remain excluded. Catch-up and ejection
 authority are unchanged.
+
+For anti-entropy specifically, peer selection uses only currently registered,
+authorized member routes. Choosing an absent route would start an unsent round
+and unnecessarily occupy its deadline. No route yields no round; a later
+periodic selection can use a recovered connection. SWIM selection still includes
+disconnected Alive/Suspected members, so this does not suppress failure detection
+or manufacture an Alive result. A connection lost after selection still follows
+the ordinary bounded exchange failure/timeout path.
 
 The real-runtime regression
 `simultaneous_admitted_dials_recover_crossed_connections_without_readmission`

@@ -151,7 +151,9 @@ saturation, collector disk/memory pressure or package/container releases.
 There is no certificate reload or worker restart promise here. Collector
 failure remains a telemetry failure, not a reason to restart/rejoin a worker.
 
-Cross-peer propagation, trace/log correlation, dashboards and representative
-overhead remain tracked by [P-OBSERVABILITY](tasks/implement-worker-observability.md)
-and [P-OBS-DOCS](tasks/document-worker-observability.md). This increment does not
-accept ADR 0025 or close combined M4.
+The separate [local formation walkthrough](testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+now verifies profile-5 admission/log correlation using HTTP. It does not make
+this root-span mTLS recipe a cross-peer receipt test. Final selected-deployment
+reconciliation and representative overhead remain tracked by
+[P-OBSERVABILITY](tasks/implement-worker-observability.md) and
+[P-OBS-DOCS](tasks/document-worker-observability.md); neither recipe closes M4.

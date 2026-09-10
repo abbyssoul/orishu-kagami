@@ -35,6 +35,16 @@ follow target uses a stable object identity and degrades to an unfollowed view
 when that identity is absent. Window layout and selection remain application
 preferences rather than experiment-file content.
 
+The default view also owns **scene scale**: the positive, bounded length in
+metres represented by one viewport unit. It maps canonical SI camera and
+geometry values into render space and defines scale-relative camera reach;
+it never rescales stored physical quantities, the simulation domain, or solver
+resolution. It follows the same view revision, persistence and ephemeral
+observation rules as projection, and is outside shared MCP parity. Uniform
+scaling is not a guarantee of distant-origin precision. Implementation and
+compatibility are tracked by [K14](../tasks/kagami/choose-scene-scale.md);
+this extends the view section, not the experiment schema.
+
 Changing the authoring view does not advance the experiment revision and is not
 an experiment undo entry, but it does advance a separate view revision and
 marks the file dirty. The user sees one file-modified indication derived from

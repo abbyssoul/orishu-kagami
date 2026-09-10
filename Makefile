@@ -7,8 +7,11 @@ PROMTOOL ?= promtool
 PROMETHEUS ?= prometheus
 OTELCOL ?= otelcol
 WORKER_OTELCOL_TARGET_DIR ?= target/worker-otelcol
+WORKER_PROMETHEUS_TARGET_DIR ?= target/worker-prometheus
 WORKER_SERVICE_TARGET_DIR ?= target/worker-service-enabled
 WORKER_SERVICE_MINIMAL_TARGET_DIR ?= target/worker-service-minimal
+FORMATION_TELEMETRY_OUTPUT ?=
+FORMATION_TELEMETRY_ARGS ?=
 PODMAN ?= podman
 WORKER_CONTAINER_BASE ?= docker.io/library/debian@sha256:abc9cb88a5587630d7f915f47b23b0668fe250fbfc6457aa4d52b534c1bbf73f
 
@@ -33,6 +36,18 @@ test:
 test-docs:
 	$(CARGO) test --locked --workspace --doc
 
+# Explicit finite manual experiment; never part of timing-sensitive CI gates.
+.PHONY: build-formation-telemetry measure-formation-telemetry
+build-formation-telemetry:
+	$(CARGO) build --locked --release -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --bins --example formation-telemetry-probe --target-dir target/formation-telemetry-enabled
+	$(CARGO) build --locked --release -p orishu-worker -p orishuctl --target-dir target/formation-telemetry-omitted
+
+measure-formation-telemetry:
+	test -n "$(FORMATION_TELEMETRY_OUTPUT)"
+	python3 scripts/test_formation_telemetry.py
+	python3 scripts/measure-formation-telemetry.py --worker target/formation-telemetry-enabled/release/orishu-worker --omitted target/formation-telemetry-omitted/release/orishu-worker --ctl target/formation-telemetry-enabled/release/orishuctl --probe target/formation-telemetry-enabled/release/examples/formation-telemetry-probe --otelcol "$(OTELCOL)" --output "$(FORMATION_TELEMETRY_OUTPUT)" $(FORMATION_TELEMETRY_ARGS)
+	python3 scripts/summarize-formation-telemetry.py "$(FORMATION_TELEMETRY_OUTPUT)"
+
 # Requires pinned external test tools; downloads nothing and binds loopback only.
 .PHONY: test-worker-prometheus
 test-worker-prometheus:
@@ -49,6 +64,16 @@ test-worker-trace-prometheus:
 test-worker-formation-prometheus:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing
 	python3 scripts/check-worker-prometheus.py --formation-alerts --trace-metrics --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+
+# Logging is independently enabled; closed stdout must not fail worker health.
+.PHONY: test-worker-log-prometheus
+test-worker-log-prometheus:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_PROMETHEUS_TARGET_DIR)"
+	python3 scripts/test_worker_prometheus_logs.py
+	python3 scripts/test_worker_trace_collector.py
+	python3 scripts/check-worker-prometheus.py --log-metrics --worker "$(WORKER_PROMETHEUS_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_PROMETHEUS_TARGET_DIR)/debug/orishuctl" --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+	python3 scripts/check-worker-prometheus.py --log-metrics --trace-metrics --formation-alerts --worker "$(WORKER_PROMETHEUS_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_PROMETHEUS_TARGET_DIR)/debug/orishuctl" --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
+	python3 scripts/check-worker-prometheus.py --log-metrics --trace-metrics --closed-log-output --worker "$(WORKER_PROMETHEUS_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_PROMETHEUS_TARGET_DIR)/debug/orishuctl" --promtool "$(PROMTOOL)" --prometheus "$(PROMETHEUS)"
 
 .PHONY: test-worker-dashboard
 test-worker-dashboard:
@@ -69,12 +94,29 @@ test-worker-container:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --target-dir "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)"
 	python3 scripts/check-worker-container.py --podman "$(PODMAN)" --base-image "$(WORKER_CONTAINER_BASE)" --worker "$(WORKER_SERVICE_TARGET_DIR)/debug/orishu-worker" --minimal-worker "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_SERVICE_MINIMAL_TARGET_DIR)/debug/orishuctl" --promtool "$(PROMTOOL)"
 
+# Enabled stdout/OTLP collection in both existing source-built deployment examples.
+.PHONY: test-worker-deployment-logs
+test-worker-deployment-logs:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_SERVICE_TARGET_DIR)"
+	python3 scripts/test_worker_deployment_receipts.py
+	python3 scripts/test_worker_formation_receipts.py
+	python3 scripts/test_worker_otelcol.py
+	python3 scripts/check-worker-deployment-logs.py --worker "$(WORKER_SERVICE_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_SERVICE_TARGET_DIR)/debug/orishuctl" --otelcol "$(OTELCOL)" --podman "$(PODMAN)" --base-image "$(WORKER_CONTAINER_BASE)"
+
 # Official pinned Collector; local receipt/outage recipe, no download or service install.
 .PHONY: test-worker-otelcol
 test-worker-otelcol:
 	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_OTELCOL_TARGET_DIR)"
 	python3 scripts/test_worker_otelcol.py
 	python3 scripts/check-worker-otelcol.py --otelcol "$(OTELCOL)" --worker "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishuctl"
+
+# Three-worker admission chains matched to bounded stdout captures.
+.PHONY: test-worker-formation-otelcol
+test-worker-formation-otelcol:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl --features orishu-worker/observability,orishu-worker/otlp-tracing --target-dir "$(WORKER_OTELCOL_TARGET_DIR)"
+	python3 scripts/test_worker_otelcol.py
+	python3 scripts/test_worker_formation_receipts.py
+	python3 scripts/check-worker-formation-otelcol.py --otelcol "$(OTELCOL)" --worker "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishu-worker" --ctl "$(WORKER_OTELCOL_TARGET_DIR)/debug/orishuctl"
 
 # Collector-only mTLS material; requires OpenSSL and uses no peer/operator keys.
 .PHONY: test-worker-otelcol-mtls

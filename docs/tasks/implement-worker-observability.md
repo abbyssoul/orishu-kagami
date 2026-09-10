@@ -109,8 +109,31 @@ as missing work.
 On 2026-09-08 the operator selected Option A, refining the default destination
 from stderr to **stdout**, with a replaceable worker-owned output adapter.
 The [ADR 0017 refinement](../adr/0017-worker-operational-observability.md#correlated-operational-logs--decision-refinement-2026-09-08)
-records the accepted contract. Implementation is pending, not waiting for
-another sink choice. ADR 0025 is also accepted independently.
+records the accepted contract. The
+[bounded adapter primitives](../orishu-observability.md#bounded-operational-log-adapter)
+are implemented with fixed JSON encoding and queue/output/loss limits. Runtime
+configuration, lifecycle and sampled-span wiring, nine live loss counters,
+ordinary runtime-print reconciliation and local received-span/worker-pressure
+tests now have [scoped evidence](cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09).
+The [real-worker slow-reader recovery](cluster-formation-conformance.md#real-worker-stdout-reader-recovery--2026-09-09)
+fixture also proves resumed output without restarting the worker or clearing
+loss counts. The [official Collector formation walkthrough](../testing-worker-otelcol.md#official-collector-formation-and-log-walkthrough)
+now matches both admission chains to the respective workers' stdout records,
+alongside direct metrics/probes and cross-worker policy checks. Preserve the
+remaining selected-deployment and reviewed-overhead gates;
+this is not waiting for another sink choice. ADR 0025 is accepted independently.
+
+The [logging-counter backend evidence](cluster-formation-conformance.md#logging-counter-prometheus-ingestion--2026-09-09)
+also covers actual Prometheus ingestion with logging alone and alongside
+tracing, real closed-stdout failure counters, and fresh samples after scraper
+outage. It preserves the disabled-log catalogue and is not a new remote
+deployment or overhead qualification.
+
+The selected [systemd/rootless-container collection extensions](cluster-formation-conformance.md#enabled-systemd-and-rootless-container-log-collection--2026-09-09)
+now add runtime-collected receipt evidence across two explicit starts per
+deployment, with bounded shutdown and fresh identities/retained credentials.
+The ordinary-process admission chains remain the cross-worker proof; this
+does not imply supervisor-specific three-worker or performance qualification.
 
 For the PoC, implement only structured stdout delivery and the adapter seam;
 future Unix-datagram/vendor destinations must not require changing event
@@ -252,18 +275,22 @@ separate trace, logging, overhead and operator handoff requirements below remain
   waiting for export. Preserve the combined-feature live scrape, bounded
   catalogue and sampling/absence tests. Broader operation instrumentation,
   log correlation and the full companion acceptance remain required.
-- Implement accepted [ADR 0025](../adr/0025-version-peer-trace-context-propagation.md)
-  with its compatibility fixtures before switching peer ALPN or emitting trace
-  context. Current profile 4 rejects the new field; context-free interoperability is not evidence
-  that old peers accept optional trace metadata. The client/peer protocol
-  sections distinguish implemented client extraction from planned peer support.
+- Preserve implemented [ADR 0025](../adr/0025-version-peer-trace-context-propagation.md)
+  and its [activation evidence](cluster-formation-conformance.md#profile-5-activation-and-cross-worker-receipt--2026-09-09).
+  Profile 5 is now the sole peer ALPN; older peers must be rebuilt/restarted.
   The [context/child-span primitives](cluster-formation-conformance.md#trace-context-and-parent-aware-span-primitives--2026-09-08)
   are implemented and tested independently of activation.
   [Authenticated client extraction](cluster-formation-conformance.md#authenticated-client-parent-receipt--2026-09-08)
-  now has actual worker/collector receipt evidence. Remaining work is
-  profile-5 envelope support/packet omission,
-  generation-fenced causal metadata through owner jobs and real cross-worker
-  collector receipt. Primitive OTLP encoding is not that receipt evidence.
+  now has actual worker/collector receipt evidence. The
+  [staged profile-5 codec](cluster-formation-conformance.md#staged-profile-5-wire-codec--2026-09-09)
+  now has serialized envelope and packet-omission fixtures without activating
+  new wire behavior. [Owned join ancestry](cluster-formation-conformance.md#owned-join-exchange-parent-receipt--2026-09-09)
+  now carries client context through the generation-fenced join preparation to
+  locally exported outbound exchange spans, with replay/no-new-peer-work evidence.
+  The later activation adds receiving admission spans and actual cross-worker
+  receipt across three processes, including independent runtime controls and a
+  feature-omitted peer. Log correlation, final overhead qualification and the
+  combined operator monitoring walkthrough remain required.
 - Instrument production N-FORMATION admission outcomes, SWIM/gossip/anti-entropy
   activity, timeouts, decode/auth failures, transport volume/latency and bounded
   queues in worker adapters. Use aggregate counters/histograms, not peer labels.
@@ -290,7 +317,8 @@ separate trace, logging, overhead and operator handoff requirements below remain
   later workload instruments in slice 4. Review the scenario, sampling/scrape
   settings, finite measurement budget and acceptance limits before the
   acceptance run. Compare omitted-feature, runtime-disabled and enabled modes
-  under representative concurrent three-worker control/peer traffic; record
+  under representative concurrent control/peer traffic with a three-worker
+  baseline and 30-worker coverage; record
   latency, throughput, CPU, exporter memory, scrape duration and telemetry loss,
   together with unchanged domain outcomes. State collector transport and host
   conditions, preserve variation/failures and report unmet limits explicitly.
@@ -299,9 +327,14 @@ separate trace, logging, overhead and operator handoff requirements below remain
   three-worker, TLS-collector or exporter-specific memory acceptance. No
   measured overhead budget has yet been accepted. This M4 work needs no solver
   or scientific workload and makes no fleet-scaling claim.
-  Review the [proposed three-worker experiment](../measurements/formation-telemetry-plan.md)
-  before implementing its harness or using its candidate budgets for acceptance;
-  the proposal does not select the logging output or accept ADR 0025.
+  The [expanded experiment](../measurements/formation-telemetry-plan.md)
+  records the accepted normal p95/CPU overhead goal below 10%, temporary
+  tolerance up to 20% and troubleshooting classification above 25%.
+  Its full 3/10/30-worker curve and 90-minute total execution budget (excluding
+  builds; 30 minutes per size) are accepted. Implement and validate its harness,
+  then freeze executable/configuration identities before measuring.
+  Accepted targets are not measured results;
+  logging output and ADR 0025 have their own accepted decisions and evidence.
 
 ### 4. Instrument runtime, storage and observation owners
 
