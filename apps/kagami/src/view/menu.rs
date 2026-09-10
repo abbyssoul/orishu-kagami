@@ -1,4 +1,4 @@
-use crate::message::{Authoritative, ClientLocal, Message};
+use crate::message::{Authoritative, ClientLocal, Message, WorkspaceIntent};
 use crate::model::{Menu as MenuId, Model};
 use iced::widget::{Space, button, column, container, mouse_area, row, text};
 use iced::{Element, Fill, Length, Padding};
@@ -25,9 +25,16 @@ pub fn view(model: &Model) -> Element<'_, Message> {
 /// click-catcher that closes it, meant to be layered on top of the rest of
 /// the UI in a `stack!` rather than pushing it down.
 pub fn overlay(model: &Model) -> Option<Element<'_, Message>> {
-    // Replacing a document with unsaved changes is a question, and the
-    // authority refuses until it is answered. The window answers it by asking
-    // the user here; an MCP caller answers it as a request field (ADR 0006).
+    // Replacing a document with unsaved changes is a question, and it is
+    // refused until it is answered. The window answers it by asking the user
+    // here; an MCP caller answers it as a request field (ADR 0006).
+    //
+    // Asked about the *combined* modified state. ADR 0022 gives the user one
+    // file-modified indication derived from either half, so the question the
+    // dialog asks has to match the asterisk they are looking at — a view
+    // someone framed and has not saved is work, and losing it silently because
+    // it is "only" a camera is exactly the surprise that indication exists to
+    // prevent.
     let discard = |model: &Model| !model.document.is_dirty() || confirm_discard();
 
     let (left, items): (f32, Vec<(&'static str, Message)>) = match model.open_menu? {
@@ -48,12 +55,22 @@ pub fn overlay(model: &Model) -> Option<Element<'_, Message>> {
                 ("Exit", Message::Exit),
             ],
         ),
-        MenuId::Edit => (
+        // Observation/replay "exposes no authoring or undo controls" (ADR
+        // 0022), so the menu offers the way back to Authoring instead of two
+        // items that would be refused.
+        MenuId::Edit if model.is_authoring() => (
             EDIT_LEFT,
             vec![
                 ("Undo", Authoritative::Undo.into()),
                 ("Redo", Authoritative::Redo.into()),
             ],
+        ),
+        MenuId::Edit => (
+            EDIT_LEFT,
+            vec![(
+                "Edit initial conditions",
+                WorkspaceIntent::EditInitialConditions.into(),
+            )],
         ),
         MenuId::Help => (HELP_LEFT, vec![("About", ClientLocal::CloseMenu.into())]),
     };

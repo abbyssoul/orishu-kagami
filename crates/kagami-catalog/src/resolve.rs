@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use orishu_variables::{ExprEvalError, VariablesError};
 
-use crate::binding::{BindingKind, CatalogProjection, Resolution, binding_count};
+use crate::binding::{BindingKind, CatalogProjection, ProjectionError, Resolution, binding_count};
 use crate::diagnostic::{Diagnostic, InvalidReason, UnavailableReason};
 use crate::entry::{CatalogEntry, CatalogFileError, CatalogSet, LoadResult};
 use crate::limits::Limits;
@@ -105,6 +105,14 @@ pub fn resolve(
     let mut identities: Vec<Option<TemplateIdentity>> = Vec::with_capacity(documents.len());
     let mut owner: BTreeMap<TemplateIdentity, SourceLocation> = BTreeMap::new();
     let mut projected_bindings = 0usize;
+    // A binding costs two variables in the shared evaluator, so a caller may
+    // declare a bound the evaluator cannot honour. Taking the smaller of the
+    // two here means the excess is reported as the ordinary per-template
+    // binding-count diagnostic — naming the bound that actually applied —
+    // rather than surfacing later as a projection that could not be built.
+    let max_bindings = limits
+        .max_bindings
+        .min(CatalogProjection::max_projectable_bindings());
 
     for document in documents {
         let mut status = Status::default();
@@ -126,13 +134,13 @@ pub fn resolve(
                 }
                 None => {
                     let count = binding_count(&template);
-                    if projected_bindings + count > limits.max_bindings {
+                    if projected_bindings + count > max_bindings {
                         status.diagnostics.push(Diagnostic::at(
                             "spec",
                             InvalidReason::LimitExceeded {
                                 what: "catalog binding",
                                 found: projected_bindings + count,
-                                limit: limits.max_bindings,
+                                limit: max_bindings,
                             },
                         ));
                         None
@@ -150,8 +158,61 @@ pub fn resolve(
         statuses.push(status);
     }
 
-    let projection = CatalogProjection::build(templates.iter().flatten(), limits.max_bindings)
-        .expect("binding counts are checked before a template is admitted");
+    let (projection, rejected) =
+        match CatalogProjection::build(templates.iter().flatten(), max_bindings) {
+            Ok(built) => built,
+            // Counts are checked per template above, so this is unreachable
+            // today; recovering rather than asserting keeps a future bound
+            // added to the projection a diagnostic instead of an abort.
+            Err(error) => {
+                for (index, template) in templates.iter().enumerate() {
+                    if template.is_some() {
+                        statuses[index]
+                            .diagnostics
+                            .push(Diagnostic::at("spec", projection_reason(&error)));
+                    }
+                }
+                templates.iter_mut().for_each(|slot| *slot = None);
+                (CatalogProjection::default(), Vec::new())
+            }
+        };
+
+    // Which document actually *supplied* each projected template.
+    //
+    // Built from the admitted templates rather than from every document's
+    // claimed identity, because the two can differ: a document that failed to
+    // parse still carries the identity it claimed, and a later document may be
+    // the one that was projected under it. Attributing a rejection to the
+    // claim rather than to the contribution files the diagnostic against a
+    // template that published nothing — and leaves the one that did looking
+    // valid. `owner` admits at most one template per identity, so this is
+    // unambiguous.
+    let projected: BTreeMap<TemplateIdentity, usize> = templates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, template)| {
+            template
+                .as_ref()
+                .map(|template| (template.identity.clone(), index))
+        })
+        .collect();
+
+    // A binding the evaluator would not accept invalidates the template that
+    // published it, and only that template: the rest of the set is still
+    // loadable, and a reference to the skipped binding resolves as unknown.
+    for rejection in rejected {
+        let Some(&index) = projected.get(&rejection.template) else {
+            continue;
+        };
+        statuses[index].diagnostics.push(Diagnostic::at(
+            "metadata",
+            InvalidReason::LimitExceeded {
+                what: rejection.what,
+                found: rejection.found,
+                limit: rejection.limit,
+            },
+        ));
+    }
 
     for (index, template) in templates.iter().enumerate() {
         let Some(template) = template else { continue };
@@ -176,6 +237,17 @@ pub fn resolve(
         .collect();
 
     CatalogSet::new(entries, file_errors, projection)
+}
+
+/// Report a whole-set projection failure as a per-template reason.
+fn projection_reason(error: &ProjectionError) -> InvalidReason {
+    match error {
+        ProjectionError::TooManyBindings { found, limit } => InvalidReason::LimitExceeded {
+            what: "catalog binding",
+            found: *found,
+            limit: *limit,
+        },
+    }
 }
 
 fn build_entry(
@@ -305,13 +377,24 @@ fn check_values(template: &Template, projection: &CatalogProjection, status: &mu
             template: template.identity.clone(),
             kind: quantity.kind,
         };
-        let Resolution::Visible(target) =
-            projection.resolve(&identity.canonical_name().to_string(), &template.identity)
-        else {
-            debug_assert!(
-                false,
-                "a projected binding always resolves from its own scope"
-            );
+        let canonical = identity.canonical_name().to_string();
+        let Resolution::Visible(target) = projection.resolve(&canonical, &template.identity) else {
+            // A binding of this template is not in the projection, which since
+            // the evaluator gained bounds is a real state rather than an
+            // impossible one: the reference it publishes can be past what the
+            // evaluator reads, and such a binding is skipped. Reported here as
+            // well as where the projection rejected it, so the entry is
+            // classified Invalid even if that report were ever misrouted —
+            // this used to be an assertion, and an assertion is exactly what
+            // stops being true when a new bound is added underneath it.
+            status.diagnostics.push(Diagnostic::at(
+                &quantity.path,
+                InvalidReason::LimitExceeded {
+                    what: "binding reference",
+                    found: canonical.len(),
+                    limit: CatalogProjection::evaluator_limits().max_expression_bytes,
+                },
+            ));
             continue;
         };
         match projection.value(target) {
@@ -467,10 +550,11 @@ fn propagate_unavailability(templates: &[Option<Template>], statuses: &mut [Stat
 mod tests {
     use super::*;
     use crate::document::TemplateDocument;
-    use crate::name::{ComponentName, ComponentTypeId, PluginId};
+    use crate::name::{CatalogName, ComponentName, ComponentTypeId, PluginId, TemplateName};
     use crate::quantity::Dimension;
     use crate::schema::{ComponentSchema, PropertySchema, SchemaVersion};
     use crate::source::DocumentOrdinal;
+    use orishu_variables::Limits as EvaluatorLimits;
 
     fn type_id(plugin: &str, name: &str) -> ComponentTypeId {
         ComponentTypeId::new(
@@ -824,6 +908,169 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn a_template_whose_generated_reference_is_too_long_is_isolated_not_fatal() {
+        // The reference a binding publishes is generated from the identity,
+        // so `catalog.template.component.property` can be past what the
+        // evaluator reads even though every *authored* expression here is one
+        // character. Nothing in parsing bounds a template name, so this
+        // document is structurally valid and must come back as a diagnostic.
+        let long = "a".repeat(EvaluatorLimits::DEFAULT.max_expression_bytes);
+        let sprawling = template_text(
+            &long,
+            "  components:\n  - type: {plugin: kagami.mass_sources, name: inertial_mass}\n    \
+             properties:\n      mass: {quantity: \"1\"}\n",
+        );
+        let set = resolve(
+            vec![parsed(0, &sun()), parsed(1, &sprawling)],
+            Vec::new(),
+            &mass_registry(),
+            &Limits::DEFAULT,
+        );
+
+        // The offending entry, and only it.
+        let LoadResult::Invalid { diagnostics } = &set.entries()[1].result else {
+            panic!("expected the over-long identity to be invalid, not to abort the load");
+        };
+        assert!(
+            diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.reason,
+                InvalidReason::LimitExceeded {
+                    what: "binding reference",
+                    ..
+                }
+            )),
+            "{diagnostics:?}"
+        );
+        assert_eq!(set.summary().available, 1);
+        assert!(matches!(
+            set.entries()[0].result,
+            LoadResult::Available { .. }
+        ));
+    }
+
+    #[test]
+    fn a_rejection_lands_on_the_document_that_supplied_the_template() {
+        // Two documents claim one identity: the first fails to parse, so the
+        // second is the one actually projected. A document that failed to
+        // parse still carries the identity it claimed, so attributing the
+        // rejection by identity alone files it against the wrong entry —
+        // leaving the entry that really published the binding classified
+        // Available with a binding the projection had skipped.
+        let long = "a".repeat(EvaluatorLimits::DEFAULT.max_expression_bytes);
+        let unparsable = template_text(
+            &long,
+            "  parameters:\n    p: {default: '1 +'}\n  components:\n  - type: {plugin: \
+             kagami.mass_sources, name: inertial_mass}\n    properties:\n      mass: {quantity: \
+             \"1\"}\n",
+        );
+        let sound = template_text(
+            &long,
+            "  components:\n  - type: {plugin: kagami.mass_sources, name: inertial_mass}\n    \
+             properties:\n      mass: {quantity: \"1\"}\n",
+        );
+        let first = parsed(0, &unparsable);
+        let second = parsed(1, &sound);
+        assert!(first.outcome.is_err(), "the first document must not parse");
+        assert!(second.outcome.is_ok(), "the second document must parse");
+        assert_eq!(first.identity, second.identity);
+
+        let set = resolve(
+            vec![first, second],
+            Vec::new(),
+            &mass_registry(),
+            &Limits::DEFAULT,
+        );
+
+        // The projected document is the one that must be refused.
+        let LoadResult::Invalid { diagnostics } = &set.entries()[1].result else {
+            panic!(
+                "expected the projected entry to be invalid, got {:?}",
+                set.entries()[1].result
+            );
+        };
+        assert!(
+            diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.reason,
+                InvalidReason::LimitExceeded {
+                    what: "binding reference",
+                    ..
+                }
+            )),
+            "{diagnostics:?}"
+        );
+        assert_eq!(set.summary().available, 0);
+
+        // And it must land there rather than on the document that merely
+        // claimed the identity: that one is invalid for its own reason, and
+        // reporting a binding it never published against it would send a
+        // reader to the wrong file.
+        let LoadResult::Invalid { diagnostics } = &set.entries()[0].result else {
+            panic!("the unparsable document is invalid for its own reason");
+        };
+        assert!(
+            !diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.reason,
+                InvalidReason::LimitExceeded {
+                    what: "binding reference",
+                    ..
+                }
+            )),
+            "the rejection was filed against the document that published nothing: {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn a_skipped_binding_is_not_published_under_any_spelling() {
+        // Skipping rather than projecting is what keeps the story honest: a
+        // reference to the binding resolves as unknown, instead of resolving
+        // to a name the evaluator would then fail to look up.
+        let long = "a".repeat(EvaluatorLimits::DEFAULT.max_expression_bytes);
+        let sprawling = template_text(
+            &long,
+            "  components:\n  - type: {plugin: kagami.mass_sources, name: inertial_mass}\n    \
+             properties:\n      mass: {quantity: \"1\"}\n",
+        );
+        let set = resolve(
+            vec![parsed(0, &sprawling)],
+            Vec::new(),
+            &mass_registry(),
+            &Limits::DEFAULT,
+        );
+        let scope = TemplateIdentity::new(
+            CatalogName::new("test").unwrap(),
+            TemplateName::new(&long).unwrap(),
+        );
+        assert_eq!(
+            set.projection()
+                .resolve(&format!("test.{long}.inertial_mass.mass"), &scope),
+            Resolution::Unknown
+        );
+        assert_eq!(set.projection().bindings().count(), 0);
+    }
+
+    #[test]
+    fn a_binding_bound_wider_than_the_evaluator_can_hold_is_reported_not_projected() {
+        // A caller may declare `max_bindings` the shared evaluator cannot
+        // honour — it spends two variables per binding. The excess has to come
+        // back as the ordinary per-template diagnostic rather than as a
+        // projection that could not be built.
+        let limits = Limits {
+            max_bindings: usize::MAX,
+            ..Limits::DEFAULT
+        };
+        assert!(CatalogProjection::max_projectable_bindings() < limits.max_bindings);
+        let set = resolve(
+            vec![parsed(0, &sun())],
+            Vec::new(),
+            &mass_registry(),
+            &limits,
+        );
+        // Well under the effective ceiling, so it still loads: clamping the
+        // bound must not refuse ordinary catalogs.
+        assert_eq!(set.summary().available, 1);
     }
 
     #[test]

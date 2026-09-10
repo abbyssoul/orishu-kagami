@@ -38,17 +38,26 @@ pub fn view(model: &Model) -> Element<'_, Message> {
         Space::new().into()
     };
 
+    // Searching and selecting stay available while observing; adding an
+    // object does not. ADR 0022 wants authoring controls *absent* in
+    // Observation/replay, not present and refused.
+    let mut header = row![
+        text_input("Search", &model.search_query)
+            .on_input(|query| ClientLocal::Search(query).into())
+            .width(Length::Fill)
+    ]
+    .spacing(6);
+    if model.is_authoring() {
+        header = header.push(
+            button(text("+"))
+                .on_press(Authoritative::CreateObject.into())
+                .padding(4),
+        );
+    }
+
     container(
         column![
-            row![
-                text_input("Search", &model.search_query)
-                    .on_input(|query| ClientLocal::Search(query).into())
-                    .width(Length::Fill),
-                button(text("+"))
-                    .on_press(Authoritative::CreateObject.into())
-                    .padding(4),
-            ]
-            .spacing(6),
+            header,
             heading,
             scrollable(column![rows, empty].spacing(4)).height(Length::Fill),
         ]
@@ -78,20 +87,27 @@ fn object_row<'a>(model: &'a Model, id: ObjectId, object: &'a Object) -> Element
         participation
     );
 
-    row![
+    let mut controls = row![
         button(text(label).size(13))
             .on_press(ClientLocal::Select(Some(id)).into())
             .width(Length::Fill)
             .padding(4),
+        // Hiding is presentation, so it survives into Observation/replay
+        // (ADR 0012).
         button(text(if hidden { "○" } else { "●" }).size(12))
             .on_press(ClientLocal::ToggleHidden(id).into())
             .padding(4),
-        button(text("×").size(12))
-            .on_press(Authoritative::RemoveObject(id).into())
-            .padding(4),
     ]
-    .spacing(2)
-    .into()
+    .spacing(2);
+    if model.is_authoring() {
+        controls = controls.push(
+            button(text("×").size(12))
+                .on_press(Authoritative::RemoveObject(id).into())
+                .padding(4),
+        );
+    }
+
+    controls.into()
 }
 
 /// Whether an object survives the search filter.

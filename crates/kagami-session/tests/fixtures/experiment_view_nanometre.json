@@ -41,17 +41,17 @@
   },
   "defaultView": {
     "camera": {
-      "distance": 18.0,
-      "pitch": 0.6108652381980153,
+      "distance": 2e-8,
+      "pitch": 0.5,
       "target": [
-        0.0,
+        2e-9,
         0.0,
         0.0
       ],
-      "yaw": -0.7853981633974483
+      "yaw": 0.25
     },
-    "projection": "perspective",
-    "scale": 1.0,
+    "projection": "orthographic",
+    "scale": 1e-9,
     "version": 2
   }
 }

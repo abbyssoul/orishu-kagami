@@ -19,8 +19,29 @@
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use orishu_variables::{
-    CompiledExpression, Namespace, VariableId, VariableOptions, VariablesSystem,
+    CompiledExpression, Limits, Namespace, VariableId, VariableOptions, VariablesSystem,
 };
+
+/// Bounds wide enough for whatever count or chain depth the parameters below
+/// ask for.
+///
+/// A benchmark measures the cost of a shape, so it declares the bounds that
+/// shape needs rather than being silently capped by the interactive defaults —
+/// the numbers here run past `Limits::DEFAULT`'s dependency depth by two
+/// orders of magnitude.
+fn bench_limits() -> Limits {
+    Limits {
+        max_variables: 4_194_304,
+        max_dependency_depth: 4_194_304,
+        max_evaluation_work: u64::MAX,
+        ..Limits::DEFAULT
+    }
+}
+
+/// An empty system under [`bench_limits`].
+fn bench_system() -> VariablesSystem {
+    VariablesSystem::with_limits(bench_limits())
+}
 
 const DEFAULT_COUNTS: [usize; 4] = [10, 100, 1_000, 10_000];
 const DEFAULT_CHAIN_DEPTHS: [usize; 4] = [10, 100, 1_000, 10_000];
@@ -73,7 +94,7 @@ fn define_flat(vars: &mut VariablesSystem, namespace: &Namespace, count: usize) 
 }
 
 fn build_flat_system(count: usize) -> (VariablesSystem, Vec<VariableId>) {
-    let mut vars = VariablesSystem::default();
+    let mut vars = bench_system();
     let namespace = Namespace::new("bench");
     let ids = define_flat(&mut vars, &namespace, count);
     (vars, ids)
@@ -84,7 +105,7 @@ fn build_flat_system(count: usize) -> (VariablesSystem, Vec<VariableId>) {
 /// Returns the system and the handle of the tail variable, whose evaluation
 /// walks the entire chain.
 fn build_chain_system(depth: usize) -> (VariablesSystem, VariableId) {
-    let mut vars = VariablesSystem::default();
+    let mut vars = bench_system();
     let namespace = Namespace::new("chain");
     let mut previous = vars
         .define(
@@ -114,7 +135,7 @@ fn bench_define(c: &mut Criterion) {
         group.throughput(Throughput::Elements(count as u64));
         group.bench_with_input(BenchmarkId::new("flat", count), &count, |b, &count| {
             b.iter_batched(
-                || (VariablesSystem::default(), Namespace::new("bench")),
+                || (bench_system(), Namespace::new("bench")),
                 |(mut vars, namespace)| define_flat(&mut vars, &namespace, count),
                 criterion::BatchSize::SmallInput,
             )

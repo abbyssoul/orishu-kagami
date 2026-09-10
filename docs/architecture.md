@@ -341,8 +341,11 @@ decision before it is implemented. See
 and [Implement time-addressable run playback](./tasks/implement-time-addressable-run-playback.md).
 
 A saved file may also carry a separately versioned client-owned default view,
-including projection and camera pose. Authoring view edits advance that view
-revision and dirty the file, but are not part of the experiment revision, undo,
+including projection, camera pose and the planned K14 scene scale (metres per
+viewport unit). Scene scale maps SI camera/geometry values at the rendering
+boundary; it is not a simulation-domain size or resolution control. Authoring
+view edits advance that view revision and dirty the file, but are not part of
+the experiment revision, undo,
 or workload. Observation/replay view edits are ephemeral. Within a window, Kagami switches
 explicitly between Authoring and Observation/replay; returning to initial
 conditions stops a local preview or detaches from a remote run, but never

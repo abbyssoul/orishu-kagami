@@ -107,7 +107,10 @@ pub use authority::{
     CatalogOutcome, CatalogQuery, CatalogRejection, CatalogRevision, CatalogView, CommandId,
     EntrySummary, ValidationReport,
 };
-pub use binding::{Binding, BindingIdentity, BindingKind, CatalogProjection, Resolution};
+pub use binding::{
+    Binding, BindingIdentity, BindingKind, CatalogProjection, ProjectionError, RejectedBinding,
+    Resolution,
+};
 pub use diagnostic::{Diagnostic, InvalidReason, UnavailableReason};
 pub use document::{API_VERSION, KIND, TemplateDocument};
 pub use entry::{CatalogEntry, CatalogFileError, CatalogSet, CatalogSummary, LoadResult};

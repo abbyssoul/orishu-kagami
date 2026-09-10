@@ -2,11 +2,14 @@
 //! shaders, builds the pipelines, and renders N frames to an offscreen
 //! texture. Never creates a window or a surface, so it cannot involve or
 //! wedge a compositor. See docs/troubleshooting-graphics.md.
+//!
+//! Half the frames are drawn under each projection, so both matrix paths are
+//! exercised wherever graphics hardware is available.
 
 use iced::wgpu;
 use iced::widget::shader::Pipeline as _;
 use iced::{Rectangle, Size};
-use kagami_renderer::{Camera, GridAxisPipeline, Uniforms};
+use kagami_renderer::{Camera, GridAxisPipeline, Projection, Uniforms};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
@@ -73,7 +76,20 @@ async fn run(frames: u32) {
     let start = std::time::Instant::now();
 
     for frame in 0..frames {
-        camera.orbit(4.0, 0.0);
+        // Orbiting by hand: the pose and its bounds belong to
+        // `kagami-session`, and this example has no document to hold one.
+        camera.yaw += 4.0 * 0.008;
+        camera.projection = if frame * 2 < frames {
+            Projection::Perspective
+        } else {
+            Projection::Orthographic
+        };
+        // The camera is in *render units*, and a scene scale is what decides
+        // what a unit is worth in metres — so sweeping the distance across the
+        // reachable window here exercises the same numbers every physical scale
+        // maps onto, from the near limit to the far one.
+        camera.distance =
+            1.0 + (2000.0 - 1.0) * (f64::from(frame) / f64::from(frames.max(1))) as f32;
 
         pipeline.write_uniforms(
             &queue,
@@ -100,13 +116,14 @@ async fn run(frames: u32) {
             .expect("device poll failed");
 
         if frame % 20 == 0 {
-            println!("frame {frame}/{frames} ok");
+            println!("frame {frame}/{frames} ok ({:?})", camera.projection);
         }
     }
 
     let _ = Size::new(WIDTH, HEIGHT);
     println!(
-        "smoke test complete: {frames} frames in {:?}, no window/surface created",
+        "smoke test complete: {frames} frames in {:?} under both projections, \
+         no window/surface created",
         start.elapsed()
     );
 }

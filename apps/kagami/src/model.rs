@@ -5,13 +5,22 @@
 //! presentation: which object is selected, which subtrees are open, what is
 //! typed in the search box. ADR 0012 lists exactly those as client-local, so
 //! none of them dirties the document or enters undo.
+//!
+//! # The one field that is presentation but still saved
+//!
+//! The authoring camera and projection are held by [`Document`], not here,
+//! because saving has to capture them (ADR 0022). What *is* here is
+//! [`Model::observing_view`]: the throwaway copy a window looks through while
+//! watching a run. Every camera change made while observing goes there and is
+//! dropped on leaving, which is how "playback camera changes dirty nothing"
+//! ends up being structural rather than a rule someone has to remember.
 
 use std::collections::HashSet;
 use std::time::Instant;
 
 use kagami_catalog::{ComponentTypeId, PropertyName, SchemaRegistry};
 use kagami_document::{Limits, ObjectId};
-use kagami_renderer::SceneProgram;
+use kagami_session::{AuthoringView, WorkspaceMode};
 use orishu::client::ClusterAddress;
 
 use crate::document::Document;
@@ -38,7 +47,17 @@ pub struct Model {
     /// The Orishu endpoint this client will use once the remote adapter is wired.
     pub cluster_address: ClusterAddress,
     /// The experiment, and the only way to change one.
+    ///
+    /// Also holds the workspace mode, because the mode gate has to sit on the
+    /// same seam every command passes through — see [`Document::submit`].
     pub document: Document,
+    /// The camera being looked through while observing a run.
+    ///
+    /// `Some` exactly while the workspace is observing. Copied from the
+    /// authoring view on entry, per ADR 0022, and discarded on leaving: an
+    /// observer's camera is never inherited by anyone and never reaches the
+    /// file.
+    pub observing_view: Option<AuthoringView>,
 
     // Everything below is presentation state (ADR 0012).
     pub search_query: String,
@@ -49,12 +68,18 @@ pub struct Model {
     pub hidden: HashSet<ObjectId>,
     /// A property field being typed into, if any.
     pub editing: Option<PropertyEdit>,
+    /// What has been typed into the metres-per-unit field, if anything.
+    ///
+    /// `None` means the field shows the scale in force. Held for the same
+    /// reason [`PropertyEdit`] is: a partial entry like `1 n` is not a scale,
+    /// and parsing per keystroke would dirty the file on the way to a value
+    /// nobody has finished asking for.
+    pub scale_entry: Option<String>,
     /// Numbers the default name of the next object added. Presentation only:
     /// the model mints identities, this only picks a label.
     pub next_object_number: u64,
     pub settings_open: bool,
     pub open_menu: Option<Menu>,
-    pub scene_program: SceneProgram,
     /// When set, the app quits by itself once `Instant::now()` reaches this
     /// — from `--exit-after`, for automated testing.
     pub exit_deadline: Option<Instant>,
@@ -90,18 +115,49 @@ impl Model {
         Self {
             cluster_address: options.cluster_address,
             document,
+            observing_view: None,
             search_query: String::new(),
             selected: None,
             expanded: HashSet::new(),
             hidden: HashSet::new(),
             editing: None,
+            scale_entry: None,
             next_object_number: 1,
             settings_open: false,
             open_menu: None,
-            scene_program: SceneProgram,
             exit_deadline: options.exit_after.map(|lifetime| Instant::now() + lifetime),
             active_tool: Tool::Select,
             queue_len: 0,
+        }
+    }
+
+    /// The camera and projection this window is currently looking through.
+    ///
+    /// One accessor rather than two call sites choosing: while observing it is
+    /// the ephemeral copy, and while authoring it is the document's saved
+    /// view. Anything that draws reads through here, so nothing can accidentally
+    /// render the authoring camera over a run.
+    pub fn current_view(&self) -> AuthoringView {
+        self.observing_view
+            .unwrap_or_else(|| self.document.authoring_view())
+    }
+
+    /// `true` when document commands, undo and redo are available.
+    pub fn is_authoring(&self) -> bool {
+        self.document.is_authoring()
+    }
+
+    /// What the mode indicator says.
+    ///
+    /// Names the run while observing, because ADR 0022 requires the run
+    /// identity to be unmistakable — an observer must never be able to mistake
+    /// playback for an editable experiment.
+    pub fn mode_label(&self) -> String {
+        match self.document.mode() {
+            WorkspaceMode::Authoring => "Authoring".to_owned(),
+            WorkspaceMode::Observing(attachment) => {
+                format!("Observing {}", attachment.run())
+            }
         }
     }
 

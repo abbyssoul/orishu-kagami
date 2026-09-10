@@ -19,7 +19,21 @@
 
 use std::time::Instant;
 
-use orishu_variables::{CompiledExpression, Namespace, VariableOptions, VariablesSystem};
+use orishu_variables::{CompiledExpression, Limits, Namespace, VariableOptions, VariablesSystem};
+
+/// Bounds wide enough for the shapes profiled below.
+///
+/// The chain is an order of magnitude deeper than `Limits::DEFAULT`'s
+/// dependency bound, which is the interactive-authoring number; a profiler
+/// declares the bounds its workload needs rather than being capped by it.
+fn profile_system() -> VariablesSystem {
+    VariablesSystem::with_limits(Limits {
+        max_variables: 1_048_576,
+        max_dependency_depth: 1_048_576,
+        max_evaluation_work: u64::MAX,
+        ..Limits::DEFAULT
+    })
+}
 
 #[cfg(feature = "dhat")]
 #[global_allocator]
@@ -34,7 +48,7 @@ fn main() {
     let _profiler = dhat::Profiler::builder().build();
 
     report_phase("define flat", FLAT_COUNT, || {
-        let mut vars = VariablesSystem::default();
+        let mut vars = profile_system();
         let namespace = Namespace::new("bench");
         for i in 0..FLAT_COUNT {
             vars.define(
@@ -76,7 +90,7 @@ fn main() {
 }
 
 fn build_flat_system(count: usize) -> (VariablesSystem, Vec<orishu_variables::VariableId>) {
-    let mut vars = VariablesSystem::default();
+    let mut vars = profile_system();
     let namespace = Namespace::new("bench");
     let ids = (0..count)
         .map(|i| {
@@ -93,7 +107,7 @@ fn build_flat_system(count: usize) -> (VariablesSystem, Vec<orishu_variables::Va
 }
 
 fn build_chain_system(depth: usize) -> (VariablesSystem, orishu_variables::VariableId) {
-    let mut vars = VariablesSystem::default();
+    let mut vars = profile_system();
     let namespace = Namespace::new("chain");
     let mut previous = vars
         .define(

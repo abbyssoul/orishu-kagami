@@ -1,9 +1,11 @@
 # Adopt the document authority in the Kagami app
 
-Status: **slices 1–3, 5 and 6 implemented**; slice 4 (interactive gestures)
-waits on the viewport interaction [K11](implement-kagami-viewport-workflows.md)
-owns, and the schema registry is a bundled stand-in until X-PLUGIN's inventory
-exists  
+Status: **slices 1–3, 5 and 6 implemented**, including slice 2's view-revision
+half and slice 5's default-view revision, which landed with
+[K11](implement-kagami-viewport-workflows.md) slice 2. Slice 4 (interactive
+gestures) is now *unblocked* — the viewport publishes drags — but is still not
+implemented; the schema registry remains a bundled stand-in until X-PLUGIN's
+inventory exists  
 Work package: **K-DOCUMENT** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0004](../../adr/0004-separate-authoring-commands-from-run-observations.md),
 [ADR 0006](../../adr/0006-mcp-ui-equivalence.md),
@@ -73,7 +75,7 @@ two queues, and conflating them is the failure mode.
   authored source, and the resolved value is displayed beside it as derived
   output. Editing shows the resolution or the diagnostic (ADR 0005).
 
-### 4. Interactive edits — **not implemented**
+### 4. Interactive edits — **not implemented**, but no longer blocked
 
 - A viewport drag or a held inspector control opens a gesture on the authority
   and commits it on release, so the whole gesture is one undo step (ADR 0019).
@@ -138,6 +140,30 @@ Five decisions are worth carrying forward:
   already there for it. Property editing is text committed on submit rather
   than a held control, so nothing today needs a gesture to undo as one step.
 
+K11 slice 2 then supplied the missing halves of slices 2 and 5, and the drag
+source slice 4 was waiting for. Three decisions from it belong here:
+
+- **The mode gate is on this seam.** `Document::submit` consults
+  `kagami_session::Workspace` before minting a command identity, so no call
+  site added later can route an edit past it while a run is being watched
+  (ADR 0022). The authority itself never learns about client mode.
+- **The camera left the widget.** It used to live in iced's shader
+  `Program::State`, which the app cannot read at save time — and which reset
+  whenever the widget's position in the tree changed, as `view/mod.rs` had to
+  document. `SceneProgram` now takes a camera and publishes a `CameraMotion`
+  per gesture. That is what makes the pose saveable *and* what makes a drag
+  visible to the app as a whole gesture.
+- **One dirty indication, one question.** `Document::is_dirty` is the OR of the
+  experiment and view halves, so the title shows one modified state (ADR 0022)
+  — and the unsaved-changes prompt asks about exactly that. It first asked only
+  about the experiment, reasoning that a moved camera is not work worth warning
+  about; that silently discarded a view someone had framed and not saved, which
+  is the surprise a single modified indication exists to prevent. Since the
+  authority is not allowed to know about the client-owned view,
+  `Document::may_discard_view` applies the same rule to the shell's half before
+  the authority is consulted: no unsaved work goes without an explicit decision
+  (ADR 0006).
+
 ## Acceptance criteria
 
 - No demo scene state remains; the scene tree, inspector and title all derive
@@ -149,6 +175,8 @@ Five decisions are worth carrying forward:
 - Camera/projection changes in Authoring mode change only the default-view
   revision and mark the file dirty. Selection, expansion, search and hiding,
   plus all playback view changes, remain ephemeral.
+- New/Open with an unsaved view ask the same question they ask for an unsaved
+  experiment, and discard neither without an explicit decision.
 - The inspector renders a component contributed by a schema the app has never
   heard of, and offers it for attachment, without an app-side change.
 - One viewport drag is one undo entry.

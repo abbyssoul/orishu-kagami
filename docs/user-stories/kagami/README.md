@@ -59,11 +59,12 @@ An automation client never acts on its own authority: a scientist-researcher ena
   worse than dedicated coding tools; unclear plugin contracts (manifest,
   phenomenon definition, exported variables, kernel capabilities); plugins
   that behave differently on the cluster than they do locally.
-- **Key tasks/usage scenarios:** Build a plugin (manifest, schemas and workload
-  components containing its numerical implementation) against the documented
-  contract, add it to Kagami, validate it, share it, author experiments that
-  use it, and submit or export experiments whose workload closure includes the
-  exact component artifacts.
+- **Key tasks/usage scenarios:** Build a plugin (manifest, typed
+  extension-point contributions and workload components), validate and package
+  it with headless Kagami commands, inspect and share its immutable release,
+  install or update releases side-by-side, choose defaults, enable or disable
+  logical plugins, author experiments that use exact contributions, and submit
+  or export workloads containing the exact required contracts and artifacts.
 
 ## Glossary
 
@@ -113,6 +114,11 @@ An automation client never acts on its own authority: a scientist-researcher ena
 - **Default view:** Client-owned presentation settings saved beside, but not as
   part of, experiment intent. They initialize a window and never affect a
   workload or another observer.
+- **Scene scale:** How many metres one viewport unit represents. A presentation
+  setting that decides what the camera can reach and frame, so one camera
+  serves atomic and astronomical experiments alike. It converts SI world values
+  at the rendering boundary and is never a second way to store a position, a
+  size, or a physical constant.
 - **Kagami app:** The Kagami desktop application through which experiments are authored, submitted, and visualized.
 - **MCP server:** Kagami's embedded server through which authenticated external clients command the running session. It is off by default, enabled by a startup flag or in the UI, requires a fresh credential, and binds only local transports.
 - **External client (MCP client):** A program — an AI agent, a script, or another front-end — that connects to Kagami's MCP server and acts with a scientist-researcher's delegated authority.

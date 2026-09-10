@@ -29,10 +29,18 @@
 //! | [`store`] | writing a document without ever costing the previous one |
 //! | [`view`] | what an adapter reads |
 //! | [`wire`] | the explicit, versioned shape an adapter converts through |
+//! | [`workspace`] | whether authoring is routed at all (ADR 0022) |
+//! | [`default_view`] | the client-owned projection and camera the file remembers |
 //!
 //! It owns none of: what a valid experiment is (that is `kagami-document`),
-//! transports, authentication, tool schemas, presentation state, or any part
-//! of a run.
+//! transports, authentication, tool schemas, or any part of a run.
+//!
+//! The last two rows are the exception ADR 0022 carves out, and they are
+//! deliberately *outside* [`DocumentAuthority`]. A workspace mode decides
+//! whether a submission is routed, and a default view is client-owned
+//! presentation that nonetheless has to survive save and reopen. Neither
+//! touches the experiment revision, undo history or workload identity, and a
+//! headless authority constructs neither.
 //!
 //! # A session, end to end
 //!
@@ -104,6 +112,7 @@
 
 pub mod authority;
 pub mod command;
+pub mod default_view;
 pub mod document;
 pub mod identity;
 pub mod outcome;
@@ -111,12 +120,22 @@ pub mod persist;
 pub mod store;
 pub mod view;
 pub mod wire;
+pub mod workspace;
 
 pub use authority::{
     DocumentAuthority, MAX_COMMAND_HISTORY, MAX_EVENT_HISTORY, MAX_REPLAY_COMMANDS,
 };
 pub use command::{ExperimentCommandEnvelope, InstantiationSpec, SessionCommand};
-pub use document::{DocumentError, DocumentMetadata, ExperimentDocument, FORMAT, FORMAT_VERSION};
+pub use default_view::{
+    AuthoringView, AuthoringViewState, CameraMotion, CameraPose, DEFAULT_VIEW_VERSION,
+    MAX_CAMERA_DISTANCE_UNITS, MAX_CAMERA_PITCH, MAX_CAMERA_TARGET_UNITS, MAX_SCENE_SCALE,
+    MIN_CAMERA_DISTANCE_UNITS, MIN_SCENE_SCALE, Projection, SceneScale, ViewAdjustment, ViewChange,
+    ViewError, ViewRevision,
+};
+pub use document::{
+    DefaultViewError, DocumentError, DocumentMetadata, ExperimentDocument, FORMAT, FORMAT_VERSION,
+    MIN_FORMAT_VERSION, StoredDefaultView, decode_document,
+};
 pub use identity::{ActorId, CommandId, IdentityError, MAX_IDENTITY_BYTES};
 pub use outcome::{Acceptance, EventSeq, ExperimentChange, ExperimentEvent, SessionRejection};
 pub use persist::{DocumentTarget, MAX_TARGET_BYTES, SaveAcknowledgement, TargetError};
@@ -126,3 +145,7 @@ pub use store::{
 };
 pub use view::{HistoryStatus, SessionView};
 pub use wire::{WireAcceptance, WireEnvelope, WireEvent, WireRejection, WireSessionCommand};
+pub use workspace::{
+    LeaveConsequence, RunAttachment, RunLabel, RunOrigin, Workspace, WorkspaceMode,
+    WorkspaceRejection,
+};

@@ -9,16 +9,22 @@
 //! # Version policy
 //!
 //! [`FORMAT`] is checked before anything else is interpreted, then
-//! [`FORMAT_VERSION`]. A version *higher* than this build is refused outright
-//! rather than partially read: a newer producer may mean something different by
-//! a field this build recognises, and half-understanding a document is worse
-//! than declining it. There is no version 0 and no "lower is probably safe"
-//! rule; when an older version exists it gets an explicit conversion of its
-//! own.
+//! [`FORMAT_VERSION`]. That ordering is why [`decode_document`] exists rather
+//! than a bare `serde_json::from_slice`: it reads the two deciding fields from
+//! a permissive header first, and only then hands the bytes to the DTO for
+//! that version. A version *higher* than this build is refused outright rather
+//! than partially read — a newer producer may mean something different by a
+//! field this build recognises, and half-understanding a document is worse than
+//! declining it. There is no version 0 and no "lower is probably safe" rule;
+//! each older version gets an explicit conversion of its own.
 //!
 //! Unknown fields are refused. A producer that added a field without advancing
 //! the version would otherwise have its content silently dropped on the next
 //! re-save, which is exactly the failure a shared-file workflow cannot afford.
+//! It is also why version 2 exists: adding ADR 0022's `defaultView` section
+//! under version 1 would have made a build from before it reject the file as
+//! *malformed*, when the whole purpose of the version field is to say
+//! "written by something newer" instead.
 //!
 //! # What is and is not in the file
 //!
@@ -31,6 +37,16 @@
 //! from the source, so a file cannot inject an SI value its own expression does
 //! not produce. Nor is any presentation state here beyond ADR 0022's separately
 //! versioned default view, and no run observation or record at all.
+//!
+//! # The default view has the opposite version policy, deliberately
+//!
+//! [`StoredDefaultView`] carries its own version, and one this build cannot
+//! read is *reported and dropped* while the experiment opens normally. That is
+//! the exact inverse of the envelope rule above, and it is what "separately
+//! versioned" is for: a camera must never be a reason a colleague cannot open
+//! an experiment. The loss is not silent — [`StoredDefaultView::decode`]
+//! returns why, so the window can say that saving will replace the view it
+//! could not read.
 //!
 //! # No IO, no clock
 //!
@@ -51,11 +67,23 @@ use orishu_variables::{Name, Namespace};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::default_view::{
+    AuthoringView, CameraPose, DEFAULT_VIEW_VERSION, Projection, SceneScale,
+};
+
 /// The format identifier every document carries.
 pub const FORMAT: &str = "kagami.experiment";
 
-/// The format version this build writes, and the only one it reads.
-pub const FORMAT_VERSION: u32 = 1;
+/// The format version this build writes.
+///
+/// Version 2 added ADR 0022's `defaultView` section. Version 1 still loads,
+/// through its own explicit conversion in [`decode_document`], and converts
+/// *up*: an opened version-1 document is a version-2 value in memory, so a
+/// re-save writes version 2.
+pub const FORMAT_VERSION: u32 = 2;
+
+/// The oldest format version this build still reads.
+pub const MIN_FORMAT_VERSION: u32 = 1;
 
 /// Why a document could not be decoded.
 #[derive(Clone, Debug, Error, PartialEq)]
@@ -102,6 +130,33 @@ impl DocumentError {
             Self::WrongFormat { .. } => "wrong_format",
             Self::UnsupportedVersion { .. } => "unsupported_format_version",
             Self::Invalid { source } => source.code(),
+        }
+    }
+
+    /// `true` when the bytes are *damaged* rather than merely declined.
+    ///
+    /// The distinction the recovery protocol turns on, and the two cases could
+    /// not be more different in what they ask for:
+    ///
+    /// - **Damage** — truncated or garbled bytes — means an earlier save was
+    ///   interrupted. Falling back to the backup is the whole point of keeping
+    ///   one, and replacing the damaged primary on the next save loses nothing.
+    /// - **Declined** — a newer format version, or another format entirely —
+    ///   means the file is intact and something else understands it. Treating
+    ///   that as damage would open an *older* backup and then overwrite the
+    ///   newer document with it, which is data loss dressed up as recovery.
+    ///
+    /// So [`crate::store::load`] falls back only for damage, and
+    /// [`crate::store::save`] preserves anything that is not damage as the
+    /// backup before replacing it.
+    pub const fn is_damage(&self) -> bool {
+        match self {
+            Self::Malformed { .. } => true,
+            // Well-formed, and a document. This build just will not read it.
+            Self::WrongFormat { .. } | Self::UnsupportedVersion { .. } => false,
+            // Structurally a document; the model refused its contents. Not
+            // this build's to overwrite either.
+            Self::Invalid { .. } => false,
         }
     }
 }
@@ -245,6 +300,166 @@ pub struct StoredExperiment {
     pub objects: Vec<StoredObject>,
 }
 
+/// Why a saved default view could not be used.
+///
+/// Never a reason the document fails to load — see this module's header.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum DefaultViewError {
+    /// The section was written by a build with a newer view format.
+    #[error("saved view is version {found}, and this build reads {supported}")]
+    UnsupportedVersion {
+        /// The version the section carried.
+        found: u32,
+        /// The version this build reads.
+        supported: u32,
+    },
+    /// The section does not say which version it is.
+    ///
+    /// Its own failure rather than a malformed body, because the version is
+    /// what decides how the body is read: without one there is no version
+    /// whose rules the rest could be checked against.
+    #[error("saved view does not declare a readable version")]
+    NoVersion,
+    /// The section claims a version this build reads, but its body is not the
+    /// shape that version has.
+    #[error("saved view could not be read: {message}")]
+    Malformed {
+        /// What the decoder objected to.
+        message: String,
+    },
+}
+
+impl DefaultViewError {
+    /// A stable identifier for this reason.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::UnsupportedVersion { .. } => "unsupported_view_version",
+            Self::NoVersion => "view_without_version",
+            Self::Malformed { .. } => "malformed_view",
+        }
+    }
+}
+
+/// The whole of a version-1 `defaultView` section, version field included.
+///
+/// Version 1 had no scene scale, which meant one render unit was one metre.
+/// Converting to the default scale is not a substitution for a missing value:
+/// it is exactly what the section meant.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct DefaultViewV1 {
+    #[allow(dead_code)]
+    version: u32,
+    projection: Projection,
+    camera: CameraPose,
+}
+
+/// The whole of a version-2 `defaultView` section.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct DefaultViewV2 {
+    version: u32,
+    projection: Projection,
+    scale: SceneScale,
+    camera: CameraPose,
+}
+
+/// ADR 0022's client-owned `defaultView` section, as the file carries it.
+///
+/// Held as *entirely* uninterpreted JSON, including its version header. That
+/// is what makes this section non-blocking in the way ADR 0022 requires: there
+/// is no field here — not even `version` — whose absence, presence or type a
+/// stricter decode could object to before the section has had its say. A
+/// missing version, a version from a newer build, a body of the wrong shape
+/// and a section that is not even an object are all
+/// [`DefaultViewError`]s from [`Self::decode`], and none of them is a reason
+/// the experiment fails to open.
+///
+/// Ignored entirely by workload compilation, by Orishu, and by a headless
+/// document authority (ADR 0022). Nothing in it enters the experiment
+/// revision.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct StoredDefaultView {
+    section: serde_json::Value,
+}
+
+impl StoredDefaultView {
+    /// Describe `view` as the current section version.
+    pub fn of(view: &AuthoringView) -> Self {
+        let section = DefaultViewV2 {
+            version: DEFAULT_VIEW_VERSION,
+            projection: view.projection(),
+            scale: view.scale(),
+            camera: view.camera(),
+        };
+        Self {
+            // Unreachable failure: the section is a `u32`, a plain enum and a
+            // finite-checked pose, none of which can fail to encode. A null
+            // rather than a panic, which `decode` then reports through the
+            // ordinary non-blocking path.
+            section: serde_json::to_value(&section).unwrap_or(serde_json::Value::Null),
+        }
+    }
+
+    /// The version this section declares, if it declares a readable one.
+    pub fn declared_version(&self) -> Option<u32> {
+        self.section
+            .get("version")?
+            .as_u64()
+            .and_then(|version| u32::try_from(version).ok())
+    }
+
+    /// Interpret the section, if this build can.
+    ///
+    /// Each supported version gets its own shape and its own conversion, the
+    /// same policy the envelope follows — the difference being what happens to
+    /// a version this build does *not* have, which here is a report rather
+    /// than a refusal.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DefaultViewError`] for a section with no readable version, a
+    /// newer version, or a body that is not the shape its version declares.
+    /// The caller reports it and carries on with a default view; the
+    /// experiment is unaffected.
+    pub fn decode(&self) -> Result<AuthoringView, DefaultViewError> {
+        let version = self.declared_version().ok_or(DefaultViewError::NoVersion)?;
+        let (projection, scale, camera) = match version {
+            1 => {
+                let decoded: DefaultViewV1 = self.body()?;
+                // Version 1 predates scene scales, and meant one metre per
+                // render unit. That is the default, so this is a conversion
+                // rather than a default substituted for a missing field.
+                (decoded.projection, SceneScale::default(), decoded.camera)
+            }
+            DEFAULT_VIEW_VERSION => {
+                let decoded: DefaultViewV2 = self.body()?;
+                (decoded.projection, decoded.scale, decoded.camera)
+            }
+            found => {
+                return Err(DefaultViewError::UnsupportedVersion {
+                    found,
+                    supported: DEFAULT_VIEW_VERSION,
+                });
+            }
+        };
+        // Bounding happens here rather than being trusted from the file: a
+        // saved pose is untrusted input, and what it can reach depends on the
+        // scale saved beside it.
+        AuthoringView::new(projection, scale, camera).map_err(|error| DefaultViewError::Malformed {
+            message: error.to_string(),
+        })
+    }
+
+    /// Deserialize the section as one version's shape.
+    fn body<T: serde::de::DeserializeOwned>(&self) -> Result<T, DefaultViewError> {
+        serde_json::from_value(self.section.clone()).map_err(|error| DefaultViewError::Malformed {
+            message: error.to_string(),
+        })
+    }
+}
+
 /// A whole `kagami.experiment` document.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -257,17 +472,116 @@ pub struct ExperimentDocument {
     pub metadata: DocumentMetadata,
     /// The authored experiment.
     pub experiment: StoredExperiment,
+    /// How the experiment was being looked at, if the writer saved a view.
+    ///
+    /// `None` has defined meaning in every version that has this field: no
+    /// opening view was saved, so a reader opens at its own default camera.
+    /// Version 1 had no such field at all and converts to `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_view: Option<StoredDefaultView>,
+}
+
+/// The two fields that decide how the rest of a document is read.
+///
+/// Deliberately *not* `deny_unknown_fields`: its whole job is to answer "what
+/// is this, and which version" for bytes whose remaining shape is not yet
+/// known — including bytes from a build newer than this one.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentHeader {
+    format: String,
+    format_version: u32,
+}
+
+/// A version-1 document, before `defaultView` existed.
+///
+/// Kept as its own DTO rather than reusing the current one with an optional
+/// field: an explicit shape per supported version is what makes "this is what
+/// version 1 meant" checkable, and it is what refuses a version-1 file that
+/// carries a field version 1 never had.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct DocumentV1 {
+    format: String,
+    metadata: DocumentMetadata,
+    experiment: StoredExperiment,
+    /// Read but unused: [`decode_document`] has already checked it.
+    #[allow(dead_code)]
+    format_version: u32,
+}
+
+impl From<DocumentV1> for ExperimentDocument {
+    fn from(value: DocumentV1) -> Self {
+        Self {
+            format: value.format,
+            // Converted *up*. Everything above the codec deals with one
+            // shape, so a re-save of an opened version-1 document writes
+            // version 2 — which is correct: it now has a view section.
+            format_version: FORMAT_VERSION,
+            metadata: value.metadata,
+            experiment: value.experiment,
+            // Version 1 remembered no view, and that absence has defined
+            // meaning rather than being a missing value to invent.
+            default_view: None,
+        }
+    }
+}
+
+/// Read `bytes` as a document, checking what it is before what it says.
+///
+/// The one entry point for untrusted bytes. It reads [`FORMAT`] and the
+/// version from a permissive header, refuses anything that is not this format
+/// or is newer than this build, and only then interprets the body with the DTO
+/// for that version.
+///
+/// # Errors
+///
+/// Returns [`DocumentError::Malformed`] for bytes that are not this format's
+/// JSON, [`DocumentError::WrongFormat`] for another format, and
+/// [`DocumentError::UnsupportedVersion`] for a version outside
+/// [`MIN_FORMAT_VERSION`]`..=`[`FORMAT_VERSION`].
+pub fn decode_document(bytes: &[u8]) -> Result<ExperimentDocument, DocumentError> {
+    let header: DocumentHeader =
+        serde_json::from_slice(bytes).map_err(|error| DocumentError::Malformed {
+            message: error.to_string(),
+        })?;
+    if header.format != FORMAT {
+        return Err(DocumentError::WrongFormat {
+            found: header.format,
+            expected: FORMAT,
+        });
+    }
+
+    match header.format_version {
+        1 => Ok(serde_json::from_slice::<DocumentV1>(bytes)
+            .map_err(|error| DocumentError::Malformed {
+                message: error.to_string(),
+            })?
+            .into()),
+        FORMAT_VERSION => serde_json::from_slice(bytes).map_err(|error| DocumentError::Malformed {
+            message: error.to_string(),
+        }),
+        found => Err(DocumentError::UnsupportedVersion {
+            found,
+            supported: FORMAT_VERSION,
+        }),
+    }
 }
 
 impl ExperimentDocument {
-    /// Describe `snapshot` as a document, stamped with `metadata`.
+    /// Describe `snapshot` and `view` as a document, stamped with `metadata`.
     ///
-    /// Reads no clock and performs no IO: the same snapshot and metadata
+    /// Reads no clock and performs no IO: the same snapshot, view and metadata
     /// always produce the same document, which is what makes a canonical
     /// byte-identical re-encode a property rather than a hope.
+    ///
+    /// The view is an argument rather than something reached for, because it
+    /// belongs to whichever client is authoring — saving must record the view
+    /// in force without being able to *change* it (ADR 0022).
     pub fn of(
         experiment: &Experiment,
         snapshot: &ExperimentSnapshot,
+        view: &AuthoringView,
         metadata: DocumentMetadata,
     ) -> Self {
         let counters = experiment.counters();
@@ -275,6 +589,7 @@ impl ExperimentDocument {
             format: FORMAT.to_owned(),
             format_version: FORMAT_VERSION,
             metadata,
+            default_view: Some(StoredDefaultView::of(view)),
             experiment: StoredExperiment {
                 counters: StoredCounters {
                     objects: counters.objects_minted(),

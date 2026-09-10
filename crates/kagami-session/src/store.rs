@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::document::{DocumentError, ExperimentDocument};
+use crate::document::{DocumentError, ExperimentDocument, decode_document};
 use crate::persist::DocumentTarget;
 
 /// Largest document this build will read into memory.
@@ -215,6 +215,34 @@ pub enum LoadError {
         /// What was being opened.
         target: DocumentTarget,
     },
+    /// The document was read but refused, and nothing could stand in for it.
+    ///
+    /// Kept distinct from [`Self::Unreadable`] so a document written by a
+    /// newer build says so. "No readable document here" and "this is format
+    /// version 3 and I read 2" are different problems for whoever is holding
+    /// the file, and only the second one tells them what to do about it.
+    #[error("cannot read {target}: {source}")]
+    Refused {
+        /// What was being opened.
+        target: DocumentTarget,
+        /// Why the document itself was refused.
+        ///
+        /// Boxed because a [`DocumentError`] can carry a whole model
+        /// [`Rejection`](kagami_document::Rejection), and every `load` result —
+        /// including the successful ones — would otherwise be sized for it.
+        #[source]
+        source: Box<DocumentError>,
+    },
+}
+
+impl LoadError {
+    /// A stable identifier for this reason.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Unreadable { .. } => "unreadable_document",
+            Self::Refused { source, .. } => source.code(),
+        }
+    }
 }
 
 /// A document read back, and where it had to be found.
@@ -259,14 +287,10 @@ pub fn save(
     })?;
 
     // Step 2, before anything is moved: bytes that cannot be read back are
-    // not a document, whatever produced them.
-    serde_json::from_slice::<ExperimentDocument>(&bytes).map_err(|error| {
-        SaveError::NotReadable {
-            source: DocumentError::Malformed {
-                message: error.to_string(),
-            },
-        }
-    })?;
+    // not a document, whatever produced them. Verified through the same
+    // version-checked entry point a load uses, so a save cannot produce
+    // something only a laxer decoder would accept.
+    decode_document(&bytes).map_err(|source| SaveError::NotReadable { source })?;
 
     let path = target.path();
     let (temporary, ()) = (0..MAX_TEMP_CANDIDATES)
@@ -303,10 +327,13 @@ fn finish_save(store: &dyn FileStore, path: &Path, temporary: &Path) -> Result<(
         source,
     })?;
 
-    // Step 4: retain a backup of the last *verified* document. Bytes that do
-    // not decode are not worth keeping as a recovery target — they would
-    // replace a backup that might still be good.
-    if store.exists(path) && decode(store, path).is_some() {
+    // Step 4: retain a backup of the previous document unless it was damaged.
+    // Truncated or garbled bytes are not worth keeping as a recovery target —
+    // they would replace a backup that might still be good. But a document
+    // this build merely *declines*, such as one written by a newer version, is
+    // intact and must survive being replaced; dropping it here is the same
+    // data loss the load path refuses to walk into.
+    if store.exists(path) && worth_preserving(store, path) {
         store
             .rename(path, &backup_of(path))
             .map_err(|source| SaveError::Io {
@@ -339,34 +366,99 @@ fn finish_save(store: &dyn FileStore, path: &Path, temporary: &Path) -> Result<(
 ///
 /// # Errors
 ///
-/// Returns [`LoadError::Unreadable`] when none of them decodes.
+/// Returns [`LoadError::Refused`] when the primary is intact but this build
+/// will not interpret it, and [`LoadError::Unreadable`] when nothing readable
+/// was found anywhere.
+///
+/// # Recovery is for damage only
+///
+/// A primary this build *declines* — a newer format version, or another format
+/// entirely — stops the load right there, before any backup is considered.
+/// Opening an older backup instead would look like a successful recovery, and
+/// the next save would then replace the intact newer document with it. See
+/// [`DocumentError::is_damage`].
 pub fn load(store: &dyn FileStore, target: &DocumentTarget) -> Result<Loaded, LoadError> {
     let path = target.path();
-    let candidates = [
-        (path.to_path_buf(), LoadedFrom::Primary),
-        (backup_of(path), LoadedFrom::Backup),
-    ];
-    for (candidate, from) in candidates {
-        if let Some(document) = decode(store, &candidate) {
-            return Ok(Loaded { document, from });
+    // Why the primary itself failed, kept for the failure message. A usable
+    // backup still wins over explaining damage — recovering is better than
+    // explaining — but if nothing else answers, this is the reason worth
+    // reporting.
+    let mut damage = None;
+
+    match try_decode(store, path) {
+        Some(Ok(document)) => {
+            return Ok(Loaded {
+                document,
+                from: LoadedFrom::Primary,
+            });
         }
+        Some(Err(error)) if !error.is_damage() => {
+            // Intact, and not ours to work around. Refusing here is what stops
+            // a later save from overwriting it with something older.
+            return Err(LoadError::Refused {
+                target: target.clone(),
+                source: Box::new(error),
+            });
+        }
+        Some(Err(error)) => damage = Some(error),
+        None => {}
+    }
+
+    // The primary was damaged or absent, so recovery is what is left: the
+    // backup first, then any temporary an interrupted save left behind.
+    if let Some(Ok(document)) = try_decode(store, &backup_of(path)) {
+        return Ok(Loaded {
+            document,
+            from: LoadedFrom::Backup,
+        });
     }
     for index in 0..MAX_TEMP_CANDIDATES {
-        if let Some(document) = decode(store, &temporary_of(path, index)) {
+        if let Some(Ok(document)) = try_decode(store, &temporary_of(path, index)) {
             return Ok(Loaded {
                 document,
                 from: LoadedFrom::Temporary,
             });
         }
     }
-    Err(LoadError::Unreadable {
-        target: target.clone(),
+
+    Err(match damage {
+        Some(source) => LoadError::Refused {
+            target: target.clone(),
+            source: Box::new(source),
+        },
+        None => LoadError::Unreadable {
+            target: target.clone(),
+        },
     })
 }
 
-/// Read and decode one candidate, or `None` if it is missing or not a
-/// document.
-fn decode(store: &dyn FileStore, path: &Path) -> Option<ExperimentDocument> {
+/// Read and decode one candidate.
+///
+/// `None` means the candidate produced no bytes — it is missing, or too large,
+/// or unreadable. `Some(Err(_))` means it produced bytes this build will not
+/// interpret, and says why. The two are distinguished because a *missing*
+/// primary and a primary written by a newer build call for different messages.
+///
+/// Goes through [`decode_document`], so the format identifier and the version
+/// are checked before the body is interpreted.
+fn try_decode(
+    store: &dyn FileStore,
+    path: &Path,
+) -> Option<Result<ExperimentDocument, DocumentError>> {
     let bytes = store.read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    Some(decode_document(&bytes))
+}
+
+/// Whether the document at `path` should survive being replaced.
+///
+/// The question the save protocol asks, and it is not "does this build read
+/// it". A document from a newer build is intact and irreplaceable by anything
+/// here, so it is preserved; only damage is dropped.
+fn worth_preserving(store: &dyn FileStore, path: &Path) -> bool {
+    match try_decode(store, path) {
+        Some(Ok(_)) => true,
+        Some(Err(error)) => !error.is_damage(),
+        // No bytes at all: nothing to preserve.
+        None => false,
+    }
 }

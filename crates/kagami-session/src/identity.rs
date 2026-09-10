@@ -7,9 +7,6 @@
 //! identity through the document authority must not resolve to anything. Two
 //! interchangeable types would let exactly that compile.
 
-use std::fmt;
-
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Longest accepted [`CommandId`] or [`ActorId`], in bytes.
@@ -31,6 +28,10 @@ pub enum IdentityError {
     },
 }
 
+/// Declare a bounded caller-supplied identity.
+///
+/// Every path is fully qualified so the macro can be used from any module in
+/// this crate without importing what it happens to expand to.
 macro_rules! bounded_identity {
     ($(#[$meta:meta])* $type_name:ident) => {
         $(#[$meta])*
@@ -38,21 +39,33 @@ macro_rules! bounded_identity {
         /// Serialised as its text and decoded through the same constructor, so
         /// an identity arriving in a message is bounded exactly as one built
         /// in process is.
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(
+            Clone,
+            Debug,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         #[serde(try_from = "String", into = "String")]
         pub struct $type_name(String);
 
         impl $type_name {
             /// Validate and construct the identity.
-            pub fn new(value: impl Into<String>) -> Result<Self, IdentityError> {
+            pub fn new(
+                value: impl Into<String>,
+            ) -> Result<Self, $crate::identity::IdentityError> {
                 let value = value.into();
                 if value.is_empty() {
-                    return Err(IdentityError::Empty);
+                    return Err($crate::identity::IdentityError::Empty);
                 }
-                if value.len() > MAX_IDENTITY_BYTES {
-                    return Err(IdentityError::TooLong {
+                if value.len() > $crate::identity::MAX_IDENTITY_BYTES {
+                    return Err($crate::identity::IdentityError::TooLong {
                         found: value.len(),
-                        limit: MAX_IDENTITY_BYTES,
+                        limit: $crate::identity::MAX_IDENTITY_BYTES,
                     });
                 }
                 Ok(Self(value))
@@ -64,14 +77,14 @@ macro_rules! bounded_identity {
             }
         }
 
-        impl fmt::Display for $type_name {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl ::std::fmt::Display for $type_name {
+            fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 formatter.write_str(&self.0)
             }
         }
 
         impl TryFrom<String> for $type_name {
-            type Error = IdentityError;
+            type Error = $crate::identity::IdentityError;
 
             fn try_from(value: String) -> Result<Self, Self::Error> {
                 Self::new(value)
@@ -85,6 +98,8 @@ macro_rules! bounded_identity {
         }
     };
 }
+
+pub(crate) use bounded_identity;
 
 bounded_identity!(
     /// Caller-chosen identity of one submitted command.

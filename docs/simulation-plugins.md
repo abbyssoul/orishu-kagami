@@ -52,6 +52,102 @@ different concepts:
 A component may compose several numerical kernels. Conversely, installing a
 plugin does not grant its code ambient access to Kagami or a worker process.
 
+## Extension points and contributions
+
+Orishu Kagami owns a versioned set of **plugin extension points** in its shared
+plugin contract. An extension point names a kind of declarative contribution,
+not a directory a bundle may overwrite. Initial examples include entity
+component schemas, field-family contracts, computational models, observation
+channels, exported constants, and workload component-plan fragments.
+
+A plugin release registers one or more **contributions** at those extension
+points. One bundle may therefore supply an object component, a field-family
+contract, two computational models, and their executable workload components.
+Extension-point policy determines how the contributions compose: entity
+components and model choices accumulate, while an experiment selects exactly
+one compatible computational model for each active field family.
+
+Contribution identity is provider-qualified by plugin release, extension
+point, and plugin-local contribution identity. Display and scientific names may
+collide; Kagami shows the provider and never lets installation order select one.
+Independently developed plugins cooperate through exact **scientific contract
+identities** consisting of a stable name, version, and canonical contract
+digest. A model may be installed before the field-family contract it implements;
+that contribution remains unavailable until its bounded dependency closure is
+satisfied, while unrelated contributions from the same valid release remain
+available.
+
+The common contribution envelope is stable, while each Orishu-Kagami-owned
+extension point has its own typed, versioned payload. Unknown extension points
+and missing or incompatible dependencies produce structured contribution-level
+availability diagnostics. An unsupported contribution and its declared
+dependents remain dormant while understood independent contributions from the
+same valid release may activate. Plugins cannot create new host extension
+points or make arbitrary payloads authoritative merely by naming them.
+
+The initial extension-point set is scientific rather than visual. Contribution
+schemas may carry bounded presentation annotations such as labels, grouping,
+descriptions, preferred display units, icons, and hints selecting a host-owned
+generic editor or visualizer. Kagami owns every menu, window, widget, renderer,
+command binding, and presentation lifecycle. Plugin-contributed views, windows,
+renderers, widgets, and executable UI are outside this contract and require a
+separate architecture and security decision if later evidence justifies them.
+
+## Packaging and release identity
+
+The user-facing distribution is one isolated, manifest-driven plugin bundle.
+It may contain schemas, WebAssembly Components, documentation, examples, and
+assets, but no file registers anything merely by occupying a path. Releases
+never overlay a shared union filesystem, and uninstalling one cannot reveal or
+replace files from another.
+
+Plugin authors maintain an ergonomic source manifest with logical identities,
+contributions, dependencies, compatibility declarations, and paths to build
+outputs. They do not calculate digests, sizes, or the plugin release identity
+by hand. A headless packaging command:
+
+1. parses and bounds the source manifest;
+2. validates every known extension-point payload;
+3. inspects referenced schemas and WebAssembly Components;
+4. streams and records every artifact's digest, exact size, and media type;
+5. constructs and canonically encodes the complete typed release manifest;
+6. hashes those canonical bytes to derive the plugin release identity; and
+7. assembles the isolated bundle and optional signature material.
+
+The release identity is not a field inside the canonical bytes it hashes. Full
+contribution identities are derived afterwards from the release identity,
+extension point, and plugin-local identity. Installation independently repeats
+the manifest and artifact checks and recomputes the release identity before
+atomically admitting anything.
+
+Archive encoding, compression, entry order, and filename are distribution
+details. Repacking the same canonical manifest and artifact closure preserves
+the release identity. The exact archive container, publisher-signature policy,
+and remote update-source protocol remain open decisions.
+
+## Planned Kagami plugin commands
+
+Plugin commands use the normal `kagami` executable in headless mode; they do
+not launch the authoring window.
+
+| Command | Intended result |
+| --- | --- |
+| `kagami plugin validate <source-or-bundle>` | Perform bounded manifest, contribution, dependency, artifact, and component-contract checks without installing. |
+| `kagami plugin pack <source> [--output <bundle>]` | Build a self-contained bundle, derive its release identity, and report its contributions and artifacts. |
+| `kagami plugin inspect <bundle-or-installed-release>` | Show logical/release identity, origin, contributions, dependencies, artifact digests, compatibility, and diagnostics. |
+| `kagami plugin install <bundle>` | Validate and atomically add an immutable release without replacing existing releases or editing experiments. |
+| `kagami plugin list [--all-releases]` | List logical plugins, installed releases, default release, enablement, origins, and contribution availability. |
+| `kagami plugin update <plugin-id>` | Obtain and install a newer immutable release through a configured source, then make it the default for new authoring; source discovery remains to be specified. |
+| `kagami plugin set-default <plugin-id>@<release-id>` | Select an installed release for new authoring without migrating existing experiments. |
+| `kagami plugin enable <plugin-id>` | Persistently allow the logical plugin's contributions to participate in availability resolution. |
+| `kagami plugin disable <plugin-id>` | Persistently suppress all releases of the logical plugin without removing files or changing experiments. |
+| `kagami plugin remove <plugin-id>@<release-id>` | Remove one exact installed release after explicit checks and warnings; references in experiment files are never rewritten. |
+| `kagami --enable-plugin <plugin-id>` / `--disable-plugin <plugin-id>` | Apply a process-only override over persistent enablement for this Kagami invocation. |
+
+The command list is the planned user contract, not a claim that the current
+binary implements it. UI and future MCP plugin management must command the same
+inventory authority and report the same identities, states, and diagnostics.
+
 ## Development-to-execution flow
 
 ```text
@@ -89,6 +185,15 @@ installed.” It records the exact model/schema identities and includes
 digest-pinned component and input descriptors in the workload closure. Orishu
 validates those bytes, lifecycle compatibility, capabilities, resource bounds,
 and workload schema independently of Kagami before accepting them.
+
+Compilation starts from the provider-qualified contributions the experiment
+actually selects or references and follows only their bounded transitive
+scientific-contract and artifact dependencies. It does not copy a complete
+plugin bundle. If an object component comes from plugin A while the selected
+field-update model comes from plugin B, the workload includes those two
+contributions and what they require; an unselected kernel shipped by A is
+neither needed nor authorized to enter the workload. Documentation, examples,
+icons, and unrelated authoring contributions likewise stay in Kagami.
 
 Compilation creates configured component instances and a bounded deterministic
 step plan. Orishu hosts those instances, mediates their typed channels and may

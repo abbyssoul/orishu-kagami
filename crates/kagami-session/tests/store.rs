@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use kagami_document::{Experiment, Limits};
 use kagami_session::{
-    DocumentMetadata, DocumentTarget, ExperimentDocument, FileStore, LoadedFrom, load, save,
+    AuthoringView, DocumentMetadata, DocumentTarget, ExperimentDocument, FileStore, LoadedFrom,
+    load, save,
 };
 use support::schemas;
 
@@ -125,7 +126,12 @@ fn metadata(saved: &str) -> DocumentMetadata {
 /// A document distinguishable by its `saved` stamp.
 fn document(saved: &str) -> ExperimentDocument {
     let experiment = Experiment::new();
-    ExperimentDocument::of(&experiment, &experiment.snapshot(), metadata(saved))
+    ExperimentDocument::of(
+        &experiment,
+        &experiment.snapshot(),
+        &AuthoringView::default(),
+        metadata(saved),
+    )
 }
 
 /// The `saved` stamp of whatever is at `path`, if it decodes.
@@ -349,5 +355,120 @@ fn a_document_that_was_saved_round_trips_back_into_an_experiment() {
 fn nothing_readable_anywhere_is_a_typed_refusal() {
     let store = FaultyStore::default();
     let error = load(&store, &target()).expect_err("there is no document");
+    assert_eq!(error.code(), "unreadable_document");
     assert!(error.to_string().contains("orbit.kagami"), "{error}");
+}
+
+#[test]
+fn a_document_from_a_newer_build_says_so_rather_than_looking_absent() {
+    let store = FaultyStore::default();
+    store.put(
+        Path::new("/experiments/orbit.kagami"),
+        &newer_bytes("future"),
+    );
+
+    // "No readable document here" would send someone looking for corruption
+    // that is not there. The version is what they need to be told.
+    let error = load(&store, &target()).expect_err("this build reads no such version");
+    assert_eq!(error.code(), "unsupported_format_version");
+    assert!(error.to_string().contains("version 99"), "{error}");
+}
+
+/// A document declaring a format version this build does not read.
+fn newer_bytes(saved: &str) -> Vec<u8> {
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&serde_json::to_vec(&document(saved)).expect("encodes"))
+            .expect("valid JSON");
+    value["formatVersion"] = serde_json::json!(99);
+    serde_json::to_vec_pretty(&value).expect("encodes")
+}
+
+#[test]
+fn a_newer_primary_is_never_recovered_around() {
+    // Regression, and the worst outcome in this module: with a readable older
+    // backup present, treating an unsupported version as damage opened the
+    // backup, reported a successful recovery, and left the caller holding a
+    // session it would later save straight over the intact newer document.
+    let store = FaultyStore::default();
+    save(&store, &target(), &document("older")).expect("saved");
+    store.put(
+        Path::new("/experiments/orbit.kagami.bak"),
+        &serde_json::to_vec_pretty(&document("older")).expect("encodes"),
+    );
+    store.put(
+        Path::new("/experiments/orbit.kagami"),
+        &newer_bytes("newer"),
+    );
+
+    let error = load(&store, &target()).expect_err("the primary is intact and not ours");
+    assert_eq!(
+        error.code(),
+        "unsupported_format_version",
+        "recovery is for damage, not for a version this build declines"
+    );
+}
+
+#[test]
+fn saving_over_a_newer_document_preserves_it_as_the_backup() {
+    // The other half of the same hazard: even without a load, a save must not
+    // drop an intact document it cannot read. Nothing here can reproduce that
+    // file, so replacing it without keeping a copy destroys it outright.
+    let store = FaultyStore::default();
+    store.put(
+        Path::new("/experiments/orbit.kagami"),
+        &newer_bytes("newer"),
+    );
+
+    save(&store, &target(), &document("ours")).expect("saved");
+
+    assert_eq!(
+        stamp_at(&store, "/experiments/orbit.kagami").as_deref(),
+        Some("ours")
+    );
+    let preserved = store
+        .get(Path::new("/experiments/orbit.kagami.bak"))
+        .expect("the newer document survived");
+    let preserved: serde_json::Value =
+        serde_json::from_slice(&preserved).expect("still valid JSON");
+    assert_eq!(preserved["formatVersion"], serde_json::json!(99));
+    assert_eq!(preserved["metadata"]["saved"], serde_json::json!("newer"));
+}
+
+#[test]
+fn damaged_bytes_are_still_dropped_rather_than_preserved() {
+    // The distinction has to cut both ways: garbled bytes must not replace a
+    // backup that might still be good.
+    let store = FaultyStore::default();
+    save(&store, &target(), &document("good")).expect("saved");
+    store.put(
+        Path::new("/experiments/orbit.kagami.bak"),
+        &serde_json::to_vec_pretty(&document("good")).expect("encodes"),
+    );
+    store.put(Path::new("/experiments/orbit.kagami"), b"not a document");
+
+    save(&store, &target(), &document("new")).expect("saved");
+
+    assert_eq!(
+        stamp_at(&store, "/experiments/orbit.kagami.bak").as_deref(),
+        Some("good"),
+        "damage must not be promoted over a good backup"
+    );
+}
+
+#[test]
+fn a_readable_backup_still_wins_over_explaining_the_primary() {
+    let store = FaultyStore::default();
+    save(&store, &target(), &document("recoverable")).expect("saved");
+    store.put(
+        Path::new("/experiments/orbit.kagami.bak"),
+        &serde_json::to_vec_pretty(&document("recoverable")).expect("encodes"),
+    );
+    store.put(Path::new("/experiments/orbit.kagami"), b"not a document");
+
+    // Recovering is better than reporting: the refusal reason is only used
+    // when nothing at all could stand in.
+    let loaded = load(&store, &target()).expect("the backup answers");
+    assert_eq!(loaded.from, LoadedFrom::Backup);
+    assert!(loaded.from.is_recovery());
+    assert_eq!(loaded.document.metadata.saved, "recoverable");
 }

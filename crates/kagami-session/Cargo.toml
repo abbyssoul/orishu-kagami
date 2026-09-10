@@ -28,6 +28,9 @@ description = "Kagami's document server: the sole mechanism by which an experime
 # - serde_json:       the experiment file's encoding. JSON matches the
 #                     repository's persisted-data convention; the
 #                     hand-authored YAML format stays the catalog's alone.
+#                     Its `float_roundtrip` feature is enabled in the
+#                     workspace manifest and is load-bearing: without it a
+#                     saved coordinate does not come back bit-for-bit.
 # - serde:            the explicit, versioned shape an adapter converts
 #                     through (`wire`). Not a transport, and not the
 #                     experiment file: see that module for the boundary it is

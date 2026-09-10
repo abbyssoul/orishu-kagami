@@ -397,6 +397,42 @@ the resulting revision.
 - Concurrent or external file changes cannot be silently overwritten; Kagami
   reports stale revisions or source fingerprints and requires a fresh edit.
 
+### Validate and package a plugin
+
+As a plugin author, I want Kagami's headless tooling to validate and package my
+plugin source so that I do not have to calculate content identities or assemble
+an installable bundle by hand.
+
+**Given** a source manifest, declarative contribution schemas, and built
+WebAssembly Components
+**When** I run `kagami plugin validate` or `kagami plugin pack`
+**Then** Kagami validates the public extension and workload contracts and
+produces either structured diagnostics or a self-contained immutable release.
+
+**Acceptance criteria:**
+- The source manifest names logical identities, contributions, dependencies,
+  compatibility, and local inputs; the author does not manually supply the
+  release identity or descriptors for locally built artifacts.
+- Validation is bounded and does not install, enable, or execute the plugin.
+- Packing streams every declared artifact, records its digest, exact size and
+  media type, canonically encodes the complete typed manifest, and derives the
+  plugin release identity from it without a self-referential field.
+- Full contribution identities are derived from the release identity,
+  extension point, and plugin-local contribution identity.
+- Repacking the same canonical manifest and artifact closure preserves the
+  release identity even when archive compression or entry order differs.
+- `--expect-release` lets automated builds fail when produced logical content
+  differs from the expected release identity.
+- Invalid extension points, malformed schemas, forbidden component imports,
+  missing artifacts, excessive bounds, and digest conflicts produce structured
+  diagnostics and no partially written bundle.
+- Plugin commands run headlessly through the normal `kagami` executable and do
+  not open the authoring window.
+- Initial plugins contribute scientific schemas and optional bounded
+  presentation annotations only. Kagami renders them through host-owned generic
+  controls and visualizers; the bundle cannot add views, windows, renderers,
+  widgets, command handlers, or executable UI.
+
 ### Add a plugin to Kagami
 
 As a plugin author, I want to add a plugin I built with external tooling to
@@ -410,27 +446,34 @@ electrodynamics and gravity)
 makes its phenomenon available as a physics choice for experiments.
 
 **Acceptance criteria:**
-- Kagami ships with a pre-defined set of plugins; they are always available
-  for experiments.
-- A plugin is added as a manifest plus one or more content-addressed workload
-  components containing its numerical implementation. The manifest names the plugin and describes the phenomenon it
-  models, including the variables it exports. Kagami validates the manifest
-  and its components against the [workload contract](../../protocol-workload.md) —
+- Kagami ships with predefined plugin releases validated through the same
+  public contract as imported releases. They are installed and enabled by
+  default, not privileged or impossible to disable.
+- A plugin is added as one isolated, manifest-driven bundle containing one or
+  more extension-point contributions and content-addressed workload components.
+  Files do not register capabilities by occupying a shared path.
+- Kagami independently recomputes the release identity and validates the
+  manifest and components against the [workload contract](../../protocol-workload.md) —
   engine, lifecycle, component world, declared imports, and limits — before
-  the plugin becomes available.
-- An invalid or unsupported plugin is reported as unavailable with structured
-  diagnostics; it does not affect other plugins or Kagami itself, and no
-  scientific defaults are fabricated.
+  atomically installing the release.
+- A structurally invalid release is rejected with structured diagnostics and no
+  partial installation. An unsupported contribution is retained but dormant;
+  it and its declared dependents do not prevent understood independent
+  contributions from the same release becoming available.
 - Adding a plugin never mutates an open experiment and is not part of the
-  saved experiment document; experiments reference plugins by
-  content-addressed identity.
-- A plugin that passes validation appears in the experiment's physics choices
-  with its declared phenomenon and exported variables.
-- Updating a plugin produces a new artifact identity; experiments keep
-  referencing the plugin they were authored against unless explicitly changed.
+  saved experiment document; experiments reference exact provider-qualified
+  contribution and release identities.
+- Availability is calculated per contribution. Missing scientific-contract
+  dependencies may leave one contribution dormant while unrelated
+  contributions from the same valid release remain available.
+- A contribution appears in the appropriate authoring choices only when its
+  bounded transitive dependency closure is available.
+- Updating installs a new immutable release side-by-side and makes it the
+  default for new authoring; experiments keep referencing the exact release
+  they were authored against unless explicitly migrated.
 - Removing a plugin from Kagami never changes experiments that reference it;
-  they keep their authored plugin identity and report missing artifacts at
-  submission.
+  they keep their authored release and contribution identities and report the
+  unavailable capability.
 
 ### Share a plugin
 
@@ -443,14 +486,72 @@ they can model the same phenomenon without rebuilding it.
 
 **Acceptance criteria:**
 - A plugin is shareable as a self-contained artifact carrying its manifest and
-  kernel; the recipient does not need the author's build environment or
-  Kagami installation.
+  declared artifacts; the recipient does not need the author's build
+  environment or Kagami installation.
 - The recipient adds the shared plugin through the normal add flow with the
   same validation and diagnostics.
 - Sharing never changes experiments that already reference the plugin; they
   keep their content-addressed plugin identity.
 - The shared artifact preserves the plugin's identity: adding it elsewhere
   produces the same content-addressed plugin.
+
+### Inspect and manage installed plugin releases
+
+As a researcher or plugin author, I want to inspect and manage immutable plugin
+releases so that updates are understandable and do not silently change existing
+experiments.
+
+**Given** Kagami has bundled or imported plugin releases
+**When** I list, inspect, install, update, choose a default, or remove a release
+**Then** Kagami reports and changes the plugin inventory without editing any
+experiment.
+
+**Acceptance criteria:**
+- `kagami plugin list --all-releases` distinguishes logical plugin identity,
+  every installed release, the default for new authoring, origin, persistent
+  enablement, and contribution-level availability.
+- `kagami plugin inspect` reports exact contribution identities, scientific
+  contracts and dependencies, artifact descriptors, compatibility, and
+  structured diagnostics without executing component code.
+- Installing an already present identical release is idempotent. The same
+  logical plugin may retain several immutable releases side-by-side.
+- `kagami plugin update` installs another release; it never modifies or removes
+  existing release contents. The remote source and publisher-trust policy are
+  defined separately before network update is implemented.
+- `kagami plugin set-default` affects only future authoring selections. It does
+  not migrate open or saved experiments.
+- Removal names one exact release, warns about known open-document references,
+  and cannot claim to discover every experiment file on disk. Removing it does
+  not rewrite those files.
+- Inventory commands and the future UI and MCP adapters command the same
+  authority and observe the same inventory revision, states, and diagnostics.
+
+### Enable or disable a plugin
+
+As a researcher, I want to disable a logical plugin persistently or only for one
+Kagami invocation so that I can control the available extension vocabulary
+without uninstalling releases or changing experiments.
+
+**Given** one or more releases of a logical plugin are installed
+**When** I enable or disable that plugin, or start Kagami with a process-only
+override
+**Then** all of that plugin's contributions participate in or are suppressed
+from availability resolution for the selected scope.
+
+**Acceptance criteria:**
+- `kagami plugin enable` and `kagami plugin disable` change persistent
+  user-owned enablement, not an experiment or plugin release.
+- `kagami --enable-plugin` and `--disable-plugin` override persistent
+  enablement only for that process and do not modify configuration.
+- Disabling applies to the logical plugin and all its installed releases.
+  Enabling uses the default release for new authoring while exact older
+  releases remain usable by experiments already pinned to them.
+- A disabled contribution is reported as disabled, not missing, corrupt, or
+  scientifically incompatible.
+- Re-enabling recomputes contribution availability without reinstalling the
+  release or revising an experiment.
+- Bundled and imported plugins obey the same enablement path, and Kagami remains
+  usable with every simulation plugin disabled.
 
 ### Author an experiment with plugin-contributed models
 
@@ -471,6 +572,10 @@ submission or export includes its executable code in the workload closure.
   selected executable code is part of the workload closure at submission/export;
   the experiment remains reproducible without the plugin's source or the
   Kagami installation that added it.
+- Compilation follows the bounded transitive closure of selected contributions
+  across plugin releases. It includes every required scientific contract,
+  schema and executable artifact, but excludes unselected kernels and unrelated
+  contributions from those same bundles.
 - If a referenced plugin artifact is missing at submission, Kagami reports
   what is missing rather than substituting another plugin.
 
@@ -623,6 +728,63 @@ intent or run state.
   Kagami reports that condition and safely releases the follow target.
 - Camera movement and following are per-window presentation. They do not affect
   another observer and are not controllable through the shared MCP surface.
+
+### Choose the scene scale
+
+Implementation: [K14 — Choose the scene scale](../../tasks/kagami/choose-scene-scale.md)
+(K-VIEW, Milestone 2; specified, not implemented).
+
+As a scientist-researcher, I want to say how many metres one viewport unit
+represents so that I can work on an atomic-scale or an astronomical-scale
+experiment through the same camera.
+
+**Given** an experiment or run is visible
+**When** I choose a scale preset in the view control, or enter a distance per
+unit directly
+**Then** the viewport reaches and frames the scene at that scale, without
+changing any stored position, size, or physical constant.
+
+**Acceptance criteria:**
+- The view control offers named presets spanning at least nanometre to
+  light-year, reports the active one, and accepts a directly entered
+  distance-per-unit — including a unit-bearing entry such as `1 nm`. A value
+  matching no preset is shown as a custom scale rather than silently rounded to
+  the nearest one.
+- The scale must be a positive, finite length within the supported range,
+  which includes all presets. Invalid, out-of-range and wrong-dimension
+  entries are refused with a reason and leave the current view unchanged.
+- Camera reach follows the scale. At nanometre scale the camera approaches a
+  nanometre-sized object instead of stopping short of it; at astronomical scale
+  it pulls back far enough to frame an orbit. Zoom, pan and focus limits are
+  expressed relative to the scale rather than as fixed distances in metres.
+- Changing scale preserves the focus point, orientation and projection. Camera
+  distance is preserved when valid at the new scale; any adjustment to a new
+  distance limit is reported. If the focus cannot be represented safely at that
+  scale, the change is refused with guidance to retarget the view first.
+- Changing the scale never changes an authored position, extent, velocity,
+  expression or constant, never advances the experiment revision, and never
+  enters document undo. It is not a numerical-domain setting.
+- Where the scale seeds a *default* for new authoring — the extent an added
+  object starts with — that default becomes ordinary authored intent at the
+  moment the object is created, and later scale changes do not revisit it.
+- In Authoring mode the scale is part of the saved opening view: it updates the
+  default-view revision, marks the file modified, and is restored on reopen. In
+  Observation/replay mode scale changes are ephemeral, exactly as camera and
+  projection changes are.
+- The scale is visible, not merely in effect: the viewport states the active
+  scale, and distances the viewport reports are in real units regardless of it.
+- Scale is per-window presentation. It does not affect another observer, does
+  not travel with a run reference, and is not controllable through the shared
+  MCP surface.
+- Objects, fields and trails at radically different magnitudes in one
+  experiment remain individually inspectable by changing scale; no single scale
+  is required to make the whole scene legible at once.
+
+**Delivery boundary:** K14 supplies the scale and camera/conversion contract;
+object, field and trail rendering consume it as their own tasks land. Uniform
+scaling alone cannot preserve arbitrarily small detail far from the world
+origin. That part of the broader inspection outcome needs follow-up
+camera-relative precision work in K-VIEW and is not claimed by K14.
 
 ### Visualize a vector field
 
@@ -952,7 +1114,7 @@ that produced them.
 These stories remain deliberately deferred:
 
 - Detailed slice-plane/volume authoring, selection and manipulation gizmos,
-  and viewport navigation beyond projection and object following.
+  and viewport navigation beyond projection, scene scale and object following.
 - Comparing observations across runs and exporting selected results.
 - Live multi-writer experiment authoring, shared presence, presenter-follow
   mode, and synchronized playback.

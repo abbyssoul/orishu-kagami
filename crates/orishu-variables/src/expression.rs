@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::limits::{Budget, LimitError, LimitKind, Limits, admit_one, ensure};
 use crate::quantity::{Dimension, Quantity, QuantityError};
 
 /// A half-open byte range into the source text an error or token came from.
@@ -23,6 +24,12 @@ pub enum ExprParsingErrorKind {
     /// The source ended while a construct (e.g. a parenthesized group) was
     /// still open.
     UnexpectedEnd,
+    /// A declared bound refused the source before it was fully read.
+    ///
+    /// Carried by a parsing error rather than surfaced on its own so that the
+    /// refusal keeps a [`SourceSpan`]: the bytes past the byte budget, or the
+    /// token whose node or nesting level would have been one too many.
+    LimitExceeded(LimitError),
 }
 
 /// A parse failure, with the byte span in the source it occurred at.
@@ -32,6 +39,31 @@ pub struct ExprParsingError {
     pub kind: ExprParsingErrorKind,
     pub message: String,
     pub span: SourceSpan,
+}
+
+impl ExprParsingError {
+    /// Report a bound that refused the source, at the span it refused.
+    ///
+    /// Cold and outlined: it allocates a message, and it sits behind checks
+    /// run once per node that are otherwise a compare and a branch.
+    #[cold]
+    #[inline(never)]
+    fn limit(error: LimitError, span: SourceSpan) -> Self {
+        Self {
+            kind: ExprParsingErrorKind::LimitExceeded(error),
+            message: error.to_string(),
+            span,
+        }
+    }
+
+    /// The bound this failure exceeded, if it was a resource refusal rather
+    /// than a syntax error.
+    pub fn limit_error(&self) -> Option<LimitError> {
+        match self.kind {
+            ExprParsingErrorKind::LimitExceeded(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -259,21 +291,78 @@ impl Expr {
     }
 }
 
+/// A parsed sub-expression and the depth of the tree it produced, where a leaf
+/// is 1. Carried out of every parse function so that a left-associative chain,
+/// which the Pratt loop folds without recursing, is still measured.
+type Parsed = (Expr, usize);
+
 struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
     source: &'a str,
+    limits: &'a Limits,
+    /// Nodes admitted so far, checked before each further node is built.
+    nodes: usize,
+    /// Live [`Self::parse_expr`] frames, checked on entry so that nesting is
+    /// refused before it can exhaust the Rust call stack.
+    recursion: usize,
 }
 
 impl<'a> Parser<'a> {
-    fn new(source: &'a str) -> Result<Self, ExprParsingError> {
+    fn new(source: &'a str, limits: &'a Limits) -> Result<Self, ExprParsingError> {
         let mut lexer = Lexer::new(source);
         let current = Self::pull(&mut lexer, source.len())?;
         Ok(Self {
             lexer,
             current,
             source,
+            limits,
+            nodes: 0,
+            recursion: 0,
         })
+    }
+
+    /// Account for one more node and compute its depth from its deepest child
+    /// (0 for a leaf), refusing *before* the node is built.
+    ///
+    /// Run once per node, so it is inlined; both counters are plain integers
+    /// and the refusal behind them is outlined.
+    #[inline]
+    fn admit_node(
+        &mut self,
+        child_depth: usize,
+        span: SourceSpan,
+    ) -> Result<usize, ExprParsingError> {
+        self.nodes = admit_one(
+            LimitKind::ExpressionNodes,
+            self.nodes,
+            self.limits.max_expression_nodes,
+        )
+        .map_err(|error| ExprParsingError::limit(error, span))?;
+        admit_one(
+            LimitKind::ParseDepth,
+            child_depth,
+            self.limits.max_parse_depth,
+        )
+        .map_err(|error| ExprParsingError::limit(error, span))
+    }
+
+    /// Enter one level of parser recursion.
+    #[inline]
+    fn enter(&mut self) -> Result<(), ExprParsingError> {
+        self.recursion = admit_one(
+            LimitKind::ParseDepth,
+            self.recursion,
+            self.limits.max_parse_depth,
+        )
+        .map_err(|error| ExprParsingError::limit(error, self.peek().span))?;
+        Ok(())
+    }
+
+    /// Leave the level [`Self::enter`] took.
+    #[inline]
+    fn leave(&mut self) {
+        self.recursion -= 1;
     }
 
     fn pull(lexer: &mut Lexer<'a>, source_len: usize) -> Result<Token, ExprParsingError> {
@@ -303,8 +392,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ExprParsingError> {
-        let mut lhs = self.parse_prefix()?;
+    /// Parse an expression, counting the recursion this level costs.
+    ///
+    /// Every path back into the parser goes through here — a parenthesized
+    /// group, a unary chain, a right-associative exponent, a unit
+    /// juxtaposition — so bounding entries here bounds the whole descent.
+    fn parse_expr(&mut self, min_bp: u8) -> Result<Parsed, ExprParsingError> {
+        self.enter()?;
+        let result = self.parse_expr_inner(min_bp);
+        self.leave();
+        result
+    }
+
+    fn parse_expr_inner(&mut self, min_bp: u8) -> Result<Parsed, ExprParsingError> {
+        let (mut lhs, mut lhs_depth) = self.parse_prefix()?;
 
         loop {
             let (op, bp, right_assoc) = match &self.peek().kind {
@@ -318,17 +419,22 @@ impl<'a> Parser<'a> {
             if bp < min_bp {
                 break;
             }
+            let op_span = self.peek().span;
             self.advance()?;
             let next_min_bp = if right_assoc { bp } else { bp + 1 };
-            let rhs = self.parse_expr(next_min_bp)?;
+            let (rhs, rhs_depth) = self.parse_expr(next_min_bp)?;
+            // This fold is where a left-associative chain gets deep without
+            // the parser recursing, so the node it builds is measured here.
+            let depth = self.admit_node(lhs_depth.max(rhs_depth), op_span)?;
             lhs = Expr::Binary {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
             };
+            lhs_depth = depth;
         }
 
-        Ok(lhs)
+        Ok((lhs, lhs_depth))
     }
 
     /// Turn `1e32 kg` and `2.7 g` into an ordinary multiplication.
@@ -346,35 +452,55 @@ impl<'a> Parser<'a> {
     /// The right operand is parsed at the exponent's binding power, so
     /// `2.7 g / cm^3` groups as `(2.7 * g) / (cm^3)` and `2 m^2` as
     /// `2 * (m^2)` rather than `(2 * m)^2`.
-    fn parse_unit_annotation(&mut self, magnitude: f64) -> Result<Expr, ExprParsingError> {
+    fn parse_unit_annotation(
+        &mut self,
+        magnitude: f64,
+        magnitude_depth: usize,
+    ) -> Result<Parsed, ExprParsingError> {
         if !matches!(self.peek().kind, TokenKind::Symbol(_)) {
-            return Ok(Expr::Literal(magnitude));
+            return Ok((Expr::Literal(magnitude), magnitude_depth));
         }
-        let unit = self.parse_expr(4)?;
-        Ok(Expr::Binary {
-            op: BinaryOp::Mul,
-            lhs: Box::new(Expr::Literal(magnitude)),
-            rhs: Box::new(unit),
-        })
+        let unit_span = self.peek().span;
+        let (unit, unit_depth) = self.parse_expr(4)?;
+        let depth = self.admit_node(magnitude_depth.max(unit_depth), unit_span)?;
+        Ok((
+            Expr::Binary {
+                op: BinaryOp::Mul,
+                lhs: Box::new(Expr::Literal(magnitude)),
+                rhs: Box::new(unit),
+            },
+            depth,
+        ))
     }
 
-    fn parse_prefix(&mut self) -> Result<Expr, ExprParsingError> {
+    fn parse_prefix(&mut self) -> Result<Parsed, ExprParsingError> {
         if matches!(self.peek().kind, TokenKind::Minus) {
+            let minus_span = self.peek().span;
             self.advance()?;
-            let expr = self.parse_expr(3)?;
-            return Ok(Expr::Unary {
-                op: UnaryOp::Neg,
-                expr: Box::new(expr),
-            });
+            let (expr, expr_depth) = self.parse_expr(3)?;
+            let depth = self.admit_node(expr_depth, minus_span)?;
+            return Ok((
+                Expr::Unary {
+                    op: UnaryOp::Neg,
+                    expr: Box::new(expr),
+                },
+                depth,
+            ));
         }
         self.parse_primary()
     }
 
-    fn parse_primary(&mut self) -> Result<Expr, ExprParsingError> {
+    fn parse_primary(&mut self) -> Result<Parsed, ExprParsingError> {
         let token = self.advance()?;
         match token.kind {
-            TokenKind::Number(value) => self.parse_unit_annotation(value),
-            TokenKind::Symbol(name) => Ok(Expr::Symbol(name)),
+            TokenKind::Number(value) => {
+                let depth = self.admit_node(0, token.span)?;
+                self.parse_unit_annotation(value, depth)
+            }
+            TokenKind::Symbol(name) => {
+                let depth = self.admit_node(0, token.span)?;
+                Ok((Expr::Symbol(name), depth))
+            }
             TokenKind::LParen => {
                 let inner = self.parse_expr(0)?;
                 match self.peek().kind {
@@ -399,21 +525,54 @@ impl<'a> Parser<'a> {
 }
 
 /// A parsed expression, retaining its authored source text.
+///
+/// Cannot exist without having passed a [`Limits`] check: the node count and
+/// depth it records are what a [`crate::VariablesSystem`] re-checks against
+/// *its* bounds before adopting an expression parsed elsewhere.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompiledExpression {
     source: String,
     pub(crate) ast: Expr,
+    nodes: usize,
+    depth: usize,
 }
 
 impl CompiledExpression {
-    /// Parse a math expression from its authored source text.
+    /// Parse a math expression from its authored source text, under
+    /// [`Limits::DEFAULT`].
+    ///
+    /// The convenient form. Use [`Self::parse_bounded`] where the caller needs
+    /// bounds of its own — a stricter externally-facing entry point, or a
+    /// deliberately wider batch import.
     pub fn parse(source: &str) -> Result<Self, ExprParsingError> {
-        let mut parser = Parser::new(source)?;
-        let ast = parser.parse_expr(0)?;
+        Self::parse_bounded(source, &Limits::DEFAULT)
+    }
+
+    /// Parse a math expression under explicit bounds.
+    ///
+    /// The source length is checked before the text is lexed or retained, so
+    /// an oversized expression is refused without being copied; the node count
+    /// and depth are charged as the tree is built, so an expression is refused
+    /// before its nodes are allocated rather than after.
+    pub fn parse_bounded(source: &str, limits: &Limits) -> Result<Self, ExprParsingError> {
+        if let Err(error) = ensure(
+            LimitKind::ExpressionBytes,
+            source.len(),
+            limits.max_expression_bytes,
+        ) {
+            return Err(ExprParsingError::limit(
+                error,
+                SourceSpan::new(limits.max_expression_bytes, source.len()),
+            ));
+        }
+        let mut parser = Parser::new(source, limits)?;
+        let (ast, depth) = parser.parse_expr(0)?;
         match parser.peek().kind {
             TokenKind::Eof => Ok(CompiledExpression {
                 source: source.to_owned(),
                 ast,
+                nodes: parser.nodes,
+                depth,
             }),
             _ => Err(ExprParsingError {
                 kind: ExprParsingErrorKind::Syntax,
@@ -426,6 +585,25 @@ impl CompiledExpression {
     /// The authored source text this expression was parsed from.
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// How many syntax-tree nodes this expression holds.
+    ///
+    /// The cost a consumer prices against
+    /// [`Limits::max_expression_nodes`] — retained from the parse, so
+    /// re-checking an expression never re-walks it.
+    #[inline]
+    pub fn nodes(&self) -> usize {
+        self.nodes
+    }
+
+    /// How deep this expression's syntax tree is, a leaf being 1.
+    ///
+    /// The cost a consumer prices against [`Limits::max_parse_depth`], and the
+    /// bound on any recursive walk of the tree.
+    #[inline]
+    pub fn depth(&self) -> usize {
+        self.depth
     }
 
     /// `true` when the expression references no symbols and can be computed
@@ -486,6 +664,13 @@ pub enum ExprEvalError {
     /// Combining dimensions left the representable exponent range.
     #[error("dimension exponent is out of range")]
     DimensionOverflow,
+    /// A declared bound refused the evaluation.
+    ///
+    /// The dependency chain was deeper, or the whole evaluation more work,
+    /// than the caller's [`Limits`] allow. Neither belongs to a span in the
+    /// source, because neither is a property of one expression.
+    #[error(transparent)]
+    Limit(#[from] LimitError),
 }
 
 impl From<QuantityError> for ExprEvalError {
@@ -501,22 +686,30 @@ impl From<QuantityError> for ExprEvalError {
     }
 }
 
+/// Evaluate `ast`, charging one unit of `budget` per node before walking it.
+///
+/// Charging *before* recursing is what makes the budget a bound on the work
+/// this call performs rather than a report on work it already did. Recursion
+/// is bounded by the tree's depth, which [`Limits::max_parse_depth`] fixed when
+/// the expression was parsed.
 pub(crate) fn eval_ast(
     ast: &Expr,
     resolve: &mut dyn FnMut(&str) -> Result<Quantity, ExprEvalError>,
+    budget: &Budget,
 ) -> Result<Quantity, ExprEvalError> {
+    budget.spend(1)?;
     match ast {
         Expr::Literal(value) => Ok(Quantity::dimensionless(*value)?),
         Expr::Symbol(name) => resolve(name),
         Expr::Unary { op, expr } => {
-            let value = eval_ast(expr, resolve)?;
+            let value = eval_ast(expr, resolve, budget)?;
             Ok(match op {
                 UnaryOp::Neg => Quantity::new(-value.magnitude(), value.dimension())?,
             })
         }
         Expr::Binary { op, lhs, rhs } => {
-            let lhs = eval_ast(lhs, resolve)?;
-            let rhs = eval_ast(rhs, resolve)?;
+            let lhs = eval_ast(lhs, resolve, budget)?;
+            let rhs = eval_ast(rhs, resolve, budget)?;
             match op {
                 BinaryOp::Add | BinaryOp::Sub => {
                     if lhs.dimension() != rhs.dimension() {
@@ -586,7 +779,13 @@ mod tests {
 
     /// Evaluate an expression that references no symbols.
     fn eval_const(expr: &CompiledExpression) -> Quantity {
-        eval_ast(&expr.ast, &mut |_| unreachable!("no symbols")).expect("evaluates")
+        let budget = Budget::new(Limits::DEFAULT.max_evaluation_work);
+        eval_ast(&expr.ast, &mut |_| unreachable!("no symbols"), &budget).expect("evaluates")
+    }
+
+    /// The bound a parse refused, or `None` if it failed for another reason.
+    fn refused(result: Result<CompiledExpression, ExprParsingError>) -> Option<LimitError> {
+        result.err().and_then(|error| error.limit_error())
     }
 
     #[test]
@@ -646,6 +845,124 @@ mod tests {
             !CompiledExpression::parse("global.value1 + 2/(local.value_j - 1/2.81)^2")
                 .unwrap()
                 .is_const()
+        );
+    }
+
+    #[test]
+    fn a_leaf_is_one_node_one_deep() {
+        let expr = CompiledExpression::parse("1").unwrap();
+        assert_eq!((expr.nodes(), expr.depth()), (1, 1));
+    }
+
+    #[test]
+    fn node_and_depth_counts_describe_the_tree_that_was_built() {
+        // `1+2+3` folds left, so it is three literals and two products of
+        // them, two levels deep; `1+(2+3)` is the same size but the same
+        // depth, mirrored.
+        let flat = CompiledExpression::parse("1+2+3").unwrap();
+        assert_eq!((flat.nodes(), flat.depth()), (5, 3));
+
+        // A unit juxtaposition is an ordinary product, so it costs the
+        // literal, the symbol, and the multiply.
+        let quantity = CompiledExpression::parse("1e32 kg").unwrap();
+        assert_eq!((quantity.nodes(), quantity.depth()), (3, 2));
+
+        // Redundant parentheses build nothing.
+        let parens = CompiledExpression::parse("((((1))))").unwrap();
+        assert_eq!((parens.nodes(), parens.depth()), (1, 1));
+    }
+
+    #[test]
+    fn source_over_the_byte_bound_is_refused_at_the_first_byte_over() {
+        let limits = Limits {
+            max_expression_bytes: 4,
+            ..Limits::DEFAULT
+        };
+        assert!(CompiledExpression::parse_bounded("1+1+1", &limits).is_err());
+        let error = CompiledExpression::parse_bounded("1+1+1", &limits).unwrap_err();
+        assert_eq!(
+            error.limit_error(),
+            Some(LimitError {
+                limit: LimitKind::ExpressionBytes,
+                found: 5,
+                allowed: 4,
+            })
+        );
+        assert_eq!(error.span, SourceSpan::new(4, 5));
+        // Exactly at the bound still parses.
+        assert!(CompiledExpression::parse_bounded("1+11", &limits).is_ok());
+    }
+
+    #[test]
+    fn nesting_is_refused_before_it_can_exhaust_the_call_stack() {
+        // Redundant parentheses build a tree of depth 1, so only the parser's
+        // own recursion counter can stop this: without it the source below is
+        // a stack overflow rather than an error.
+        let limits = Limits {
+            max_parse_depth: 8,
+            ..Limits::DEFAULT
+        };
+        let nested = |count: usize| format!("{}1{}", "(".repeat(count), ")".repeat(count));
+        assert!(CompiledExpression::parse_bounded(&nested(7), &limits).is_ok());
+        assert_eq!(
+            refused(CompiledExpression::parse_bounded(&nested(8), &limits)).map(|e| e.limit),
+            Some(LimitKind::ParseDepth)
+        );
+        // The default bounds refuse a pathological source rather than crash.
+        // 2 000 levels fits the default byte budget, so depth is what stops
+        // it — which is the point: bytes alone would not have.
+        assert_eq!(
+            refused(CompiledExpression::parse(&nested(2_000))).map(|e| e.limit),
+            Some(LimitKind::ParseDepth)
+        );
+    }
+
+    #[test]
+    fn a_left_deep_chain_is_measured_even_though_the_parser_does_not_recurse() {
+        // `1+1+…` folds in the Pratt loop, so parser recursion stays at 2. The
+        // tree it builds is as deep as the chain is long, and every later walk
+        // of that tree recurses once per level.
+        let limits = Limits {
+            max_parse_depth: 4,
+            ..Limits::DEFAULT
+        };
+        let chain = |terms: usize| vec!["1"; terms].join("+");
+        assert!(CompiledExpression::parse_bounded(&chain(4), &limits).is_ok());
+        assert_eq!(
+            refused(CompiledExpression::parse_bounded(&chain(5), &limits)).map(|e| e.limit),
+            Some(LimitKind::ParseDepth)
+        );
+    }
+
+    #[test]
+    fn a_unary_chain_and_an_exponent_chain_are_both_bounded() {
+        let limits = Limits {
+            max_parse_depth: 6,
+            ..Limits::DEFAULT
+        };
+        assert!(CompiledExpression::parse_bounded("-----1", &limits).is_ok());
+        assert_eq!(
+            refused(CompiledExpression::parse_bounded("------1", &limits)).map(|e| e.limit),
+            Some(LimitKind::ParseDepth)
+        );
+        assert!(CompiledExpression::parse_bounded("2^2^2^2^2^2", &limits).is_ok());
+        assert_eq!(
+            refused(CompiledExpression::parse_bounded("2^2^2^2^2^2^2", &limits)).map(|e| e.limit),
+            Some(LimitKind::ParseDepth)
+        );
+    }
+
+    #[test]
+    fn node_count_is_charged_before_the_node_is_built() {
+        // A balanced tree, so the depth bound cannot be what fires.
+        let limits = Limits {
+            max_expression_nodes: 7,
+            ..Limits::DEFAULT
+        };
+        assert!(CompiledExpression::parse_bounded("(1+1)+(1+1)", &limits).is_ok());
+        assert_eq!(
+            refused(CompiledExpression::parse_bounded("(1+1)+(1+1)+1", &limits)).map(|e| e.limit),
+            Some(LimitKind::ExpressionNodes)
         );
     }
 

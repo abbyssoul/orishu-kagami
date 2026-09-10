@@ -16,9 +16,9 @@ and viewport/app adoption.
 
 | Task | Status |
 | --- | --- |
-| [Kagami capability programme](kagami/README.md) (K1–K13) | K1, K3, the landed-boundary follow-up, and K4 experiment persistence implemented; K2, K5, and K6 have implemented slices with named gates; K7 partial; K8–K13 specified |
+| [Kagami capability programme](kagami/README.md) (K1–K14) | K1, K3, the landed-boundary follow-up, and K4 implemented; K2, K5, K6 and K11 have implemented slices with named gates; K7 partial; K8–K10 and K12–K13 specified; [K14 scene scale](kagami/choose-scene-scale.md) ready in M2 |
 | [Extract the shared Kubernetes-style resource envelope](extract-shared-resource-envelope.md) | Implemented and accepted; discriminator bounds precede allocation, both no-status policies are documented and tested, and consumer wire compatibility is pinned |
-| [Migrate and integrate the shared variables subsystem](migrate-and-integrate-variables-subsystem.md) | Partial: generic and dimensioned evaluation plus experiment integration landed; shared-engine bounds and workload integration remain |
+| [Migrate and integrate the shared variables subsystem](migrate-and-integrate-variables-subsystem.md) | Partial: generic and dimensioned evaluation, the declared shared-engine resource bounds, and experiment integration landed; workload integration remains |
 | [Implement the Kagami MCP server](kagami-mcp-server.md) | Ready; later slices gated |
 | [Implement the Kagami object catalog](implement-kagami-object-catalog.md) | Core implemented and accepted; integration gated |
 | [Fix Kagami catalog authority collision and path-containment boundaries](fix-kagami-catalog-authority-boundaries.md) | Implemented and accepted |
@@ -30,9 +30,9 @@ and viewport/app adoption.
 | [Implement time-addressable run playback](implement-time-addressable-run-playback.md) | Ready |
 | [Implement the sans-IO cluster membership core](implement-membership-model.md) | Implemented and accepted |
 | [Fix membership liveness propagation through full-record merge](fix-membership-liveness-gossip-merge.md) | Implemented and accepted |
-| [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | N-FORMATION accepted for source-built Linux; combined M4 telemetry/operator handoff remains open |
-| [Implement worker operational observability](implement-worker-observability.md) | Finite formation-metric inventory covered, including registry/catch-up outcomes; local OTLP receipt and live trace counters verified at scoped boundaries. Cross-peer/log correlation, reviewed overhead and full operator/deployment M4 acceptance remain open |
-| [Document and verify operator observability workflows](document-worker-observability.md) | Local/mTLS-proxy scrape, pinned HTTP/mTLS Collector recipes, formation runbook, alerts, dashboard, user service and rootless evaluation containers have scoped evidence; remaining deployment/security/correlation/notification handoff pending |
+| [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | N-FORMATION accepted for historical source-built Linux scope; selected systemd/rootless log collection verified. [Revised-policy setup checks](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09) pass at 3/10/30 workers with telemetry omitted and metrics enabled. Final-log contention fixed; [correctness revalidation](cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09) records current evidence. Noise, full-sampling cost/loss, per-size budget feasibility, full overhead curve and final M4 acceptance remain open |
+| [Implement worker operational observability](implement-worker-observability.md) | Formation-stage capabilities, correlation and selected operator recipes verified at the current source-built checkpoint; reviewed overhead and final M4 acceptance remain open; later workload instruments remain planned |
+| [Document and verify operator observability workflows](document-worker-observability.md) | [Current-build formation recipes](cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09) verified, including both selected deployments, ingestion, security, correlation and dashboard/incident controls; M4 performance acceptance and later release/workload handoff remain open |
 | [Implement the `orishu-monitor` TUI shell](implement-orishu-monitor-admin-tui.md) | Implemented; first slice toward full operator parity, with live APIs/actions deferred and raw admission-secret output CLI-only |
 | [Integrate `orishu-monitor` with the operator API](integrate-orishu-monitor-operator-api.md) | Backlog; promote bounded increments as N-FORMATION and O-CLIENT contracts land |
 

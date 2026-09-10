@@ -503,14 +503,14 @@ fn rename_variable(
         if *id == variable {
             definition.name = name.clone();
         } else {
-            definition.expression = rewrite_symbols(&definition.expression, &renames);
+            definition.expression = rewritten(&definition.expression, &renames, &new)?;
         }
     }
     for object in Arc::make_mut(&mut state.objects).values_mut() {
         for component in object.components.values_mut() {
             for value in component.properties.values_mut() {
                 if let PropertyValue::Quantity { source, .. } = value {
-                    *source = rewrite_symbols(source, &renames);
+                    *source = rewritten(source, &renames, &new)?;
                 }
             }
         }
@@ -814,6 +814,25 @@ fn name_is_taken(
     })
 }
 
+/// Rewrite `source` through `renames`, refusing a rewrite the shared engine's
+/// expression bound will not hold.
+///
+/// A rename can only ever *grow* a source, so this is the same failure
+/// `check_expression_length` reports for an authored expression, arriving one
+/// step later: the batch is refused and the candidate discarded, so no
+/// half-rewritten experiment is ever adopted.
+fn rewritten(
+    source: &str,
+    renames: &BTreeMap<String, String>,
+    name: &str,
+) -> Result<String, Rejection> {
+    rewrite_symbols(source, renames).map_err(|error| Rejection::VariableExpressionTooLong {
+        name: name.to_owned(),
+        found: error.found as usize,
+        limit: error.allowed as usize,
+    })
+}
+
 fn check_expression_length(name: &str, expression: &str, limits: &Limits) -> Result<(), Rejection> {
     if expression.len() > limits.max_expression_bytes {
         return Err(Rejection::VariableExpressionTooLong {
@@ -852,6 +871,14 @@ fn variable_error(name: &str, error: VariablesError) -> Rejection {
         VariablesError::Eval(source) => Rejection::VariableUnresolved {
             name: name.to_owned(),
             source,
+        },
+        // The shared engine's bounds sit outside this model's: the graph was
+        // deeper, wider, or more expensive than the evaluator will walk. The
+        // structured bound travels with the rejection rather than being
+        // flattened into a message.
+        VariablesError::Limit(error) => Rejection::VariableUnresolved {
+            name: name.to_owned(),
+            source: ExprEvalError::Limit(error),
         },
         VariablesError::ShadowsUnit { name: unit } => Rejection::VariableShadowsUnit {
             name: unit.to_string(),

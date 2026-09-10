@@ -22,7 +22,10 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use orishu_variables::{FQName, Namespace, VariableId, VariablesError, VariablesSystem};
+use orishu_variables::{
+    CompiledExpression, FQName, Limits as EvaluatorLimits, Namespace, VariableId, VariablesError,
+    VariablesSystem,
+};
 
 use crate::name::{ComponentName, HelperName, ParameterName, PropertyName};
 use crate::source::TemplateIdentity;
@@ -145,9 +148,30 @@ pub enum ProjectionError {
     TooManyBindings { found: usize, limit: usize },
 }
 
+/// A binding the shared evaluator would not accept, named so its template can
+/// be isolated rather than the whole catalog set failing.
+///
+/// The reference a binding publishes is *generated* from its identity —
+/// `catalog.template.component.property` — so it can be longer than any
+/// expression anyone authored, and it is an expression in its own right: the
+/// concise alias resolves by naming it. A template with a very long name can
+/// therefore be structurally valid, parse cleanly, and still be beyond what
+/// the evaluator will read. That is a diagnostic about one template, not a
+/// reason to refuse every other catalog on disk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RejectedBinding {
+    /// The template the binding belongs to.
+    pub template: TemplateIdentity,
+    /// What was over its bound, phrased for [`crate::InvalidReason`].
+    pub what: &'static str,
+    /// The size found.
+    pub found: usize,
+    /// The size permitted.
+    pub limit: usize,
+}
+
 /// Every binding the currently loaded catalogs publish, plus the one
 /// variables system they are evaluated in.
-#[derive(Default)]
 pub struct CatalogProjection {
     bindings: Vec<Binding>,
     canonical: BTreeMap<String, BindingRef>,
@@ -165,28 +189,67 @@ impl fmt::Debug for CatalogProjection {
     }
 }
 
+impl Default for CatalogProjection {
+    fn default() -> Self {
+        Self {
+            bindings: Vec::new(),
+            canonical: BTreeMap::new(),
+            concise: BTreeMap::new(),
+            variables: VariablesSystem::with_limits(Self::evaluator_limits()),
+            variable_ids: Vec::new(),
+        }
+    }
+}
+
 impl CatalogProjection {
+    /// The shared-evaluator bounds a projection is built under.
+    ///
+    /// Named here rather than left implicit in a `VariablesSystem::default()`
+    /// so the loader can price a template against the same numbers the
+    /// projection will hold it to. Two places deciding this separately is how
+    /// a catalog becomes loadable by one and impossible for the other.
+    pub fn evaluator_limits() -> EvaluatorLimits {
+        EvaluatorLimits::DEFAULT
+    }
+
+    /// The most bindings a projection can hold, whatever a caller's
+    /// [`crate::Limits::max_bindings`] says.
+    ///
+    /// A binding costs two variables — its canonical name and its concise
+    /// alias — so the evaluator's variable bound, not the catalog's, is the
+    /// real ceiling.
+    pub fn max_projectable_bindings() -> usize {
+        Self::evaluator_limits().max_variables / 2
+    }
+
     /// Project every expression-capable definition of `templates` into one
     /// variable environment.
     ///
     /// `templates` must already be structurally valid and free of duplicate
     /// identities; the loader guarantees both before calling this.
+    ///
+    /// Returns the projection together with any bindings the evaluator would
+    /// not accept. Those are *skipped*, not projected under a different name:
+    /// a reference to one then resolves as unknown, which is the truth, and
+    /// its template is reported so the caller can isolate it.
     pub fn build<'a>(
         templates: impl IntoIterator<Item = &'a Template>,
         max_bindings: usize,
-    ) -> Result<Self, ProjectionError> {
+    ) -> Result<(Self, Vec<RejectedBinding>), ProjectionError> {
         let mut projection = Self::default();
+        let mut rejected = Vec::new();
         for template in templates {
-            projection.add_template(template, max_bindings)?;
+            projection.add_template(template, max_bindings, &mut rejected)?;
         }
-        projection.define_concise_aliases();
-        Ok(projection)
+        projection.define_concise_aliases(&mut rejected);
+        Ok((projection, rejected))
     }
 
     fn add_template(
         &mut self,
         template: &Template,
         max_bindings: usize,
+        rejected: &mut Vec<RejectedBinding>,
     ) -> Result<(), ProjectionError> {
         let identity = &template.identity;
         for (name, parameter) in &template.spec.parameters {
@@ -197,6 +260,7 @@ impl CatalogProjection {
                 },
                 &parameter.default,
                 max_bindings,
+                rejected,
             )?;
         }
         for (name, helper) in &template.spec.helpers {
@@ -207,6 +271,7 @@ impl CatalogProjection {
                 },
                 &helper.value,
                 max_bindings,
+                rejected,
             )?;
         }
         for component in &template.spec.components {
@@ -224,6 +289,7 @@ impl CatalogProjection {
                     },
                     quantity,
                     max_bindings,
+                    rejected,
                 )?;
             }
         }
@@ -235,6 +301,7 @@ impl CatalogProjection {
         identity: BindingIdentity,
         value: &crate::template::QuantityValue,
         max_bindings: usize,
+        rejected: &mut Vec<RejectedBinding>,
     ) -> Result<(), ProjectionError> {
         if self.bindings.len() >= max_bindings {
             return Err(ProjectionError::TooManyBindings {
@@ -243,18 +310,41 @@ impl CatalogProjection {
             });
         }
         let canonical = identity.canonical_name();
-        let handle = self
-            .variables
-            .define(
-                canonical.namespace(),
-                canonical.name().clone(),
-                value.si_expression().clone(),
-                Default::default(),
-            )
-            // Canonical names are unique by construction: duplicate template
+        // The reference this binding publishes is itself an expression — the
+        // concise alias below resolves by naming it, and other templates write
+        // it in their sources — so the evaluator has to be willing to read it.
+        // It is generated from the identity rather than authored, so no bound
+        // on what anyone typed constrains its length.
+        let reference = canonical.to_string();
+        let allowed = Self::evaluator_limits().max_expression_bytes;
+        if reference.len() > allowed {
+            rejected.push(RejectedBinding {
+                template: identity.template.clone(),
+                what: "binding reference",
+                found: reference.len(),
+                limit: allowed,
+            });
+            return Ok(());
+        }
+
+        let handle = match self.variables.define(
+            canonical.namespace(),
+            canonical.name().clone(),
+            value.si_expression().clone(),
+            Default::default(),
+        ) {
+            Ok(handle) => handle,
+            // Canonical names are unique by construction — duplicate template
             // identities and duplicate component names are both rejected
-            // before a projection is built.
-            .expect("canonical binding names are unique");
+            // before a projection is built — so this is the evaluator
+            // declining the binding on some other ground. Report it against
+            // its template rather than asserting a shape this module does not
+            // own.
+            Err(error) => {
+                rejected.push(Self::declined(&identity, &error));
+                return Ok(());
+            }
+        };
 
         let reference = BindingRef(self.bindings.len());
         if let Some(concise) = identity.concise_name() {
@@ -277,7 +367,9 @@ impl CatalogProjection {
     /// Define each unambiguous concise spelling as an alias variable, so the
     /// shared evaluator resolves `planets.sun.mass` without the catalog
     /// rewriting authored source.
-    fn define_concise_aliases(&mut self) {
+    fn define_concise_aliases(&mut self, rejected: &mut Vec<RejectedBinding>) {
+        let limits = Self::evaluator_limits();
+        let mut aliases = Vec::new();
         for (name, claimants) in &self.concise {
             let [only] = claimants.as_slice() else {
                 continue;
@@ -285,18 +377,50 @@ impl CatalogProjection {
             if self.canonical.contains_key(name) {
                 continue;
             }
-            let alias = FQName::parse(name).expect("concise names are built from valid segments");
-            let target = self.bindings[only.0].identity.canonical_name().to_string();
-            let expression = orishu_variables::CompiledExpression::parse(&target)
-                .expect("a canonical name is a valid symbol expression");
-            self.variables
-                .define(
-                    alias.namespace(),
-                    alias.name().clone(),
-                    expression,
-                    Default::default(),
-                )
-                .expect("a concise name that collides with a canonical name is skipped above");
+            let Ok(alias) = FQName::parse(name) else {
+                continue;
+            };
+            let identity = &self.bindings[only.0].identity;
+            let target = identity.canonical_name().to_string();
+            // Parsed under the projection's own bounds, not the defaults, so
+            // the alias is held to exactly what the system it is defined in
+            // will hold it to.
+            match CompiledExpression::parse_bounded(&target, &limits) {
+                Ok(expression) => aliases.push((alias, expression, identity.clone())),
+                Err(error) => rejected.push(RejectedBinding {
+                    template: identity.template.clone(),
+                    what: "binding reference",
+                    found: error
+                        .limit_error()
+                        .map_or(target.len(), |limit| limit.found as usize),
+                    limit: limits.max_expression_bytes,
+                }),
+            }
+        }
+        for (alias, expression, identity) in aliases {
+            if let Err(error) = self.variables.define(
+                alias.namespace(),
+                alias.name().clone(),
+                expression,
+                Default::default(),
+            ) {
+                rejected.push(Self::declined(&identity, &error));
+            }
+        }
+    }
+
+    /// Report the evaluator declining a binding, preserving the bound it named
+    /// where it named one.
+    fn declined(identity: &BindingIdentity, error: &VariablesError) -> RejectedBinding {
+        let (found, limit) = match error {
+            VariablesError::Limit(limit) => (limit.found as usize, limit.allowed as usize),
+            _ => (0, 0),
+        };
+        RejectedBinding {
+            template: identity.template.clone(),
+            what: "projected binding",
+            found,
+            limit,
         }
     }
 
@@ -419,7 +543,7 @@ spec:
 
     #[test]
     fn every_expression_capable_value_is_projected_at_its_canonical_identity() {
-        let projection = CatalogProjection::build([&template(SUN)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(SUN)], 1024).unwrap();
         let names: Vec<String> = projection
             .bindings()
             .map(|(_, binding)| binding.identity.canonical_name().to_string())
@@ -437,7 +561,7 @@ spec:
 
     #[test]
     fn a_property_also_resolves_by_its_concise_spelling() {
-        let projection = CatalogProjection::build([&template(SUN)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(SUN)], 1024).unwrap();
         let scope = identity("other", "thing");
         let Resolution::Visible(reference) = projection.resolve("planets.sun.mass", &scope) else {
             panic!("concise spelling should resolve");
@@ -454,7 +578,7 @@ spec:
 
     #[test]
     fn values_resolve_through_the_shared_evaluator_in_canonical_si() {
-        let projection = CatalogProjection::build([&template(SUN)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(SUN)], 1024).unwrap();
         let scope = identity("planets", "sun");
         let Resolution::Visible(mass) = projection.resolve("planets.sun.mass", &scope) else {
             panic!("mass should resolve");
@@ -468,7 +592,7 @@ spec:
 
     #[test]
     fn a_helper_is_private_outside_its_declaring_template() {
-        let projection = CatalogProjection::build([&template(SUN)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(SUN)], 1024).unwrap();
         assert!(matches!(
             projection.resolve("planets.sun.solar_mass", &identity("planets", "sun")),
             Resolution::Visible(_)
@@ -481,7 +605,7 @@ spec:
 
     #[test]
     fn an_unknown_name_resolves_to_nothing_rather_than_a_guess() {
-        let projection = CatalogProjection::build([&template(SUN)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(SUN)], 1024).unwrap();
         assert_eq!(
             projection.resolve("planets.sun.charge", &identity("planets", "sun")),
             Resolution::Unknown
@@ -494,7 +618,7 @@ spec:
             "  - type: {plugin: kagami.geometry, name: sphere}\n    properties:\n      radius: {quantity: {expression: \"6.9634e5\", unit: km}}",
             "  - type: {plugin: kagami.mass_sources, name: gravitational_mass}\n    properties:\n      mass: {quantity: \"1.0\"}",
         );
-        let projection = CatalogProjection::build([&template(&text)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(&text)], 1024).unwrap();
         assert_eq!(
             projection.resolve("planets.sun.mass", &identity("planets", "sun")),
             Resolution::Ambiguous { matches: 2 }
@@ -512,7 +636,7 @@ spec:
     #[test]
     fn a_concise_spelling_that_collides_with_a_helper_prefers_the_exact_name() {
         let text = SUN.replace("      mass: {quantity:", "      solar_mass: {quantity:");
-        let projection = CatalogProjection::build([&template(&text)], 1024).unwrap();
+        let (projection, _) = CatalogProjection::build([&template(&text)], 1024).unwrap();
         let Resolution::Visible(reference) =
             projection.resolve("planets.sun.solar_mass", &identity("planets", "sun"))
         else {
@@ -536,7 +660,8 @@ spec:
     properties:
       mass: {quantity: "planets.sun.mass / 2.7e7"}
 "#;
-        let projection = CatalogProjection::build([&template(SUN), &template(moon)], 1024).unwrap();
+        let (projection, _) =
+            CatalogProjection::build([&template(SUN), &template(moon)], 1024).unwrap();
         let Resolution::Visible(mass) =
             projection.resolve("moons.luna.mass", &identity("moons", "luna"))
         else {

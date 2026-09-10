@@ -2,8 +2,9 @@
 
 Status: **implemented**; slices 1–5 landed across
 `kagami_session::{document, store}`, `kagami_document::hydrate` and
-`DocumentAuthority`. ADR 0022's `default_view` section waits on the authoring
-view [K11](implement-kagami-viewport-workflows.md) owns  
+`DocumentAuthority`. ADR 0022's `default_view` section landed with
+[K11](implement-kagami-viewport-workflows.md) slice 2, which advanced the
+format to version 2  
 Work package: **K-DOCUMENT** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0012](../../adr/0012-start-with-file-sharing-and-preserve-collaborative-authoring.md),
 [ADR 0019](../../adr/0019-kagami-experiment-document-model.md),
@@ -51,11 +52,15 @@ implementation and the mechanics transfer almost directly:
   if the existing primary independently parses as a valid document — replace
   the backup with that verified primary before atomically replacing the
   primary. Sync the containing directory where the platform supports the
-  durability operation. "Retain one backup of the previous *verified*
-  document", not of whatever bytes were on disk.
+  durability operation. Retain one backup of the previous document unless its
+  bytes are damaged, rather than of whatever happened to be on disk — Field CAD
+  spelled this as "verified", which turned out to be the wrong predicate.
 - The load fallback: primary, then `.bak`, then the bounded recoverable sibling
   temporary candidate(s), each independently decoded and version-checked,
-  reporting *which* candidate was used so the caller can warn.
+  reporting *which* candidate was used so the caller can warn. The fallback is
+  entered only when the primary is *damaged* — an intact primary this build
+  declines stops the load there, because recovering around it would end in
+  overwriting it.
 - Deliberate exclusions that transfer: no session identity (it names a live
   process, not a saved artifact) and no run/paused mode (opening a file must
   never immediately consume machine resources).
@@ -70,31 +75,37 @@ remain excluded.
 
 ## Implementation slices
 
-### 1. The versioned envelope and evolution policy — **implemented**, except
-ADR 0022's `default_view` section, which waits on the authoring view K11 owns
+### 1. The versioned envelope and evolution policy — **implemented**, including
+ADR 0022's `default_view` section, which arrived with K11 slice 2 as format
+version 2
 
-- `format: "kagami.experiment"` and numeric `format_version: 1`, checked in
+- `format: "kagami.experiment"` and a numeric `format_version`, checked in
   that order before any content is interpreted. Do not encode version twice in
   both fields.
 - Metadata: generator identity and version, creation timestamp preserved
   across re-saves, and a save timestamp. The generator string is for support,
   not parsing.
-- Version 1 accepts exactly version 1. A later implementation adds an explicit
-  DTO/conversion for each older supported version and rejects versions newer
-  than itself; there is no imaginary version 0 and no generic "lower is safe"
-  rule.
+- Each supported version gets an explicit DTO and conversion; versions newer
+  than this build are rejected. There is no imaginary version 0 and no generic
+  "lower is safe" rule. Version 2 is the first exercise of that ladder: version
+  1 loads through `DocumentV1` and converts *up*, so a re-save writes version 2,
+  and the version-1 golden fixtures are retained as the conversion's regression
+  input.
 - Define whether unknown fields are rejected and which fields may be absent in
   each supported version. A format change that would otherwise be silently
   lost on re-save advances `format_version`.
 - Encoding is JSON, matching the repository's persisted-data convention; the
   hand-authored YAML format stays the catalog's alone.
 - The envelope has a separately versioned optional `default_view` owned by the
-  client. Version 1 preserves projection mode, camera pose and orbit/focus;
+  client. Its version 1 preserves projection mode, camera pose and orbit/focus;
   this section is decoded with
   presentation bounds and is excluded from experiment revision and workload
-  compilation (ADR 0022).
+  compilation (ADR 0022). Its version policy is the *inverse* of the
+  envelope's: a section this build cannot read is reported and dropped while
+  the experiment opens normally, because presentation must never be why a file
+  fails to open.
 
-### 2. The pure codec — **implemented** for the experiment section
+### 2. The pure codec — **implemented** for both sections
 
 - A versioned persisted DTO separates the public file contract from
   `Experiment`'s private `Arc` layout. `encode` receives an immutable
@@ -218,9 +229,13 @@ Slice 4 followed as `kagami_session::store`, behind a `FileStore` seam so
 every step's failure is reachable in a test — 11 of them in
 `tests/store.rs`. Three decisions:
 
-- **The backup is a copy of the last *verified* document.** Step 4 moves the
-  existing primary aside only if it independently decodes. Promoting
-  unreadable bytes would replace a backup that might still have been good.
+- **The backup is a copy of the last document that was not *damaged*.** Step 4
+  moves the existing primary aside unless its bytes are truncated or garbled.
+  Promoting damage would replace a backup that might still have been good — but
+  a document that merely fails to decode *here*, such as one from a newer build,
+  is intact and is preserved. This originally read "the last **verified**
+  document" and moved the primary aside only if it decoded; see the K11 note
+  below for why that predicate was wrong and what it cost.
 - **One window is unavoidable, and it is documented rather than hidden.**
   Because the previous document is *moved* aside rather than copied, a failure
   between that move and the final rename leaves the document only in the
@@ -236,6 +251,38 @@ The bookkeeping it reports into — which revision is on disk and where —
 landed earlier with the [boundary follow-up](harden-document-boundaries.md) as
 `DocumentAuthority::acknowledge_save`.
 
+[K11](implement-kagami-viewport-workflows.md) slice 2 completed the
+`default_view` half and advanced the format to version 2. Two of its decisions
+belong to this task's record:
+
+- **A float has to survive the file exactly.** `serde_json`'s default parser
+  is fast rather than bit-exact, so an authored coordinate could come back one
+  bit away from what was written — and every fixture here used
+  exactly-representable values, so nothing noticed. The workspace now enables
+  serde_json's `float_roundtrip` feature, and
+  `a_coordinate_survives_the_file_bit_for_bit` covers positions, velocities and
+  camera poses together. "Save then open reproduces an identical experiment"
+  was previously only true for round numbers.
+- **A refusal now says why.** `store::load` distinguishes
+  `LoadError::Refused` from `LoadError::Unreadable`, so a document written by a
+  newer build reports its version instead of appearing absent.
+- **Recovery is for damage, and only for damage.** This is the correction that
+  matters most in this module. Slice 4's protocol asked one question of the
+  existing primary — "does it decode?" — and treated every no the same way. But
+  truncated bytes and a document from a newer build are opposite situations:
+  the first wants the backup, and the second must not be touched. Conflating
+  them meant an unsupported-version primary with a readable older backup
+  *silently opened the backup*, reported a successful recovery, and let the
+  next save replace the intact newer document — which the backup-promotion rule
+  then declined to preserve, because it did not decode. Both halves now turn on
+  `DocumentError::is_damage`: `load` falls back only for damage, and `save`
+  moves anything that is not damage aside as the backup first.
+
+  This sharpens, rather than contradicts, the earlier decision that "the backup
+  is a copy of the last *verified* document". Verified was the wrong predicate;
+  the right one is *not damaged*. A document this build cannot read is still
+  irreplaceable by anything this build could write.
+
 ## Acceptance criteria
 
 - Save then open reproduces an identical experiment: identities, counters,
@@ -249,14 +296,17 @@ landed earlier with the [boundary follow-up](harden-document-boundaries.md) as
   change its explicit save timestamp and generator version while decoding to
   identical authored and view state.
 - A document whose `format` differs, or whose `format_version` is higher than
-  this build supports, is refused outright with a clear reason. Version 1 also
-  refuses zero; future older versions load only through their explicit
-  conversion.
+  this build supports, is refused outright with a clear reason. Zero is refused
+  too; older versions load only through their explicit conversion.
 - A document naming an uninstalled component loads with that component
   preserved and reported unavailable, and never with a substituted value.
 - Killing the process between the temp write and the rename leaves the previous
-  document intact and recoverable; a corrupted primary falls back to the
-  verified backup and says so.
+  document intact and recoverable; a corrupted primary falls back to the backup
+  and says so.
+- A document this build declines rather than fails to read — a newer format
+  version, another format — is never recovered around and never overwritten
+  without being preserved. Opening it refuses with its version; saving over it
+  moves it to the backup first.
 - A late successful write of revision N cannot mark revision N+1 clean, and a
   failed Save As changes neither the clean marker nor the current target.
 - Truncated, oversized, wrong-typed and deeply nested inputs produce bounded

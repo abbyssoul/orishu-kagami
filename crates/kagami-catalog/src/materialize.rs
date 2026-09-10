@@ -461,7 +461,7 @@ impl<'a> Closure<'a> {
                 .get(canonical)
                 .map(String::as_str)
                 .unwrap_or(projected.si_source.as_str());
-            let source = rewrite_symbols(published, &renames);
+            let source = rewritten(published, &renames)?;
             let name = trailing_name(&renames[canonical]);
             define(&mut system, scope, &name, &source)?;
             local.insert(
@@ -522,7 +522,7 @@ struct Definitions {
 
 impl Definitions {
     fn resolve(&self, source: &str) -> Result<(String, f64), InstantiationError> {
-        let rewritten = rewrite_symbols(source, &self.renames);
+        let rewritten = rewritten(source, &self.renames)?;
         let value = self
             .system
             .eval(&rewritten)
@@ -596,6 +596,24 @@ fn define(
             reference: name.to_string(),
         })?;
     Ok(())
+}
+
+/// Rewrite `source` into object-local names, refusing a rewrite the shared
+/// engine's expression bound will not hold.
+///
+/// Copying a definition into an object renames it, and a rename can grow the
+/// source past what the evaluator would accept. Reported as an evaluation
+/// failure carrying the structured bound, because that is what it is: the
+/// candidate could not be resolved, and the reason is the limit rather than
+/// the arithmetic.
+fn rewritten(
+    source: &str,
+    renames: &BTreeMap<String, String>,
+) -> Result<String, InstantiationError> {
+    rewrite_symbols(source, renames).map_err(|error| InstantiationError::Evaluation {
+        reference: source.to_owned(),
+        source: ExprEvalError::Limit(error),
+    })
 }
 
 fn evaluation_error(

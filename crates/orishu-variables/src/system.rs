@@ -4,6 +4,7 @@ use std::sync::{Mutex, PoisonError};
 use thiserror::Error;
 
 use crate::expression::{CompiledExpression, ExprEvalError, ExprParsingError, eval_ast};
+use crate::limits::{Budget, LimitError, LimitKind, Limits, admit_one, ensure};
 use crate::namespace::{FQName, IntoName, InvalidName, Name, Namespace};
 use crate::quantity::{self, Quantity};
 use crate::variable::{Variable, VariableId, VariableOptions};
@@ -12,12 +13,25 @@ use crate::variable::{Variable, VariableId, VariableOptions};
 /// variables through a [`VariablesSystem`].
 #[derive(Debug, Error, PartialEq)]
 pub enum VariablesError {
-    /// The expression source text does not parse.
+    /// The expression source text does not parse, or a bound refused it.
+    ///
+    /// A resource refusal that belongs to source text arrives here rather than
+    /// as [`Self::Limit`], because only a parsing error carries the
+    /// [`crate::SourceSpan`] that says *where*. Read it with
+    /// [`ExprParsingError::limit_error`].
     #[error(transparent)]
     Parsing(#[from] ExprParsingError),
     /// The expression parsed, but evaluating it failed.
     #[error(transparent)]
-    Eval(#[from] ExprEvalError),
+    Eval(ExprEvalError),
+    /// A declared bound refused the operation.
+    ///
+    /// The variable count, the dependency depth, the evaluation budget, or an
+    /// expression whose size this system's [`Limits`] do not admit. None of
+    /// these belongs to a position in one source text, so they are reported
+    /// here rather than through [`Self::Parsing`].
+    #[error(transparent)]
+    Limit(#[from] LimitError),
     /// The candidate variable name is not a valid [`Name`].
     #[error(transparent)]
     InvalidName(#[from] InvalidName),
@@ -40,6 +54,18 @@ pub enum VariablesError {
     },
 }
 
+/// Flattens an evaluation-time resource refusal into [`VariablesError::Limit`],
+/// so a caller of this system has one place to match a bound rather than two
+/// spellings of the same failure.
+impl From<ExprEvalError> for VariablesError {
+    fn from(value: ExprEvalError) -> Self {
+        match value {
+            ExprEvalError::Limit(error) => Self::Limit(error),
+            other => Self::Eval(other),
+        }
+    }
+}
+
 /// Subsystem that owns a set of namespaced variables and computes their
 /// values, resolving references between them on demand (idCVarSystem-style,
 /// but with no notion of documents).
@@ -48,8 +74,14 @@ pub enum VariablesError {
 /// from the shared table. Definition refuses a name the unit table already
 /// claims, so that fallback can never be shadowed out from under an
 /// expression that relied on it.
-#[derive(Default)]
+///
+/// The system owns the [`Limits`] it was built with, and applies them to every
+/// definition it accepts and every evaluation it performs. There is no ambient
+/// limit state: two systems in one process may hold different bounds, and a
+/// bound is only ever the one the caller that built this system chose.
 pub struct VariablesSystem {
+    /// The bounds every mutation and evaluation of this system is held to.
+    limits: Limits,
     variables: Vec<Variable>,
     /// Keyed by each variable's canonical dotted name (`FQName`'s `Display`
     /// form), not `FQName` itself, so [`Self::resolve_symbol`] — the hot
@@ -78,6 +110,12 @@ struct Frame {
     deps_start: usize,
     /// Index of the next dependency to visit, into that same arena.
     next: usize,
+    /// Tallest chain found beneath this variable so far, counting itself, so
+    /// 1 until a dependency resolves. Accumulated as each dependency is
+    /// settled rather than recomputed when the frame pops: the walk already
+    /// has every child's height in hand at exactly the moment it learns it,
+    /// and a second pass would mean another map lookup per edge.
+    height: usize,
 }
 
 /// The working set of one top-level evaluation, walked iteratively so that
@@ -91,10 +129,25 @@ struct EvalScratch {
     /// truncates back to `deps_start` when it pops.
     deps: Vec<VariableId>,
     /// `None` = on the stack right now, so a reference back to it is a
-    /// cycle; `Some(value)` = fully evaluated during this call. Doubling as
+    /// cycle; `Some(resolved)` = fully evaluated during this call. Doubling as
     /// the memo means a shared dependency is evaluated once per call rather
     /// than once per path that reaches it.
-    state: HashMap<VariableId, Option<Quantity>>,
+    state: HashMap<VariableId, Option<Resolved>>,
+}
+
+/// A variable already evaluated during this call.
+///
+/// Carries the [`Self::height`] as well as the value because the memo would
+/// otherwise hide depth: a dependency reached a second time is not walked
+/// again, so the chain beneath it has to be remembered rather than
+/// rediscovered, or the declared bound would depend on which path happened to
+/// reach a shared variable first.
+#[derive(Clone, Copy)]
+struct Resolved {
+    value: Quantity,
+    /// Longest chain of variable references from this variable down to a
+    /// variable that references none, counting itself. A leaf is 1.
+    height: usize,
 }
 
 impl EvalScratch {
@@ -105,10 +158,92 @@ impl EvalScratch {
     }
 }
 
+impl Default for VariablesSystem {
+    /// An empty system bounded by [`Limits::DEFAULT`].
+    fn default() -> Self {
+        Self::with_limits(Limits::DEFAULT)
+    }
+}
+
 impl VariablesSystem {
+    /// An empty system bounded by `limits`.
+    ///
+    /// The entry point for a caller that needs bounds other than
+    /// [`Limits::DEFAULT`] — a stricter externally-facing authority, or a
+    /// batch importer that has its own reason to admit a deeper graph.
+    ///
+    /// ```
+    /// use orishu_variables::{CompiledExpression, Limits, Namespace, VariableOptions, VariablesSystem};
+    ///
+    /// let mut vars = VariablesSystem::with_limits(Limits {
+    ///     max_variables: 1,
+    ///     ..Limits::DEFAULT
+    /// });
+    /// let globals = Namespace::new("globals");
+    /// let expression = CompiledExpression::parse("2.7 g / cm^3").unwrap();
+    /// vars.define(&globals, "density", expression, VariableOptions::default())
+    ///     .unwrap();
+    ///
+    /// let refused = vars.define(
+    ///     &globals,
+    ///     "second",
+    ///     CompiledExpression::parse("1").unwrap(),
+    ///     VariableOptions::default(),
+    /// );
+    /// assert!(refused.is_err());
+    /// // The refusal changed nothing.
+    /// assert_eq!(vars.variables().count(), 1);
+    /// ```
+    pub fn with_limits(limits: Limits) -> Self {
+        Self {
+            limits,
+            variables: Vec::new(),
+            index: HashMap::new(),
+            scratch_pool: Mutex::new(EvalScratch::default()),
+        }
+    }
+
+    /// The bounds this system holds every mutation and evaluation to.
+    pub fn limits(&self) -> &Limits {
+        &self.limits
+    }
+
+    /// Price an expression parsed elsewhere against *this* system's bounds.
+    ///
+    /// A [`CompiledExpression`] always passed some bound to exist, but not
+    /// necessarily this system's: a caller may parse under
+    /// [`Limits::DEFAULT`] and hand the result to a system built with
+    /// stricter ones. Re-checking here is what stops the system's own bounds
+    /// being bypassed by the choice of where the parse happened. It reads the
+    /// counts the parse retained, so nothing is re-walked.
+    #[inline]
+    fn admit_expression(&self, expression: &CompiledExpression) -> Result<(), LimitError> {
+        ensure(
+            LimitKind::ExpressionBytes,
+            expression.source().len(),
+            self.limits.max_expression_bytes,
+        )?;
+        ensure(
+            LimitKind::ExpressionNodes,
+            expression.nodes(),
+            self.limits.max_expression_nodes,
+        )?;
+        ensure(
+            LimitKind::ParseDepth,
+            expression.depth(),
+            self.limits.max_parse_depth,
+        )
+    }
+
     /// Define a new variable in `namespace` named `name`, bound to
     /// `expression`. Fails if `name` is not a valid [`Name`], if the name is
-    /// already taken in that namespace, or if `expr_source` does not parse.
+    /// already taken in that namespace, if `name` would shadow a unit, or if
+    /// this system's [`Limits`] do not admit another variable or this
+    /// expression.
+    ///
+    /// Every check runs before anything is written, so a refused definition
+    /// leaves the variables, the index, and the handle sequence exactly as
+    /// they were.
     pub fn define<T>(
         &mut self,
         namespace: &Namespace,
@@ -137,7 +272,14 @@ impl VariablesSystem {
                 name,
             });
         }
+        admit_one(
+            LimitKind::Variables,
+            self.variables.len(),
+            self.limits.max_variables,
+        )?;
+        self.admit_expression(&expression)?;
 
+        // Everything above this line only reads. Everything below it commits.
         let id = VariableId(self.variables.len() as u32);
         self.variables.push(Variable {
             name: key,
@@ -149,29 +291,39 @@ impl VariablesSystem {
     }
 
     /// Replace `id`'s expression, leaving its comment untouched. Fails if
-    /// `id` is unknown or `expr_source` does not parse.
+    /// `id` is unknown or if this system's [`Limits`] do not admit the
+    /// expression.
+    ///
+    /// Both checks run before the replacement, so a refused `set` leaves the
+    /// previous expression — and therefore the previous value — in place.
     pub fn set(
         &mut self,
         id: VariableId,
         expression: CompiledExpression,
     ) -> Result<(), VariablesError> {
-        let variable = self
-            .variables
-            .get_mut(id.0 as usize)
-            .ok_or(VariablesError::UnknownHandle)?;
-        variable.expression = expression;
+        if self.variables.get(id.0 as usize).is_none() {
+            return Err(VariablesError::UnknownHandle);
+        }
+        self.admit_expression(&expression)?;
+        self.variables[id.0 as usize].expression = expression;
         Ok(())
     }
 
-    /// Compute `id`'s current value, resolving any variables it depends on,
-    /// however deep the chain. Recomputed on every call (no caching across
-    /// calls; within one call each variable is evaluated once).
+    /// Compute `id`'s current value, resolving any variables it depends on.
+    /// Recomputed on every call (no caching across calls; within one call each
+    /// variable is evaluated once).
+    ///
+    /// Bounded by this system's [`Limits::max_dependency_depth`] and
+    /// [`Limits::max_evaluation_work`]. The budget is created here and covers
+    /// the whole closure this call reaches, so a graph that is individually
+    /// shallow but collectively expensive is still refused.
     pub fn value(&self, id: VariableId) -> Result<Quantity, VariablesError> {
         if self.variables.get(id.0 as usize).is_none() {
             return Err(VariablesError::UnknownHandle);
         }
+        let budget = Budget::new(self.limits.max_evaluation_work);
         let mut scratch = self.take_scratch();
-        let result = self.resolve(id, &mut scratch);
+        let result = self.resolve(id, &mut scratch, &budget);
         self.return_scratch(scratch);
         result.map_err(VariablesError::from)
     }
@@ -208,19 +360,21 @@ impl VariablesSystem {
         &self,
         root: VariableId,
         scratch: &mut EvalScratch,
+        budget: &Budget,
     ) -> Result<Quantity, ExprEvalError> {
-        if let Some(&Some(value)) = scratch.state.get(&root) {
-            return Ok(value);
+        if let Some(&Some(resolved)) = scratch.state.get(&root) {
+            return Ok(resolved.value);
         }
         // Borrows of the ASTs being walked, reused across every frame push
         // of this call instead of allocated per node.
         let mut symbols: Vec<&str> = Vec::new();
-        self.push_frame(root, scratch, &mut symbols)?;
+        self.push_frame(root, scratch, &mut symbols, budget)?;
 
         while let Some(&Frame {
             id,
             deps_start,
             next,
+            ..
         }) = scratch.stack.last()
         {
             let top = scratch.stack.len() - 1;
@@ -229,35 +383,57 @@ impl VariablesSystem {
             if next < scratch.deps.len() {
                 let dependency = scratch.deps[next];
                 scratch.stack[top].next += 1;
-                match scratch.state.get(&dependency) {
-                    // Already evaluated on another path this call.
-                    Some(Some(_)) => {}
+                match scratch.state.get(&dependency).copied() {
+                    // Already evaluated on another path this call, so it is
+                    // not walked again — but the chain beneath it is still
+                    // part of this graph, and the bound is on the graph, not
+                    // on the order a walk happens to reach it. Charging the
+                    // remembered height here is what makes `x + y` and
+                    // `y + x` agree.
+                    Some(Some(resolved)) => {
+                        self.admit_reach(scratch.stack.len(), resolved.height)?;
+                        scratch.stack[top].height =
+                            scratch.stack[top].height.max(resolved.height + 1);
+                    }
                     // Still on the stack, so this edge closes a loop.
                     Some(None) => return Err(ExprEvalError::Cycle),
-                    None => self.push_frame(dependency, scratch, &mut symbols)?,
+                    None => self.push_frame(dependency, scratch, &mut symbols, budget)?,
                 }
                 continue;
             }
 
             let ast = &self.variables[id.0 as usize].expression.ast;
             let state = &scratch.state;
-            let value = eval_ast(ast, &mut |raw: &str| {
-                let Some(target) = self.symbol_variable(raw) else {
-                    return unit_quantity(raw);
-                };
-                // Every symbol of this expression that named a variable was
-                // pushed as a dependency and evaluated above, so this lookup
-                // always hits; treating a miss as a cycle keeps an unforeseen
-                // gap an error, not a panic.
-                state
-                    .get(&target)
-                    .copied()
-                    .flatten()
-                    .ok_or(ExprEvalError::Cycle)
-            })?;
-            scratch.state.insert(id, Some(value));
+            let value = eval_ast(
+                ast,
+                &mut |raw: &str| {
+                    let Some(target) = self.symbol_variable(raw) else {
+                        return unit_quantity(raw);
+                    };
+                    // Every symbol of this expression that named a variable
+                    // was pushed as a dependency and evaluated above, so this
+                    // lookup always hits; treating a miss as a cycle keeps an
+                    // unforeseen gap an error, not a panic.
+                    state
+                        .get(&target)
+                        .copied()
+                        .flatten()
+                        .map(|resolved| resolved.value)
+                        .ok_or(ExprEvalError::Cycle)
+                },
+                budget,
+            )?;
+            // Every dependency is settled by now, so the running maximum is
+            // this variable's height.
+            let height = scratch.stack[top].height;
+            scratch.state.insert(id, Some(Resolved { value, height }));
             scratch.deps.truncate(deps_start);
             scratch.stack.pop();
+            // Hand the height up: this variable is one level of whatever
+            // referenced it.
+            if let Some(parent) = scratch.stack.last_mut() {
+                parent.height = parent.height.max(height + 1);
+            }
         }
 
         scratch
@@ -265,24 +441,58 @@ impl VariablesSystem {
             .get(&root)
             .copied()
             .flatten()
+            .map(|resolved| resolved.value)
             .ok_or(ExprEvalError::Cycle)
+    }
+
+    /// Refuse when reaching something `height` tall from a chain already
+    /// `from` long would pass [`Limits::max_dependency_depth`].
+    ///
+    /// The one place depth is decided, so a fresh frame and a memoized one
+    /// cannot disagree: pushing a frame is reaching something at least one
+    /// level tall.
+    #[inline]
+    fn admit_reach(&self, from: usize, height: usize) -> Result<(), LimitError> {
+        let Some(total) = from.checked_add(height) else {
+            return Err(LimitError {
+                limit: LimitKind::DependencyDepth,
+                found: u64::MAX,
+                allowed: self.limits.max_dependency_depth as u64,
+            });
+        };
+        ensure(
+            LimitKind::DependencyDepth,
+            total,
+            self.limits.max_dependency_depth,
+        )
     }
 
     /// Marks `id` as in progress and pushes a frame for it, appending its
     /// resolved dependencies to the arena. Fails if any symbol it references
-    /// is undefined.
+    /// is undefined, if the chain is deeper than
+    /// [`Limits::max_dependency_depth`], or if collecting its references would
+    /// exhaust the evaluation budget.
+    ///
+    /// The depth is charged before anything is appended, so a refused
+    /// resolution never grows the scratch arena past the bound. The symbol
+    /// walk is charged too: it visits the same nodes evaluation will, and
+    /// leaving it free would let a wide graph do half its work unpriced.
     fn push_frame<'a>(
         &'a self,
         id: VariableId,
         scratch: &mut EvalScratch,
         symbols: &mut Vec<&'a str>,
+        budget: &Budget,
     ) -> Result<(), ExprEvalError> {
+        // Pushing a frame is reaching something at least one level tall; the
+        // rest of its height is discovered as it is walked.
+        self.admit_reach(scratch.stack.len(), 1)?;
+        let expression = &self.variables[id.0 as usize].expression;
+        budget.spend(expression.nodes() as u64)?;
+
         let deps_start = scratch.deps.len();
         symbols.clear();
-        self.variables[id.0 as usize]
-            .expression
-            .ast
-            .collect_symbol_refs(symbols);
+        expression.ast.collect_symbol_refs(symbols);
         for raw in symbols.iter() {
             // A symbol no variable defines may still be a unit, which has no
             // dependencies of its own. Resolving it here would report an
@@ -297,21 +507,28 @@ impl VariablesSystem {
             id,
             deps_start,
             next: deps_start,
+            height: 1,
         });
         Ok(())
     }
 
     /// Parse and evaluate an ad-hoc expression against this system's
     /// currently defined variables, without registering it as a variable.
+    ///
+    /// The convenience path carries the same bounds as the registered one:
+    /// the source is parsed under *this system's* [`Limits`], and the walk it
+    /// triggers shares one budget with every dependency it reaches.
     pub fn eval(&self, expr_source: &str) -> Result<Quantity, VariablesError> {
-        let compiled = CompiledExpression::parse(expr_source)?;
+        let compiled = CompiledExpression::parse_bounded(expr_source, &self.limits)?;
+        let budget = Budget::new(self.limits.max_evaluation_work);
         let mut scratch = self.take_scratch();
         let value = eval_ast(
             &compiled.ast,
             &mut |raw: &str| match self.symbol_variable(raw) {
-                Some(target) => self.resolve(target, &mut scratch),
+                Some(target) => self.resolve(target, &mut scratch, &budget),
                 None => unit_quantity(raw),
             },
+            &budget,
         );
         self.return_scratch(scratch);
         value.map_err(VariablesError::from)
@@ -675,6 +892,21 @@ mod tests {
         );
     }
 
+    /// A system whose bounds admit a chain far longer than any authored one.
+    ///
+    /// The tests below exist to show that resolution depth costs heap rather
+    /// than Rust stack frames, which is a property of the *algorithm*; the
+    /// declared default bound stops long before it, so they state the bounds
+    /// they need instead of quietly relying on the defaults being loose.
+    fn deep_system() -> VariablesSystem {
+        VariablesSystem::with_limits(Limits {
+            max_variables: 200_000,
+            max_dependency_depth: 200_000,
+            max_evaluation_work: 10_000_000,
+            ..Limits::DEFAULT
+        })
+    }
+
     /// `v0 = 0`, `v1 = chain.v0 + 1`, ..., returning the tail's handle.
     fn build_chain(vars: &mut VariablesSystem, depth: usize) -> VariableId {
         let mut previous = vars
@@ -700,14 +932,14 @@ mod tests {
 
     #[test]
     fn deep_dependency_chain_does_not_overflow_the_stack() {
-        let mut vars = VariablesSystem::default();
+        let mut vars = deep_system();
         let tail = build_chain(&mut vars, 100_000);
         assert_eq!(vars.value(tail).unwrap().magnitude(), 99_999.0);
     }
 
     #[test]
     fn deep_dependency_chain_is_resolvable_through_eval() {
-        let mut vars = VariablesSystem::default();
+        let mut vars = deep_system();
         build_chain(&mut vars, 100_000);
         assert_eq!(
             vars.eval("chain.v99999 + 1").unwrap().magnitude(),
@@ -717,7 +949,7 @@ mod tests {
 
     #[test]
     fn cycle_deep_in_a_long_chain_is_still_detected() {
-        let mut vars = VariablesSystem::default();
+        let mut vars = deep_system();
         let tail = build_chain(&mut vars, 10_000);
         let head = vars
             .lookup_in(&ns("chain"), &Name::new("v0").unwrap())

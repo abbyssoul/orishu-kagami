@@ -89,27 +89,35 @@ impl fmt::Display for DocumentTarget {
 }
 
 /// What acknowledging a completed write did to the session.
+///
+/// Generic over the revision because ADR 0022 gives the file two of them: the
+/// experiment revision the authority owns, and the
+/// [`ViewRevision`](crate::ViewRevision) the client's authoring view owns. The
+/// three outcomes are the same three for both — one write, one captured
+/// revision, one question about whether it is still current — and describing
+/// them twice would be two places for the out-of-order rule to drift apart.
+/// The default parameter keeps the experiment spelling unqualified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SaveAcknowledgement {
+pub enum SaveAcknowledgement<R = ExperimentRevision> {
     /// The acknowledged revision is the one in force, so the session is clean.
     Clean,
-    /// The write succeeded, but the experiment has moved on since it was
+    /// The write succeeded, but the session has moved on since the revision was
     /// captured. The target is adopted; the session stays dirty, because what
     /// is on disk is not what is here.
     Superseded {
         /// The revision now in force.
-        current: ExperimentRevision,
+        current: R,
     },
     /// The acknowledgement was for a revision older than one already
     /// acknowledged — two writes completing out of order. It changed nothing
     /// at all, including the target.
     Stale {
         /// The most recent revision successfully acknowledged.
-        acknowledged: ExperimentRevision,
+        acknowledged: R,
     },
 }
 
-impl SaveAcknowledgement {
+impl<R> SaveAcknowledgement<R> {
     /// `true` when the session is clean as a result.
     pub const fn is_clean(&self) -> bool {
         matches!(self, Self::Clean)
@@ -140,7 +148,7 @@ mod tests {
 
     #[test]
     fn only_a_current_acknowledgement_is_clean() {
-        assert!(SaveAcknowledgement::Clean.is_clean());
+        assert!(SaveAcknowledgement::<ExperimentRevision>::Clean.is_clean());
         assert!(
             !SaveAcknowledgement::Superseded {
                 current: ExperimentRevision::INITIAL.next(),

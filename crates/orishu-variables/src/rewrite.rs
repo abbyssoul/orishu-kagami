@@ -16,15 +16,46 @@
 
 use std::collections::BTreeMap;
 
+use crate::limits::{LimitError, LimitKind, Limits, ensure};
+
+/// Replace every whole symbol in `source` that appears in `renames`, under
+/// [`Limits::DEFAULT`].
+///
+/// The convenient form of [`rewrite_symbols_bounded`]; see it for the
+/// behavior and the bound.
+pub fn rewrite_symbols(
+    source: &str,
+    renames: &BTreeMap<String, String>,
+) -> Result<String, LimitError> {
+    rewrite_symbols_bounded(source, renames, &Limits::DEFAULT)
+}
+
 /// Replace every whole symbol in `source` that appears in `renames`, leaving
 /// numbers, operators, and unmatched symbols untouched.
 ///
 /// Renaming is single-pass: a symbol is replaced by its mapped value and the
 /// result is never rescanned, so a rename map whose values collide with its
 /// keys cannot cascade.
-pub fn rewrite_symbols(source: &str, renames: &BTreeMap<String, String>) -> String {
+///
+/// The result is another expression source, so it is held to
+/// [`Limits::max_expression_bytes`] at both ends. The output bound is not
+/// implied by the input one: a map from short names to long ones grows what it
+/// rewrites, and the growth factor belongs to the caller's rename map rather
+/// than to the source. Checking as the output is appended means an oversized
+/// rewrite is refused while it is being built rather than after it has been
+/// allocated.
+pub fn rewrite_symbols_bounded(
+    source: &str,
+    renames: &BTreeMap<String, String>,
+    limits: &Limits,
+) -> Result<String, LimitError> {
+    ensure(
+        LimitKind::ExpressionBytes,
+        source.len(),
+        limits.max_expression_bytes,
+    )?;
     if renames.is_empty() {
-        return source.to_owned();
+        return Ok(source.to_owned());
     }
     let bytes = source.as_bytes();
     let mut out = String::with_capacity(source.len());
@@ -34,22 +65,44 @@ pub fn rewrite_symbols(source: &str, renames: &BTreeMap<String, String>) -> Stri
         let current = bytes[position] as char;
         if current.is_ascii_digit() {
             let end = scan_number(bytes, position);
-            out.push_str(&source[position..end]);
+            push(&mut out, &source[position..end], limits)?;
             position = end;
         } else if current.is_alphabetic() || current == '_' {
             let end = scan_symbol(bytes, position);
             let symbol = &source[position..end];
             match renames.get(symbol) {
-                Some(replacement) => out.push_str(replacement),
-                None => out.push_str(symbol),
+                Some(replacement) => push(&mut out, replacement, limits)?,
+                None => push(&mut out, symbol, limits)?,
             }
             position = end;
         } else {
-            out.push(current);
+            push(
+                &mut out,
+                &source[position..position + current.len_utf8()],
+                limits,
+            )?;
             position += current.len_utf8();
         }
     }
-    out
+    Ok(out)
+}
+
+/// Append `fragment`, refusing before the output passes the byte bound.
+fn push(out: &mut String, fragment: &str, limits: &Limits) -> Result<(), LimitError> {
+    let Some(length) = out.len().checked_add(fragment.len()) else {
+        return Err(LimitError {
+            limit: LimitKind::ExpressionBytes,
+            found: u64::MAX,
+            allowed: limits.max_expression_bytes as u64,
+        });
+    };
+    ensure(
+        LimitKind::ExpressionBytes,
+        length,
+        limits.max_expression_bytes,
+    )?;
+    out.push_str(fragment);
+    Ok(())
 }
 
 /// Consume a numeric literal, including a `.` fraction and an `e`/`E`
@@ -114,15 +167,21 @@ mod tests {
             .collect()
     }
 
+    /// Rewrite under the default bounds, which every behavioral case here is
+    /// far below.
+    fn rewrite(source: &str, renames: &BTreeMap<String, String>) -> String {
+        rewrite_symbols(source, renames).expect("within the default bounds")
+    }
+
     #[test]
     fn an_empty_rename_map_returns_the_source_unchanged() {
-        assert_eq!(rewrite_symbols("a + b", &BTreeMap::new()), "a + b");
+        assert_eq!(rewrite("a + b", &BTreeMap::new()), "a + b");
     }
 
     #[test]
     fn a_qualified_symbol_is_replaced_whole() {
         assert_eq!(
-            rewrite_symbols(
+            rewrite(
                 "planets.sun.mass / 2",
                 &renames(&[("planets.sun.mass", "objects.o.sun_mass")])
             ),
@@ -133,7 +192,7 @@ mod tests {
     #[test]
     fn a_symbol_that_merely_contains_the_renamed_text_is_left_alone() {
         assert_eq!(
-            rewrite_symbols("mass_of_sun + mass", &renames(&[("mass", "m2")])),
+            rewrite("mass_of_sun + mass", &renames(&[("mass", "m2")])),
             "mass_of_sun + m2"
         );
     }
@@ -141,7 +200,7 @@ mod tests {
     #[test]
     fn a_prefix_of_a_longer_qualified_name_is_left_alone() {
         assert_eq!(
-            rewrite_symbols(
+            rewrite(
                 "planets.sun.mass",
                 &renames(&[("planets.sun", "objects.o")])
             ),
@@ -152,24 +211,24 @@ mod tests {
     #[test]
     fn an_exponent_is_never_mistaken_for_a_symbol() {
         assert_eq!(
-            rewrite_symbols("1.989e30 * e", &renames(&[("e", "objects.o.e")])),
+            rewrite("1.989e30 * e", &renames(&[("e", "objects.o.e")])),
             "1.989e30 * objects.o.e"
         );
         assert_eq!(
-            rewrite_symbols("1e+5 - 2E-3", &renames(&[("e", "x"), ("E", "y")])),
+            rewrite("1e+5 - 2E-3", &renames(&[("e", "x"), ("E", "y")])),
             "1e+5 - 2E-3"
         );
     }
 
     #[test]
     fn a_bare_e_after_a_number_is_a_symbol_just_as_the_lexer_reads_it() {
-        assert_eq!(rewrite_symbols("1e", &renames(&[("e", "x")])), "1x");
+        assert_eq!(rewrite("1e", &renames(&[("e", "x")])), "1x");
     }
 
     #[test]
     fn operators_parentheses_and_spacing_survive_verbatim() {
         assert_eq!(
-            rewrite_symbols("-(a ^ 2) / (b + 3.5)", &renames(&[("a", "x"), ("b", "y")])),
+            rewrite("-(a ^ 2) / (b + 3.5)", &renames(&[("a", "x"), ("b", "y")])),
             "-(x ^ 2) / (y + 3.5)"
         );
     }
@@ -177,14 +236,57 @@ mod tests {
     #[test]
     fn renaming_does_not_cascade_through_its_own_output() {
         assert_eq!(
-            rewrite_symbols("a + b", &renames(&[("a", "b"), ("b", "a")])),
+            rewrite("a + b", &renames(&[("a", "b"), ("b", "a")])),
             "b + a"
         );
     }
 
     #[test]
+    fn an_oversized_source_is_refused_before_it_is_scanned() {
+        let limits = Limits {
+            max_expression_bytes: 4,
+            ..Limits::DEFAULT
+        };
+        assert_eq!(
+            rewrite_symbols_bounded("a + b", &renames(&[("a", "x")]), &limits),
+            Err(LimitError {
+                limit: LimitKind::ExpressionBytes,
+                found: 5,
+                allowed: 4,
+            })
+        );
+        assert_eq!(
+            rewrite_symbols_bounded("a+ b", &renames(&[("a", "x")]), &limits),
+            Ok("x+ b".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_rewrite_that_grows_past_the_bound_is_refused_as_it_is_built() {
+        // The input fits; the *output* does not, because the rename map maps
+        // a short name to a long one. Nothing about the source says so.
+        let limits = Limits {
+            max_expression_bytes: 6,
+            ..Limits::DEFAULT
+        };
+        assert_eq!(
+            rewrite_symbols_bounded("a + b", &renames(&[("a", "xyz")]), &limits),
+            Err(LimitError {
+                limit: LimitKind::ExpressionBytes,
+                found: 7,
+                allowed: 6,
+            })
+        );
+        // One byte shorter, and the same rewrite is accepted.
+        assert_eq!(
+            rewrite_symbols_bounded("a + b", &renames(&[("a", "xy")]), &limits),
+            Ok("xy + b".to_owned())
+        );
+    }
+
+    #[test]
     fn a_rewritten_expression_parses_to_the_renamed_symbols() {
-        let rewritten = rewrite_symbols(
+        let rewritten = rewrite(
             "planets.sun.solar_mass * planets.sun.scale + 1.0e3",
             &renames(&[
                 ("planets.sun.solar_mass", "objects.o.solar_mass"),

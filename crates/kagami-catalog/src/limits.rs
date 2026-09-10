@@ -94,4 +94,48 @@ mod tests {
         assert!(limits.max_metadata_entries > 0);
         assert!(limits.max_text_bytes > 0);
     }
+
+    #[test]
+    fn the_default_binding_bound_fits_what_a_projection_can_hold() {
+        // A projection spends two variables per binding — the canonical name
+        // and its concise alias. This is only a statement about the *default*
+        // pairing being coherent; a caller may pass any `max_bindings` it
+        // likes, which is why `resolve` clamps rather than trusting it.
+        assert!(
+            Limits::DEFAULT.max_bindings <= crate::CatalogProjection::max_projectable_bindings()
+        );
+        // Every catalog expression is parsed before it is defined, so the
+        // evaluator must also admit the longest source a catalog may carry.
+        let evaluator = crate::CatalogProjection::evaluator_limits();
+        assert!(Limits::DEFAULT.max_expression_bytes <= evaluator.max_expression_bytes);
+    }
+
+    #[test]
+    fn a_generated_reference_can_exceed_what_any_authored_expression_may() {
+        // The bound that actually bit: a template name is unbounded by the
+        // loader, and the reference a binding publishes is built from it, so
+        // comparing the two *expression* bounds proves nothing about the
+        // references a catalog generates. This records the gap rather than
+        // pretending the numbers above close it — closing it is `resolve`'s
+        // job, and `a_template_whose_generated_reference_is_too_long_is_
+        // isolated_not_fatal` is where that is checked.
+        let evaluator = crate::CatalogProjection::evaluator_limits();
+        let name = "a".repeat(Limits::DEFAULT.max_text_bytes);
+        let generated = format!("catalog.{name}.component.property");
+        assert!(
+            generated.len() > evaluator.max_expression_bytes,
+            "if this ever stops holding, the isolation path above has no way to be reached"
+        );
+    }
+
+    #[test]
+    fn a_custom_binding_bound_is_clamped_rather_than_trusted() {
+        // The case a DEFAULT-to-DEFAULT comparison cannot see: a caller is
+        // free to declare more bindings than the evaluator can hold.
+        let generous = Limits {
+            max_bindings: usize::MAX,
+            ..Limits::DEFAULT
+        };
+        assert!(generous.max_bindings > crate::CatalogProjection::max_projectable_bindings());
+    }
 }
