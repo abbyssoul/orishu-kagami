@@ -34,10 +34,10 @@ class Contracts(unittest.TestCase):
         path.write_text(json.dumps(value))
         return lab.inventory(path)
 
-    def test_exact_three_or_five_unique_physical_targets(self):
-        for count in (3, 5):
+    def test_three_to_five_unique_physical_targets(self):
+        for count in (3, 4, 5):
             self.assertEqual(len(self.load(inventory(count))['nodes']), count)
-        for count in (0, 1, 2, 4, 6, 30):
+        for count in (0, 1, 2, 6, 30):
             with self.assertRaises(ValueError):
                 self.load(inventory(count))
 

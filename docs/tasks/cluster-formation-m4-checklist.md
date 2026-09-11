@@ -14,6 +14,44 @@ passes do not certify arbitrary later dirty-worktree changes.
 
 ## Decisions and execution gates
 
+- **Route-corrected Pi HTTPS comparison, 2026-09-11:** the
+  [six-window diagnostic](../measurements/formation-pi-ethernet-routing-2026-09-11.md)
+  peaks at 94.28k/sec with a 91.10k/sec 32-client repeat, no request errors and
+  independently clean shutdown. Temporary routes are restored. The per-worker
+  target remains unmet; this is not paired overhead acceptance. The
+  [interface-placement task](implement-worker-network-placement.md) is
+  prioritized PoC support, with ADR and one-interface-per-role scope first;
+  full multi-homing does not reopen historical formation acceptance.
+
+- **Sixteen workers on four Pis, 2026-09-11:** the operator-requested
+  [capacity diagnostic](../measurements/formation-pi-capacity-2026-09-11.md)
+  completed seven timed cells with unchanged workers, exact membership and
+  independently verified cleanup. Eight clients/worker produced 85.4k and
+  86.2k aggregate local-summary requests/sec; 32 clients reduced throughput.
+  Colocated probes consumed nearly half each host's CPU. This is a distinct
+  capacity/failure-mode result, not worker-only capacity, telemetry overhead,
+  a thirty-worker substitute or final M4 acceptance.
+
+- **Four-Pi timed pilot, 2026-09-11:** the operator-approved
+  [one-window pilot](../measurements/formation-pi-pilot-2026-09-11.md) completed
+  in 28.925 seconds with exact formation, 99.96–100% rate delivery, conditional
+  timing bounds met and independently verified cleanup. RX-drop counters rose
+  on all four hosts, so environment findings remain. This is one compiled-off
+  capacity/timing result, not a paired overhead comparison or M4 closure.
+
+- **Four-Pi probe checkpoint, 2026-09-11:** the
+  [native build and warmup](../measurements/formation-pi-probe-2026-09-11.md)
+  verify the separately staged updated probe, four-node formation/recovery and
+  exact local-target/global-membership validation on every node. No timed
+  window ran. Node-local sampling is implemented; distributed timing,
+  telemetry qualification, the physical reader and final M4 acceptance remain.
+
+- **Three-Pi correctness checkpoint, 2026-09-11:** the
+  [physical smoke](../measurements/formation-pi-smoke-2026-09-11.md) verifies
+  source-built ARM64 formation, lock/unlock, leave/rejoin and clean shutdown in
+  omitted/compiled-off/metrics modes. All loopback diagnostic routes pass in
+  metrics mode. This is not a timed overhead/trace-delivery result or M4 closure.
+
 - **Physical-host follow-up requested:** the operator permits moving to a real
   3/5-Raspberry-Pi experiment without waiting for local tuning to succeed.
   The approved governor experiment was **not run**: `sudo -n true` required

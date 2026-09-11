@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Validate a 3/5-Pi inventory and collect readiness over strict, key-only SSH.
+"""Validate a 3–5-Pi inventory and collect readiness over strict, key-only SSH.
 
-This does not deploy or run workers. No password, key or remote state is copied.
+Readiness is read-only. Smoke runs disposable workers; pilot explicitly starts
+one fixed-rate window with a supplied policy. Neither runs performance acceptance.
 """
 import argparse
 import hashlib
@@ -32,7 +33,7 @@ def inventory(path):
             and type(value['schema_version']) is int and value['schema_version'] == 1,
             'inventory schema')
     nodes = value['nodes']
-    require(isinstance(nodes, list) and len(nodes) in (3, 5), 'use exactly 3 or 5 physical nodes')
+    require(isinstance(nodes, list) and 3 <= len(nodes) <= 5, 'use 3 to 5 physical nodes')
     names, hosts, addresses = set(), set(), set()
     for node in nodes:
         require(isinstance(node, dict) and set(node) == {'name', 'ssh_host', 'peer_address', 'interface', 'root'}, 'node fields')
@@ -97,17 +98,54 @@ def collect(value, output, runner=bounded_command):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('validate', 'check'))
+    parser.add_argument('action', choices=('validate', 'check', 'clock-check', 'smoke', 'probe-preflight', 'pilot'))
     parser.add_argument('--inventory', required=True, type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--mode', choices=('omitted', 'compiled_off', 'metrics'), default='compiled_off')
+    parser.add_argument('--probe-sha256', help='Required hash of separately staged formation-telemetry-probe-node-v2')
+    parser.add_argument('--start-policy', type=Path, help='Clock-check only: explicit JSON limits for a non-executing start proposal')
+    parser.add_argument('--pilot-policy', type=Path, help='Pilot only: explicit clock policies and separate five-minute allowance; starts load')
     args = parser.parse_args()
     os.umask(0o077)
     try:
         value = inventory(args.inventory)
+        require(args.start_policy is None or args.action == 'clock-check', 'start-policy is only for clock-check proposals')
+        require(args.pilot_policy is None or args.action == 'pilot', 'pilot-policy is only for pilot execution')
         if args.action == 'validate':
             print(json.dumps({'valid': True, 'nodes': len(value['nodes']), 'ssh_contacted': False}))
             return 0
         require(args.output is not None, 'check requires a fresh --output directory')
+        if args.action == 'pilot':
+            require(args.pilot_policy is not None, 'pilot requires an explicit --pilot-policy file')
+            from pi_lab_session import decode
+            from pi_lab_experiment import pilot
+            with args.pilot_policy.open('rb') as source:
+                raw = source.read(4097)
+            require(len(raw) <= 4096, 'pilot policy byte cap')
+            result = pilot(value, args.output, decode(raw), args.probe_sha256, args.mode)
+            print(json.dumps(result))
+            return 0 if result['status'] == 'complete_unqualified' else 2
+        if args.action == 'clock-check':
+            require(args.probe_sha256 is None and args.mode == 'compiled_off', 'clock-check has no worker/probe mode')
+            from pi_lab_experiment import clock_check
+            policy = None
+            if args.start_policy is not None:
+                from pi_lab_session import decode
+                with args.start_policy.open('rb') as source:
+                    raw = source.read(4097)
+                require(len(raw) <= 4096, 'start policy byte cap')
+                policy = decode(raw)
+            result = clock_check(value, args.output, start_policy=policy)
+            print(json.dumps(result))
+            return 0 if result['status'] == 'complete_unqualified' and (policy is None or 'start_proposal' in result) else 2
+        if args.action in ('smoke', 'probe-preflight'):
+            require((args.action == 'smoke' and args.probe_sha256 is None)
+                    or (args.action == 'probe-preflight' and isinstance(args.probe_sha256, str)
+                        and re.fullmatch(r'[0-9a-f]{64}', args.probe_sha256)), 'probe-preflight requires an explicit SHA-256')
+            from pi_lab_experiment import smoke
+            result = smoke(value, args.output, args.mode, probe_sha256=args.probe_sha256)
+            print(json.dumps(result))
+            return 0 if result['status'] == 'complete' else 2
         result = collect(value, args.output)
         print(json.dumps(result))
         return 0 if result['all_infrastructure_ready'] else 2

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "max_elapsed_seconds": 300,
+  "start": {
+    "lead_ns": 8000000000,
+    "max_age_ns": 5000000000,
+    "max_round_trip_ns": 25000000,
+    "max_offset_width_ns": 25000000,
+    "max_wall_change_ns": 2000000,
+    "max_relative_drift_ppm": 500,
+    "max_start_uncertainty_ns": 25000000,
+    "max_local_start_lateness_ns": 10000000,
+    "max_pairwise_start_skew_ns": 60000000
+  },
+  "overlap": {
+    "max_round_trip_ns": 25000000,
+    "max_offset_width_ns": 25000000,
+    "max_wall_change_ns": 5000000,
+    "max_offset_change_ns": 20000000,
+    "max_collection_span_ns": 35000000000,
+    "max_pairwise_start_skew_ns": 80000000,
+    "min_common_window_ns": 9900000000,
+    "max_first_request_offset_ns": 20000000,
+    "min_last_completion_offset_ns": 9800000000
+  }
+}

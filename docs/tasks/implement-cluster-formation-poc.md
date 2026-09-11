@@ -154,11 +154,32 @@ not replace public ejection/exclusion or process-level fault acceptance.
 
 #### Open M4 work selection
 
-The operator subsequently requested the [physical 3/5-Pi experiment](implement-physical-formation-experiment.md)
+The operator subsequently requested the [physical 3–5-Pi experiment](implement-physical-formation-experiment.md)
 as a forward path independent of further local-host tuning. Its
 [setup guide and readiness scripts](../testing-worker-pi-cluster.md) are
-implemented; remote experiment control/measurement and real Pi verification
-remain planned. The approved governor diagnostic could not start because
+implemented. Three/four-Pi formation/recovery and ARM64 probe warmup now have
+[hardware evidence](../measurements/formation-pi-probe-2026-09-11.md);
+node-local sampling, clock-exchange evidence and a strict single-node result
+reader have local coverage. The [approved four-Pi timed pilot](../measurements/formation-pi-pilot-2026-09-11.md)
+now meets rate and conditional timing gates with verified cleanup, retaining
+host RX-drop findings. The later [sixteen-worker/four-Pi capacity diagnostic](../measurements/formation-pi-capacity-2026-09-11.md)
+completed seven timed cells, with highest observed aggregate local-summary
+throughput of 86.2k/sec and substantial colocated-generator CPU cost. The
+[off-host HTTPS extension](../measurements/formation-pi-network-capacity-2026-09-11.md)
+subsequently completed nine windows, peaking at 36.75k/sec through desktop
+Wi-Fi without request/membership failures; the 5,000/worker target was not met.
+The [executor-sizing review](review-worker-executor-performance.md) is planned
+after the PoC, not a new formation gate or an approved runtime policy change.
+This capacity work does
+not establish isolated worker capacity or waive M4 gates. Paired overhead
+qualification and the physical acceptance matrix remain unfinished.
+The [route-corrected HTTPS comparison](../measurements/formation-pi-ethernet-routing-2026-09-11.md)
+now completes six windows at up to 94.28k/sec with clean cleanup, while missing
+the per-worker target. The [network-placement follow-up](implement-worker-network-placement.md)
+is prioritized PoC support for peer/client interface and egress isolation;
+ADR and bounded single-interface implementation precede production multi-homing.
+This is additional support work, not a reopened historical N-FORMATION gate.
+The approved governor diagnostic could not start because
 non-interactive administrator authentication was unavailable; no host policy
 changed and no new performance result was produced. Continue the physical-host
 preparation rather than repeatedly blocking on that optional local diagnostic.

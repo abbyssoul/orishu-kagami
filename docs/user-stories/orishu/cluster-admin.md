@@ -49,6 +49,26 @@ Unless a story says otherwise, all stories in this document assume the following
 
 ## Node visibility
 
+### Inspect cluster network placement
+
+As an administrator, I want to distinguish each worker's internal peer paths
+from its management endpoints, so I can verify the cluster is using the
+intended networks and diagnose unexpected routing without changing membership.
+
+**Acceptance criteria:**
+
+- Read-only inspection distinguishes configured interfaces, resolved local
+  bindings and advertised endpoints; an address is not proof of egress device.
+- Interface loss or an unenforceable selection is visible, without secrets or
+  implying that a healthy listener guarantees cluster readiness.
+- Worker identity remains independent of interface names and addresses.
+- Operator manuals explain how to verify actual traffic paths and preserve
+  administrative access when peer networking fails.
+
+Status: **planned**, with the
+[worker placement story](worker-admin.md#separate-peer-and-client-network-interfaces)
+and [prioritized PoC support task](../../tasks/implement-worker-network-placement.md).
+
 ### Evaluate a formation on dedicated machines
 
 As an administrator, I want a bounded, reproducible experiment across real
@@ -71,7 +91,8 @@ identities and measured windows, including every failure and limitation.
 - A failed or noisy experiment is retained without automatic retries or a
   silently relaxed target. Three/five-node evidence does not certify thirty.
 
-This workflow is **planned**, not yet hardware-verified. See the
+This workflow is **partial**: three-Pi formation/recovery and loopback diagnostics
+are hardware-verified; distributed performance measurement remains planned. See the
 [physical-cluster task](../../tasks/implement-physical-formation-experiment.md)
 and its [preparation guide](../../testing-worker-pi-cluster.md).
 

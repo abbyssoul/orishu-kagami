@@ -60,7 +60,8 @@ starting a worker, modifying host policy or exporting credentials.
   separate verification status.
 
 The [Pi setup/readiness guide](../../testing-worker-pi-cluster.md) implements
-the scoped preparation workflow. Actual hardware and the complete experiment
+the scoped preparation workflow. A separate three-Pi formation/recovery smoke
+is now hardware-verified; measured performance and the complete experiment
 driver remain with the [physical-host task](../../tasks/implement-physical-formation-experiment.md).
 
 ### Install orishu-worker
@@ -149,6 +150,34 @@ In environments where multiple independent clusters coexist on the same network,
 
 
 ## Client access
+
+### Separate peer and client network interfaces
+
+As an administrator, I want to choose a list of internal interfaces for peer
+communication and a separate list for HTTP/client access, so cluster traffic
+and management exposure follow my deployment's network policy.
+
+**Given** interfaces available in the worker's network namespace and the
+platform's documented enforcement prerequisites
+**When** I configure explicit network placement
+**Then** listening, initial join, ongoing peer communication and client replies
+respect their selected role's interfaces, without silently using excluded ones.
+
+**Acceptance criteria:**
+
+- Peer and client selections are independent; sharing an interface is explicit.
+- Invalid or unenforceable selections fail clearly; interface loss does not
+  silently broaden exposure. Network placement never replaces TLS or authority.
+- I can inspect the bounded resolved bindings and understand the difference
+  between bind address, advertised endpoint and actual ingress/egress device.
+- Manuals cover bare metal, rootless containers and Kubernetes namespace
+  limitations, address changes, troubleshooting and recovery.
+- The initial PoC support slice may permit one selected interface per role;
+  bounded multi-interface lists and failover remain a separately verified slice.
+
+Status: **planned** in the [network-placement task](../../tasks/implement-worker-network-placement.md).
+Multiple client addresses and one peer address work today; interface enforcement
+does not. The task is prioritized to support physical-cluster isolation tests.
 
 ### Run a local and remotely accessible instance
 

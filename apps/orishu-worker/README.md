@@ -22,6 +22,26 @@ examples live in `etc/`; the root `Dockerfile` produces a non-root worker image.
 
 ## Identity and local inspection
 
+### Network placement: current limitations
+
+Client and peer addresses can be selected independently. `--listen.clients`
+is repeatable for TCP/Unix listeners; `--listen.peers` supports one literal
+socket address, with one optional `--advertise.peers` override. These are
+**address selectors, not interface allowlists or egress guarantees**. The OS
+routes replies, and initial peer admission uses a separate wildcard-bound
+outbound QUIC socket. Binding an Ethernet IP does not by itself exclude Wi-Fi.
+
+Named-interface selection, device-constrained traffic and multiple peer
+interfaces are [planned work](../../docs/tasks/implement-worker-network-placement.md),
+not current worker options. Until that work lands, operators must arrange and
+verify network placement through their deployment's routing/network namespace
+and firewall policy. Check routes from the actual bound source IP, not only
+destination reachability. Client TLS and peer mTLS remain separate; selecting
+an internal address does not replace authentication. Diagnostics retain their
+separate exposure policy.
+
+### Peer identity and admission
+
 Peer listening is opt-in with `--listen.peers 127.0.0.1:6655` or
 `ORISHU_LISTEN_PEERS`. The current PoC supports one literal IP/socket address.
 `--advertise.peers` / `ORISHU_ADVERTISE_PEERS` overrides its advertised address;

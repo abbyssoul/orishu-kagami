@@ -184,6 +184,7 @@ slices and acceptance criteria before implementation begins.
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
 | N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | **Accepted**, including the [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
 | N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Accepted for source-built Linux; combined M4 observability/operator handoff remains open | N-MEMBERSHIP; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
+| N-NETWORK-PLACEMENT | [Independent peer/client interface placement](../tasks/implement-worker-network-placement.md) | N/P | Prioritized PoC support: ADR and single-interface enforcement first; bounded multi-interface production slice later | Existing N-FORMATION IO shell; reviewed platform/configuration contract before implementation; not a reopened formation-acceptance gate |
 | N-CLUSTER | Fenced component-partition ownership, halo/channel exchange and distributed step commit over the proven formation transport | N/O | **Task specification required** | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD component graph; X-DIST-PROFILE candidate fixtures for scientific acceptance |
 | N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-FORMATION authenticated transport |
 | N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
@@ -770,8 +771,42 @@ while thirty-worker baseline noise keeps performance acceptance open.
 At the operator's request, the [physical Raspberry Pi experiment](../tasks/implement-physical-formation-experiment.md)
 provides the next hardware path: prepare 3/5 dedicated ARM64 nodes and real
 Ethernet peers, with source-built artifacts and bounded SSH coordination.
-Preparation/readiness tooling is implemented; the remote measurement driver
-and actual hardware evidence are not. This work can proceed without another
+Preparation/readiness and a [three-Pi formation/recovery smoke](../measurements/formation-pi-smoke-2026-09-11.md)
+are verified, including metrics/probe endpoints. The node-local load seam is
+implemented; the [updated ARM64 probe and four-Pi warmup](../measurements/formation-pi-probe-2026-09-11.md)
+now pass. The [approved four-Pi timed pilot](../measurements/formation-pi-pilot-2026-09-11.md)
+meets rate and conditional timing gates with verified cleanup, while retaining
+host RX-drop findings. A separate [sixteen-worker/four-Pi capacity sweep](../measurements/formation-pi-capacity-2026-09-11.md)
+now records a highest observed 86.2k aggregate local-summary requests/sec,
+with substantial colocated-generator CPU and no worker/host-policy change.
+This is not isolated worker capacity or overhead acceptance. Paired telemetry
+comparisons and the full remote acceptance matrix remain.
+The [post-PoC executor-sizing review](../tasks/review-worker-executor-performance.md)
+tracks the operator's scheduler/CPU-contention hypothesis, bounded runtime
+comparisons and subsequent operator documentation. It does not select a new
+thread policy or change the current M4 gate. Capacity load defaults to 5,000
+summary requests/sec **per worker**, independently configurable from acceptance
+traffic; sixteen workers offer 80,000/sec in aggregate.
+The subsequent [authenticated off-host run](../measurements/formation-pi-network-capacity-2026-09-11.md)
+completed nine windows with clean independent shutdown; its 36.75k/sec peak
+crossed the desktop's Wi-Fi route and did not meet the per-worker target.
+It is end-to-end capacity evidence, not an all-wired ceiling or overhead pass.
+The [wired-desktop follow-up](../measurements/formation-pi-wired-comparison-2026-09-11.md)
+reached 63.36k/sec, but stopped after four of six windows on four request
+errors. Three Pis still selected wireless return routes from their Ethernet
+server IPs. That run changed no Pi network policy or completion gate.
+The approved [temporary route correction](../measurements/formation-pi-ethernet-routing-2026-09-11.md)
+then completed all six windows, peaking at 94.28k/sec (32-client repeat
+91.10k/sec) with no request errors and near-full worker CPU use at peak.
+Original routes are restored. The per-worker rate target, earlier error cause,
+paired overhead and M4 gates remain open.
+The [worker network-placement task](../tasks/implement-worker-network-placement.md)
+is prioritized PoC support: first resolve the ADR and enforce one selected
+interface per peer/client role, including outbound join and reply paths; later
+extend to bounded multi-interface lists and failover. Address selection already
+exists, but interface enforcement does not. Full multi-homing is not a new
+historical formation-acceptance requirement.
+This work can proceed without another
 local-host tuning attempt. It does not replace thirty-worker evidence with a
 three/five-worker claim or change the M4 noise gate implicitly.
 A lost-ACK refusal or unresolved status alone is not a recovery procedure.

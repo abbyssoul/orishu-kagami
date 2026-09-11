@@ -48,6 +48,12 @@ passes the promotion gate below.
 
 ## Promotion gate
 
+The [network-placement task](implement-worker-network-placement.md) also owns
+a future bounded, secret-free inspection projection for requested/resolved
+peer and client bindings. Once its contract is accepted, add the corresponding
+read-only CLI/TUI view and manual guidance. Do not infer device enforcement
+from an advertised address or implement this against a nonexistent endpoint.
+
 Promote one bounded increment at a time. Before an increment becomes ready,
 every resource or mutation it consumes must have:
 

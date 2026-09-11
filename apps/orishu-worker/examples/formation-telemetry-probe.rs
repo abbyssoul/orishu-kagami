@@ -14,7 +14,7 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     sync::{Barrier, watch},
@@ -22,6 +22,8 @@ use tokio::{
     time::Instant,
 };
 
+#[path = "formation_telemetry/capacity.rs"]
+mod capacity;
 #[path = "formation_telemetry/collector.rs"]
 mod collector;
 #[path = "formation_telemetry/observer.rs"]
@@ -30,6 +32,44 @@ mod observer;
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const SAMPLE_CAP: usize = 500_000;
 const WINDOW: Duration = Duration::from_secs(10);
+
+/// The wall-clock read is bracketed by monotonic reads. Its associated
+/// Instant is the AFTER read, so its wall time lies in [unix, unix + bracket]
+/// only under the separately checked no-clock-step assumption.
+#[derive(Serialize)]
+struct ClockMark {
+    unix_ns: u64,
+    read_bracket_ns: u64,
+}
+
+impl ClockMark {
+    fn from_read(wall: SystemTime, bracket: Duration) -> Result<Self, Error> {
+        let unix_ns = u64::try_from(wall.duration_since(UNIX_EPOCH)?.as_nanos())?;
+        let read_bracket_ns = u64::try_from(bracket.as_nanos())?;
+        if unix_ns > i64::MAX as u64 || read_bracket_ns > i64::MAX as u64 {
+            return Err("probe clock mark exceeds signed nanosecond bound".into());
+        }
+        Ok(Self {
+            unix_ns,
+            read_bracket_ns,
+        })
+    }
+
+    fn capture() -> Result<(Instant, Self), Error> {
+        let before = Instant::now();
+        let wall = SystemTime::now();
+        let after = Instant::now();
+        Ok((after, Self::from_read(wall, after.duration_since(before))?))
+    }
+}
+
+#[derive(Serialize)]
+struct PhysicalActivity {
+    client_index: usize,
+    timed_requests: usize,
+    first_request_offset_ns: Option<u64>,
+    last_timed_completion_offset_ns: Option<u64>,
+}
 
 #[derive(Parser)]
 struct Args {
@@ -46,6 +86,12 @@ enum Mode {
         #[arg(long)]
         fixed_rate: bool,
     },
+    /// One local target in a physical 3–5-node formation; fixed-rate pilot only.
+    LoadNode { config: PathBuf },
+    /// Four local workers in a sixteen-worker physical capacity diagnostic.
+    Capacity { config: PathBuf },
+    /// Four authenticated HTTPS targets, driven off-host; same bounded workload.
+    CapacityNetwork { config: PathBuf },
     /// Bounded loopback protobuf receiver; print final receipt on SIGTERM.
     Collect { workers: usize },
     /// Diagnostic only: bounded stdin queries over persistent public clients.
@@ -58,6 +104,31 @@ struct Target {
     socket: PathBuf,
     formation: FormationId,
     node: NodeId,
+}
+
+/// Explicitly separates the local IO target from the global membership size.
+/// This is a tooling profile, not an extension to the worker protocol.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NodeLoad {
+    schema_version: u32,
+    workers: usize,
+    role: usize,
+    target: Target,
+}
+
+impl NodeLoad {
+    fn validate(&self) -> Result<(), Error> {
+        if self.schema_version != 2
+            || !(3..=5).contains(&self.workers)
+            || self.role >= self.workers
+            || !self.target.socket.is_absolute()
+            || self.target.socket.as_os_str().len() > 100
+        {
+            return Err("invalid physical node-load profile".into());
+        }
+        Ok(())
+    }
 }
 
 fn validate(view: &Summary, target: &Target, workers: usize) -> Result<(), Error> {
@@ -99,6 +170,7 @@ struct Samples {
     scheduled_latency: Vec<u64>,
     scheduling_delay: Vec<u64>,
     skipped_arrivals: usize,
+    activity: Option<PhysicalActivity>,
 }
 
 /// Absolute, phase-staggered arrivals with no queue or replay of missed slots.
@@ -127,13 +199,14 @@ impl ArrivalPlan {
     }
 }
 
-async fn client(
+async fn client<const PHYSICAL: bool>(
     target: Target,
     role: usize,
     workers: usize,
     ready: Arc<Barrier>,
     mut start: watch::Receiver<Option<Instant>>,
     plan: Option<ArrivalPlan>,
+    client_index: usize,
 ) -> Result<Samples, Error> {
     let client = HttpClusterClient::new(
         ClusterAddress::UnixSocket(target.socket.clone()),
@@ -164,6 +237,12 @@ async fn client(
     let mut capped = false;
     let mut slot = 0;
     let mut skipped_arrivals = 0;
+    let mut activity = PhysicalActivity {
+        client_index,
+        timed_requests: 0,
+        first_request_offset_ns: None,
+        last_timed_completion_offset_ns: None,
+    };
     while Instant::now() < end {
         let due = if let Some(plan) = plan {
             if slot == ArrivalPlan::SLOTS {
@@ -187,10 +266,18 @@ async fn client(
             break;
         }
         let request = Instant::now();
+        if PHYSICAL && activity.first_request_offset_ns.is_none() {
+            activity.first_request_offset_ns =
+                Some(request.duration_since(started).as_nanos().try_into()?);
+        }
         let view = client.cluster().summary().await?;
         let completed = Instant::now();
         validate(&view, &target, workers)?;
         if completed <= end {
+            if PHYSICAL {
+                activity.last_timed_completion_offset_ns =
+                    Some(completed.duration_since(started).as_nanos().try_into()?);
+            }
             latency.push(completed.duration_since(request).as_nanos().try_into()?);
             if let Some(due) = due {
                 scheduled_latency.push(completed.duration_since(due).as_nanos().try_into()?);
@@ -203,6 +290,7 @@ async fn client(
     if plan.is_some() {
         skipped_arrivals += ArrivalPlan::SLOTS - slot;
     }
+    activity.timed_requests = latency.len();
     Ok(Samples {
         role,
         latency,
@@ -211,10 +299,11 @@ async fn client(
         scheduled_latency,
         scheduling_delay,
         skipped_arrivals,
+        activity: PHYSICAL.then_some(activity),
     })
 }
 
-async fn load(path: PathBuf, fixed_rate: bool) -> Result<(), Error> {
+fn read_load_config(path: PathBuf) -> Result<Vec<u8>, Error> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)?
         .take(32769)
@@ -222,24 +311,63 @@ async fn load(path: PathBuf, fixed_rate: bool) -> Result<(), Error> {
     if bytes.len() > 32768 {
         return Err("load configuration exceeds byte cap".into());
     }
+    Ok(bytes)
+}
+
+async fn load(path: PathBuf, fixed_rate: bool) -> Result<(), Error> {
+    let bytes = read_load_config(path)?;
     let targets: Vec<Target> = serde_json::from_slice(&bytes)?;
     if !matches!(targets.len(), 3 | 10 | 30) {
         return Err("unsupported worker count".into());
     }
     let workers = targets.len();
-    let ready = Arc::new(Barrier::new(2 * workers + 1));
+    run_load(targets, workers, 0, fixed_rate, false).await
+}
+
+async fn load_node(path: PathBuf) -> Result<(), Error> {
+    let config: NodeLoad = serde_json::from_slice(&read_load_config(path)?)?;
+    config.validate()?;
+    run_load(vec![config.target], config.workers, config.role, true, true).await
+}
+
+async fn run_load(
+    targets: Vec<Target>,
+    workers: usize,
+    first_role: usize,
+    fixed_rate: bool,
+    physical: bool,
+) -> Result<(), Error> {
+    let local_count = targets.len();
+    let ready = Arc::new(Barrier::new(2 * local_count + 1));
     let (start, signal) = watch::channel(None);
     let mut tasks = JoinSet::new();
-    for (role, target) in targets.into_iter().enumerate() {
+    for (index, target) in targets.into_iter().enumerate() {
+        let role = first_role + index;
         for client_index in 0..2 {
-            tasks.spawn(client(
-                target.clone(),
-                role,
-                workers,
-                ready.clone(),
-                signal.clone(),
-                fixed_rate.then(|| ArrivalPlan::new(2 * role + client_index, 2 * workers)),
-            ));
+            let plan = fixed_rate.then(|| ArrivalPlan::new(2 * role + client_index, 2 * workers));
+            // Const specialization removes physical activity tracking from the
+            // legacy client loop; both profiles retain the same arrival logic.
+            if physical {
+                tasks.spawn(client::<true>(
+                    target.clone(),
+                    role,
+                    workers,
+                    ready.clone(),
+                    signal.clone(),
+                    plan,
+                    client_index,
+                ));
+            } else {
+                tasks.spawn(client::<false>(
+                    target.clone(),
+                    role,
+                    workers,
+                    ready.clone(),
+                    signal.clone(),
+                    plan,
+                    client_index,
+                ));
+            }
         }
     }
     // A failed warmup must not strand the barrier until the outer deadline.
@@ -254,21 +382,27 @@ async fn load(path: PathBuf, fixed_rate: bool) -> Result<(), Error> {
     std::io::stdout().flush()?;
     // Outside the measured region, and guarded by the runner's process deadline.
     std::io::stdin().read_exact(&mut [0_u8; 1])?;
-    let started = Instant::now();
+    let (started, start_mark) = if physical {
+        let (instant, mark) = ClockMark::capture()?;
+        (instant, Some(mark))
+    } else {
+        (Instant::now(), None)
+    };
     start.send(Some(started))?;
     tokio::time::sleep_until(started + WINDOW).await;
+    let end_mark = physical.then(ClockMark::capture).transpose()?;
     println!("END");
     std::io::stdout().flush()?;
     // Keep /proc available until the runner has taken its end sample. No
     // percentile sorting or report encoding may contaminate that CPU bracket.
     std::io::stdin().read_exact(&mut [0_u8; 1])?;
     // Preserve tail completions separately, never inflate timed throughput.
-    let mut results = Vec::with_capacity(workers * 2);
+    let mut results = Vec::with_capacity(local_count * 2);
     while let Some(result) = tasks.join_next().await {
         results.push(result??);
     }
-    let mut rows = Vec::with_capacity(workers);
-    for role in 0..workers {
+    let mut rows = Vec::with_capacity(local_count);
+    for role in first_role..first_role + local_count {
         let mut matching = results.iter_mut().filter(|result| result.role == role);
         let first = matching.next().ok_or("missing first client")?;
         let second = matching.next().ok_or("missing second client")?;
@@ -279,6 +413,20 @@ async fn load(path: PathBuf, fixed_rate: bool) -> Result<(), Error> {
         first.latency.append(&mut second.latency);
         let mut row = serde_json::json!({"role": role, "latency": summarize(&mut first.latency),
             "capped": capped, "tail_requests": tail_requests});
+        if physical {
+            let mut activity = [
+                first
+                    .activity
+                    .as_ref()
+                    .ok_or("missing first client activity")?,
+                second
+                    .activity
+                    .as_ref()
+                    .ok_or("missing second client activity")?,
+            ];
+            activity.sort_by_key(|value| value.client_index);
+            row["activity"] = serde_json::to_value(activity)?;
+        }
         if fixed_rate {
             first
                 .scheduled_latency
@@ -292,12 +440,22 @@ async fn load(path: PathBuf, fixed_rate: bool) -> Result<(), Error> {
         }
         rows.push(row);
     }
-    println!(
-        "{}",
-        serde_json::json!({"schema_version": if fixed_rate { 3 } else { 2 },
+    let mut report = serde_json::json!({"schema_version": if fixed_rate { 3 } else { 2 },
             "arrival_profile": if fixed_rate { "fixed_500_per_worker_v1" } else { "saturation_v2" },
-            "seconds": WINDOW.as_secs(), "workers": rows})
-    );
+            "seconds": WINDOW.as_secs(), "workers": rows});
+    if physical {
+        report["schema_version"] = 5.into();
+        report["arrival_profile"] = "fixed_500_per_worker_physical_pilot_v2".into();
+        report["global_workers"] = workers.into();
+        let (ended, end_mark) = end_mark.ok_or("missing physical end clock")?;
+        report["timing"] = serde_json::json!({
+            "window_ns": u64::try_from(WINDOW.as_nanos())?,
+            "start": start_mark.ok_or("missing physical start clock")?,
+            "end_marker": end_mark,
+            "end_marker_elapsed_ns": u64::try_from(ended.duration_since(started).as_nanos())?,
+        });
+    }
+    println!("{report}");
     Ok(())
 }
 
@@ -309,6 +467,9 @@ async fn main() -> Result<(), Error> {
     tokio::time::timeout(Duration::from_secs(180), async {
         match Args::parse().command {
             Mode::Load { config, fixed_rate } => load(config, fixed_rate).await,
+            Mode::LoadNode { config } => load_node(config).await,
+            Mode::Capacity { config } => capacity::run(config).await,
+            Mode::CapacityNetwork { config } => capacity::run_network(config).await,
             Mode::Collect { workers } => collector::run(workers).await,
             Mode::Observe { root, workers } => observer::run(root, workers).await,
         }
@@ -320,8 +481,90 @@ async fn main() -> Result<(), Error> {
 mod tests {
     use super::*;
     #[test]
+    fn physical_clock_marks_preserve_capture_bounds_and_reject_unrepresentable_time() {
+        let mark = ClockMark::from_read(
+            UNIX_EPOCH + Duration::from_nanos(1234),
+            Duration::from_nanos(7),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(mark).unwrap(),
+            serde_json::json!({"unix_ns": 1234, "read_bracket_ns": 7})
+        );
+        assert!(
+            ClockMark::from_read(UNIX_EPOCH - Duration::from_nanos(1), Duration::ZERO).is_err()
+        );
+        assert!(ClockMark::from_read(UNIX_EPOCH, Duration::from_secs(u64::MAX)).is_err());
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (_, mark) = ClockMark::capture().unwrap();
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        assert!((before..=after).contains(&u128::from(mark.unix_ns)));
+    }
+
+    #[test]
+    fn physical_activity_receipt_keeps_client_identity_and_missing_activity() {
+        let value = PhysicalActivity {
+            client_index: 1,
+            timed_requests: 0,
+            first_request_offset_ns: None,
+            last_timed_completion_offset_ns: None,
+        };
+        assert_eq!(
+            serde_json::to_value(value).unwrap(),
+            serde_json::json!({"client_index": 1,
+            "timed_requests": 0, "first_request_offset_ns": null, "last_timed_completion_offset_ns": null})
+        );
+    }
+
+    #[test]
+    fn physical_profile_separates_one_local_target_from_global_membership() {
+        let source = serde_json::json!({"schema_version": 2, "workers": 3, "role": 2,
+            "target": {"socket": "/tmp/pi/api.sock", "formation": "formation", "node": "node"}});
+        for count in [3, 4, 5] {
+            let mut value = source.clone();
+            value["workers"] = count.into();
+            value["role"] = (count - 1).into();
+            serde_json::from_value::<NodeLoad>(value)
+                .unwrap()
+                .validate()
+                .unwrap();
+        }
+        for (field, value) in [
+            ("schema_version", 1),
+            ("workers", 1),
+            ("workers", 6),
+            ("workers", 30),
+            ("role", 3),
+        ] {
+            let mut invalid = source.clone();
+            invalid[field] = value.into();
+            assert!(
+                serde_json::from_value::<NodeLoad>(invalid)
+                    .unwrap()
+                    .validate()
+                    .is_err()
+            );
+        }
+        let mut invalid = source;
+        invalid["target"]["socket"] = "relative.sock".into();
+        assert!(
+            serde_json::from_value::<NodeLoad>(invalid.clone())
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        invalid["extra"] = true.into();
+        assert!(serde_json::from_value::<NodeLoad>(invalid).is_err());
+    }
+    #[test]
     fn arrival_plan_staggers_bounds_and_skips_without_catchup() {
-        for clients in [6, 20, 60] {
+        for clients in [6, 10, 20, 60] {
             for index in 0..clients {
                 let plan = ArrivalPlan::new(index, clients);
                 assert!(plan.due(ArrivalPlan::SLOTS - 1) < WINDOW);
