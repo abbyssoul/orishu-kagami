@@ -18,6 +18,7 @@ struct NetworkTarget {
 #[serde(deny_unknown_fields)]
 struct NetworkConfig {
     schema_version: u32,
+    global_workers: Option<usize>,
     first_role: usize,
     targets: Vec<NetworkTarget>,
     clients_per_worker: usize,
@@ -26,7 +27,10 @@ struct NetworkConfig {
 
 impl NetworkConfig {
     fn local_shape(&self) -> Result<Config, Error> {
-        if self.schema_version != 2 || self.targets.len() != 4 {
+        if !matches!(self.schema_version, 2..=4)
+            || (self.schema_version == 2 && self.global_workers.is_some())
+            || (self.schema_version >= 3 && self.global_workers.is_none())
+        {
             return Err("invalid network capacity profile".into());
         }
         for (index, target) in self.targets.iter().enumerate() {
@@ -43,7 +47,8 @@ impl NetworkConfig {
             }
         }
         let config = Config {
-            schema_version: 1,
+            schema_version: self.schema_version - 1,
+            global_workers: self.global_workers,
             first_role: self.first_role,
             // Only the existing summary validator consumes these identities;
             // network clients below never open these synthetic socket paths.
@@ -69,7 +74,7 @@ pub(super) async fn run_network(path: PathBuf) -> Result<(), Error> {
     use orishu::client::Credentials;
     let network: NetworkConfig = serde_json::from_slice(&read_load_config(path)?)?;
     let config = network.local_shape()?;
-    let mut clients = Vec::with_capacity(4 * config.clients_per_worker);
+    let mut clients = Vec::with_capacity(config.targets.len() * config.clients_per_worker);
     for target in network.targets {
         // This private lab profile accepts files, never credential argv/env.
         use std::os::unix::fs::PermissionsExt;
@@ -107,6 +112,7 @@ pub(super) async fn run_network(path: PathBuf) -> Result<(), Error> {
 #[serde(deny_unknown_fields)]
 struct Config {
     schema_version: u32,
+    global_workers: Option<usize>,
     first_role: usize,
     targets: Vec<Target>,
     clients_per_worker: usize,
@@ -115,10 +121,23 @@ struct Config {
 }
 
 impl Config {
+    fn total(&self) -> usize {
+        self.global_workers.unwrap_or(16)
+    }
+
     fn validate(&self) -> Result<(), Error> {
-        if self.schema_version != 1
-            || !matches!(self.first_role, 0 | 4 | 8 | 12)
-            || self.targets.len() != 4
+        let local = self.targets.len();
+        let shape = match self.schema_version {
+            1 => self.global_workers.is_none() && local == 4,
+            2 | 3 => self.global_workers.is_some() && matches!(local, 1 | 4),
+            _ => false,
+        };
+        if !shape
+            || !(3..=20).contains(&self.total())
+            || !self.total().is_multiple_of(local)
+            || !(3..=5).contains(&(self.total() / local))
+            || !self.first_role.is_multiple_of(local)
+            || self.first_role >= self.total()
             || !matches!(self.clients_per_worker, 2 | 8 | 32 | 64)
             || self
                 .rate_per_worker
@@ -174,6 +193,61 @@ impl Plan {
     }
 }
 
+/// Fixed categories only: never serialize an error's hostile message or URL.
+fn error_category(error: &orishu::client::ClientError) -> (&'static str, Option<u16>) {
+    use orishu::client::ClientError;
+    match error {
+        ClientError::DataSerialization(_) => ("serialization", None),
+        ClientError::ConnectionFailed(_) => ("connection", None),
+        ClientError::TransportError(message) => {
+            if let Some(status) = message
+                .strip_prefix("empty response body with status ")
+                .and_then(|s| s.parse::<u16>().ok())
+                .filter(|s| (100..=599).contains(s))
+            {
+                ("transport_empty_body", Some(status))
+            } else if message.starts_with("failed to deserialize response body: ") {
+                ("transport_body_decode", None)
+            } else if message.starts_with("failed to read response body: ") {
+                ("transport_body_read", None)
+            } else {
+                ("transport_other", None)
+            }
+        }
+        ClientError::AuthenticationRequired => ("authentication", None),
+        ClientError::AuthorizationDenied => ("authorization", None),
+        ClientError::ResourceNotFound(_) => ("not_found", None),
+        ClientError::UnexpectedResponseType(_) => ("unexpected_response", None),
+        ClientError::ApiError { status, .. } => ("api", Some(*status)),
+        ClientError::InvalidState(_) => ("invalid_state", None),
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ErrorSample {
+    kind: &'static str,
+    /// ClientError status; 0 or non-HTTP values remain possible in this API.
+    status: Option<u16>,
+    request_started_us: u64,
+    completed_us: u64,
+    duration_us: u64,
+    after_window: bool,
+}
+
+fn error_details(samples: &[ErrorSample]) -> serde_json::Value {
+    let mut counts = std::collections::BTreeMap::new();
+    for sample in samples {
+        *counts
+            .entry((sample.kind, sample.status))
+            .or_insert(0_usize) += 1;
+    }
+    serde_json::json!({
+        "counts": counts.into_iter().map(|((kind, status), count)|
+            serde_json::json!({"kind":kind,"status":status,"count":count})).collect::<Vec<_>>(),
+        "first": samples.iter().min_by_key(|s| s.completed_us),
+    })
+}
+
 struct ResultRow {
     role: usize,
     latency: Vec<u64>,
@@ -183,12 +257,14 @@ struct ResultRow {
     errors: usize,
     invalid: usize,
     capped: bool,
+    error: Option<ErrorSample>,
 }
 
 struct ClientRun {
     client: HttpClusterClient,
     target: Target,
     role: usize,
+    global_workers: usize,
     cap: usize,
     plan: Option<Plan>,
     ready: Arc<Barrier>,
@@ -206,9 +282,14 @@ async fn drive(mut run: ClientRun) -> Result<ResultRow, Error> {
         errors: 0,
         invalid: 0,
         capped: false,
+        error: None,
     };
     for _ in 0..16 {
-        validate(&client.cluster().summary().await?, &run.target, 16)?;
+        validate(
+            &client.cluster().summary().await?,
+            &run.target,
+            run.global_workers,
+        )?;
     }
     run.ready.wait().await;
     run.start.changed().await?;
@@ -241,11 +322,22 @@ async fn drive(mut run: ClientRun) -> Result<ResultRow, Error> {
         let response = client.cluster().summary().await;
         let completed = Instant::now();
         match response {
-            Err(_) => {
+            Err(error) => {
                 row.errors += 1;
+                let (kind, status) = error_category(&error);
+                let request_started_us = request.duration_since(started).as_micros().try_into()?;
+                let completed_us = completed.duration_since(started).as_micros().try_into()?;
+                row.error = Some(ErrorSample {
+                    kind,
+                    status,
+                    request_started_us,
+                    completed_us,
+                    duration_us: completed_us - request_started_us,
+                    after_window: completed > end,
+                });
                 break;
             }
-            Ok(view) if validate(&view, &run.target, 16).is_err() => {
+            Ok(view) if validate(&view, &run.target, run.global_workers).is_err() => {
                 row.invalid += 1;
                 break;
             }
@@ -278,7 +370,9 @@ async fn run_clients(
     clients: Vec<HttpClusterClient>,
     network: bool,
 ) -> Result<(), Error> {
-    let ready = Arc::new(Barrier::new(4 * config.clients_per_worker + 1));
+    let ready = Arc::new(Barrier::new(
+        config.targets.len() * config.clients_per_worker + 1,
+    ));
     let (start, signal) = watch::channel(None);
     let mut tasks = JoinSet::new();
     // ClientBuilder does synchronous setup. Finish ALL construction before
@@ -296,6 +390,7 @@ async fn run_clients(
                 client: clients.next().ok_or("missing constructed client")?,
                 target: target.clone(),
                 role: config.first_role + index,
+                global_workers: config.total(),
                 cap: plan.map_or(PER_WORKER_CAP / config.clients_per_worker, Plan::slots),
                 plan,
                 ready: ready.clone(),
@@ -320,12 +415,12 @@ async fn run_clients(
     println!("END");
     std::io::stdout().flush()?;
     std::io::stdin().read_exact(&mut [0_u8; 1])?;
-    let mut results = Vec::with_capacity(4 * config.clients_per_worker);
+    let mut results = Vec::with_capacity(config.targets.len() * config.clients_per_worker);
     while let Some(result) = tasks.join_next().await {
         results.push(result??);
     }
-    let mut workers = Vec::with_capacity(4);
-    for role in config.first_role..config.first_role + 4 {
+    let mut workers = Vec::with_capacity(config.targets.len());
+    for role in config.first_role..config.first_role + config.targets.len() {
         let mut latency = Vec::new();
         let mut delay = Vec::new();
         let (mut skipped, mut tail, mut errors, mut invalid, mut capped) = (0, 0, 0, 0, false);
@@ -338,18 +433,27 @@ async fn run_clients(
             invalid += row.invalid;
             capped |= row.capped;
         }
-        workers.push(serde_json::json!({
+        let mut worker = serde_json::json!({
             "role": role, "latency": summarize(&mut latency), "scheduling_delay": summarize(&mut delay),
             "scheduled_arrivals": config.rate_per_worker.map(|rate| rate * 10),
             "skipped_arrivals": skipped, "tail_requests": tail,
             "transport_errors": errors, "invalid_responses": invalid, "capped": capped,
-        }));
+        });
+        if config.schema_version == 3 {
+            let samples = results
+                .iter()
+                .filter(|r| r.role == role)
+                .filter_map(|r| r.error.clone())
+                .collect::<Vec<_>>();
+            worker["client_error_details"] = error_details(&samples);
+        }
+        workers.push(worker);
     }
     println!(
         "{}",
         serde_json::json!({
-            "schema_version": if network { 2 } else { 1 },
-            "kind": if network { "pi-network-capacity-load" } else { "pi-capacity-load" }, "global_workers": 16,
+            "schema_version": config.schema_version + u32::from(network),
+            "kind": if network { "pi-network-capacity-load" } else { "pi-capacity-load" }, "global_workers": config.total(),
             "first_role": config.first_role, "clients_per_worker": config.clients_per_worker,
             "rate_per_worker": config.rate_per_worker, "seconds": 10, "workers": workers,
             "start": start_mark, "end_marker": end_mark,
@@ -361,7 +465,7 @@ async fn run_clients(
 
 fn build_clients(config: &Config) -> Result<Vec<HttpClusterClient>, Error> {
     config.validate()?;
-    let mut clients = Vec::with_capacity(4 * config.clients_per_worker);
+    let mut clients = Vec::with_capacity(config.targets.len() * config.clients_per_worker);
     for target in &config.targets {
         for _ in 0..config.clients_per_worker {
             clients.push(HttpClusterClient::new(
@@ -379,6 +483,134 @@ fn build_clients(config: &Config) -> Result<Vec<HttpClusterClient>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_receipts_are_bounded_categories_without_hostile_text() {
+        use orishu::client::ClientError;
+        let (kind, status) = error_category(&ClientError::ApiError {
+            status: 503,
+            message: "SECRET http://private/".into(),
+        });
+        let later = ErrorSample {
+            kind,
+            status,
+            request_started_us: 100,
+            completed_us: 200,
+            duration_us: 100,
+            after_window: false,
+        };
+        let earlier = ErrorSample {
+            completed_us: 150,
+            duration_us: 50,
+            ..later.clone()
+        };
+        let value = error_details(&[later, earlier]);
+        assert_eq!(value["counts"][0]["count"], 2);
+        assert_eq!(value["first"]["completed_us"], 150);
+        assert!(!value.to_string().contains("SECRET"));
+        assert!(!value.to_string().contains("private"));
+        assert_eq!(
+            error_details(&[]),
+            serde_json::json!({"counts":[],"first":null})
+        );
+        assert_eq!(
+            error_category(&ClientError::TransportError(
+                "empty response body with status 999 SECRET".into()
+            )),
+            ("transport_other", None)
+        );
+        assert_eq!(
+            error_category(&ClientError::TransportError(
+                "failed to deserialize response body: SECRET".into()
+            )),
+            ("transport_body_decode", None)
+        );
+        assert_eq!(
+            error_category(&ClientError::ConnectionFailed("SECRET".into())),
+            ("connection", None)
+        );
+    }
+
+    #[tokio::test]
+    async fn classifies_empty_503_through_the_real_http_client() {
+        use std::os::unix::net::UnixListener;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("api.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut request = [0_u8; 8192];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let client = HttpClusterClient::new(
+            ClusterAddress::UnixSocket(path),
+            HttClientOptions {
+                timeout: Some(Duration::from_secs(2)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let error = client.cluster().summary().await.err().unwrap();
+        server.join().unwrap();
+        assert_eq!(error_category(&error), ("transport_empty_body", Some(503)));
+    }
+
+    #[test]
+    fn versioned_profiles_bound_hosts_workers_and_global_identity() {
+        for local in [1, 4] {
+            for hosts in [3, 4, 5] {
+                let targets = (0..local)
+                    .map(|slot| {
+                        serde_json::json!({
+                            "endpoint": format!("192.0.2.11:{}", 9440 + slot),
+                            "formation": "formation", "node": format!("node-{slot}"),
+                            "certificate": "/tmp/cert", "token_file": "/tmp/token"
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                let value = serde_json::json!({"schema_version": 3,
+                    "global_workers": hosts * local, "first_role": (hosts - 1) * local,
+                    "targets": targets, "clients_per_worker": 32, "rate_per_worker": 5000});
+                let config = serde_json::from_value::<NetworkConfig>(value.clone())
+                    .unwrap()
+                    .local_shape()
+                    .unwrap();
+                assert_eq!(config.total(), hosts * local);
+                let mut detailed = value.clone();
+                detailed["schema_version"] = 4.into();
+                assert_eq!(
+                    serde_json::from_value::<NetworkConfig>(detailed)
+                        .unwrap()
+                        .local_shape()
+                        .unwrap()
+                        .schema_version,
+                    3
+                );
+                for total in [0, 2, 21, usize::MAX] {
+                    let mut bad = value.clone();
+                    bad["global_workers"] = total.into();
+                    assert!(
+                        serde_json::from_value::<NetworkConfig>(bad)
+                            .unwrap()
+                            .local_shape()
+                            .is_err()
+                    );
+                }
+                let mut old = value;
+                old["schema_version"] = 2.into();
+                assert!(
+                    serde_json::from_value::<NetworkConfig>(old)
+                        .unwrap()
+                        .local_shape()
+                        .is_err()
+                );
+            }
+        }
+    }
 
     #[test]
     fn network_profile_rejects_bad_versions_duplicates_and_unbounded_endpoints() {
@@ -448,6 +680,7 @@ mod tests {
     fn profile_rejects_wrong_topology_before_clients_are_created() {
         let config = Config {
             schema_version: 1,
+            global_workers: None,
             first_role: 0,
             targets: vec![],
             clients_per_worker: 32,

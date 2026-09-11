@@ -1,7 +1,8 @@
 # Implement the physical Raspberry Pi formation experiment
 
-Status: **partial; four-Pi pilot and sixteen-worker Unix/HTTPS capacity diagnostics executed;
-host-network findings and paired telemetry/acceptance matrix open**.
+Status: **partial; five-Pi placed recovery passed; five-/twenty-worker capacity
+recorded with a client-error stop; classification, executor comparisons and
+paired telemetry matrix open**.
 Owner: N-FORMATION/P-OBSERVABILITY physical-host evidence, with P-SCALE reuse.
 
 Post-M4 target: **early M5** for the new worker-placement hardware recheck and
@@ -19,6 +20,28 @@ Requested by the operator on 2026-09-10 after the
 Operator guide: [three-to-five-Pi setup](../testing-worker-pi-cluster.md).
 
 ## Outcome and current gap
+
+Latest post-M4 evidence: the [five-Pi round](../measurements/formation-post-m4-five-pi-plan.md)
+passed metrics/compiled-off placed formation and leave/rejoin after an approved
+temporary ARP correction, subsequently restored. One worker per host met the
+5,000/sec per-worker delivery gate; four per host did not. The twenty-worker
+64-client window stopped on 57 client errors on two workers on one Ubuntu Pi 4,
+after a regression-tested sampler-start fix resolved a separate timing failure.
+All attempts and independent cleanup are retained; no executor comparisons ran.
+
+Delivered follow-up: [bounded error classification and one diagnostic](../measurements/formation-pi-client-errors-2026-09-11.md).
+Network schema 4 retains capped category/status counts and first-error timing,
+without raw credentials, endpoints or unbounded strings; aggregate accounting
+and stop rules remain. Malformed fields/counts/statuses/timing and legacy
+handling are tested. The approved single 32/64-client pair completed at
+101.8k/100.1k requests/sec with no client errors, so the original 57 errors did
+not reproduce and remain unexplained. Coordinator busy fraction and generator
+scheduler wait were substantially lower; probe-build identity also changed.
+All settings and children cleaned up. Next select a controlled diagnostic of
+coordinator contention/CPU conditions and probe identity before attributing
+errors or throughput to workers. Do not infer CPU-induced timeout from high CPU,
+or hide a failed window by retrying. Executor comparisons still require an
+explicit disposition of the original finding. M4 acceptance remains unchanged.
 
 An operator prepares three to five dedicated ARM64 Pis, gives the coordinator
 normal key-authenticated SSH access, and runs a bounded, reproducible real-peer

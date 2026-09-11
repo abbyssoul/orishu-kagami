@@ -73,6 +73,14 @@ This does not reopen historical N-FORMATION acceptance or close M4 overhead.
 
 ## Delivered increment: one interface per role — 2026-09-11
 
+Physical follow-up: the [five-Pi round](../measurements/formation-post-m4-five-pi-plan.md)
+now passes placed formation/leave-rejoin, metrics/probes and authenticated HTTPS
+checks with Ethernet and Wi-Fi active, after a separately approved temporary
+ARP correction. Original host settings are restored. Socket/counter and UDP
+ingress evidence supports Ethernet placement; physical interface-loss/failover
+and multi-interface qualification remain open. A twenty-worker client-error
+stop belongs to the physical diagnostic, not a silently accepted capacity pass.
+
 Slice 1 is recorded as [ADR 0026](../adr/0026-worker-network-interface-placement.md).
 It compares address selection, OS routes, per-socket device binding and
 deployment-owned namespaces, and selects `SO_BINDTODEVICE` for the PoC: it

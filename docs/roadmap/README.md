@@ -184,7 +184,7 @@ slices and acceptance criteria before implementation begins.
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
 | N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | **Accepted**, including the [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
 | N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Accepted for source-built Linux, including combined M4 observability/operator handoff at the final checkpoint | N-MEMBERSHIP; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
-| N-NETWORK-PLACEMENT | [Independent peer/client interface placement](../tasks/implement-worker-network-placement.md) | N/P | Slices 1-2 delivered: [ADR 0026](../adr/0026-worker-network-interface-placement.md) and one enforced interface per role on Linux; [namespace wire proof verified](../measurements/worker-network-placement-2026-09-11.md); physical Pi revalidation and multi-interface production slice later | Existing N-FORMATION IO shell; reviewed platform/configuration contract before implementation; not a reopened formation-acceptance gate |
+| N-NETWORK-PLACEMENT | [Independent peer/client interface placement](../tasks/implement-worker-network-placement.md) | N/P | Slices 1-2 delivered: [ADR 0026](../adr/0026-worker-network-interface-placement.md), [namespace wire proof](../measurements/worker-network-placement-2026-09-11.md) and scoped [five-Pi placement/recovery](../measurements/formation-post-m4-five-pi-plan.md); physical link-loss and multi-interface production qualification later | Existing N-FORMATION IO shell; reviewed platform/configuration contract before implementation; not a reopened formation-acceptance gate |
 | N-CLUSTER | [Fenced component-partition ownership, halo/channel exchange and distributed step commit](../tasks/implement-distributed-workload-execution.md) over the proven formation transport | N/O | Specified for M5; protocol and scientific-profile decisions gated | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD component graph; X-DIST-PROFILE candidate fixtures for scientific acceptance |
 | N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-FORMATION authenticated transport |
 | N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
@@ -921,6 +921,16 @@ Targets below schedule work, not promise that optional deployment profiles will
 be supported. Review this register during M4 closeout, M5 planning and M8
 release selection; move an item only with an explicit recorded disposition,
 owner and next review point. Completed experiments retain their evidence.
+
+Latest checkpoint: the [post-M4 five-Pi round](../measurements/formation-post-m4-five-pi-plan.md)
+passed scoped physical placement/recovery and the five-worker rate target. The
+twenty-worker run stopped on client errors after a separate measurement-timing
+fix. Host settings are restored; error classification remains with the physical
+experiment task, and executor comparisons remain unexecuted. This evidence does
+not reopen M4 or qualify multi-interface failover.
+The subsequent [single error-classification diagnostic](../measurements/formation-pi-client-errors-2026-09-11.md)
+completed without reproducing the failures, under different coordinator load.
+Classification tooling is delivered; the cause and executor policy remain open.
 
 | Follow-up and owner | Owning task | Target / prerequisite | Exit artifact |
 | --- | --- | --- | --- |

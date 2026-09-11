@@ -58,6 +58,14 @@ another interface and never degrades to address-only binding.** Losing a placed
 interface stops that role's traffic; it does not move it onto an excluded one.
 Recovery is the interface returning or a restart — there is no hot reload.
 
+When Ethernet and Wi-Fi share a subnet, also verify neighbour resolution:
+an Ethernet IP can resolve to a Wi-Fi MAC under the host's ARP policy. Packets
+then arrive through the wrong device, and an Ethernet-bound worker correctly
+refuses them. Device binding does not configure ARP, routing or switch policy.
+The [five-Pi diagnostic](../../docs/measurements/formation-post-m4-five-pi-plan.md#restored-node-and-placed-admission-diagnostic)
+demonstrates this with a small independent UDP test. Treat host-network changes
+as explicit administrator actions, not worker fallback or automatic remediation.
+
 A worker with any placed role prints one `placement …` line per role to stderr
 at startup, naming the requested interface and the index it resolved to. Check
 for it: the configuration format accepts and discards unknown `spec` keys, so a

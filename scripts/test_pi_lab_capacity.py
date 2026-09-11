@@ -11,8 +11,8 @@ from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
-from pi_lab_capacity_node import CapacitySession, ProbeDrain, profile
-from pi_lab_session import Session
+from pi_lab_capacity_node import CapacitySession, ProbeDrain, profile, scheduler_snapshot
+from pi_lab_session import Session, experiment_options
 from pi_lab_session import decode, line
 from pi_lab_node import artifact, prepare
 from pi_lab_experiment import send
@@ -23,6 +23,153 @@ spec.loader.exec_module(capacity)
 
 
 class CapacityTests(unittest.TestCase):
+    def test_error_diagnostic_is_one_pair_and_never_retries_failure(self):
+        cell = Mock()
+        capacity.execute_curve(cell, 5000, error_diagnostic=True)
+        self.assertEqual([c.args for c in cell.call_args_list], [(None, 32), (None, 64)])
+        cell = Mock(side_effect=ValueError('stop'))
+        with self.assertRaises(ValueError):
+            capacity.execute_curve(cell, 5000, error_diagnostic=True)
+        self.assertEqual(cell.call_count, 1)
+
+    def test_error_details_bound_categories_counts_status_and_time(self):
+        import copy
+        first = {'kind': 'transport_empty_body', 'status': 503, 'request_started_us': 900,
+                 'completed_us': 1000, 'duration_us': 100, 'after_window': False}
+        details = {'counts': [{'kind': 'transport_empty_body', 'status': 503, 'count': 1}], 'first': first}
+        capacity.review_error_details(details, 1, 32)
+        capacity.review_error_details({'counts': [], 'first': None}, 0, 32)
+        mutations = [lambda d: d['counts'].append(d['counts'][0]),
+                     lambda d: d['counts'][0].update(count=True),
+                     lambda d: d['counts'][0].update(status=999),
+                     lambda d: d['counts'][0].update(kind='raw secret'),
+                     lambda d: d['first'].update(duration_us=101),
+                     lambda d: d['first'].update(after_window=True),
+                     lambda d: d['first'].update(message='secret')]
+        for mutate in mutations:
+            bad = copy.deepcopy(details)
+            mutate(bad)
+            with self.assertRaises(ValueError):
+                capacity.review_error_details(bad, 1, 32)
+        with self.assertRaises(ValueError):
+            capacity.review_error_details(details, 2, 32)
+
+    def test_network_v4_requires_details_and_preserves_arrival_accounting(self):
+        value = self.report()
+        value.update(schema_version=4, kind='pi-network-capacity-load')
+        expected = self.config() | {'schema_version': 4}
+        for row in value['workers']:
+            row['client_error_details'] = {'counts': [], 'first': None}
+        capacity.review_load(value, expected, network=True)
+        del value['workers'][0]['client_error_details']
+        with self.assertRaises(ValueError):
+            capacity.review_load(value, expected, network=True)
+
+    def check_scheduler_lead(self, network, overrun=False):
+        from pi_lab_network import NetworkRemote
+        class AtResourceBoundary(Exception):
+            pass
+        clock, observed = [0], []
+        def snapshot(process):
+            observed.append(clock[0])
+            clock[0] += 9_000_000_000 if overrun else 80_000_000
+            return {'monotonic_ns': clock[0], 'threads': {}}
+        process = Mock()
+        process.sample.side_effect = AtResourceBoundary
+        session = (NetworkRemote if network else CapacitySession).__new__(NetworkRemote if network else CapacitySession)
+        session.deadline = 60
+        if network:
+            session.process, session.local_start_ns = process, 8_000_000_000
+            invoke = session.measure_local
+        else:
+            session.processes, session.child = [process], None
+            session.external_generator, session.progress = True, {'stage': 'warmup'}
+            invoke = lambda: session.measure({'start_unix_ns': 8_000_000_000})
+        module = 'pi_lab_network' if network else 'pi_lab_capacity_node'
+        with patch(module + '.time.monotonic_ns', side_effect=lambda: clock[0]), \
+                patch(module + '.time.monotonic', side_effect=lambda: clock[0] / 1e9), \
+                patch(module + '.time.time_ns', return_value=0), \
+                patch(module + '.time.sleep', side_effect=lambda seconds: clock.__setitem__(0, clock[0] + int(seconds * 1e9))), \
+                patch(module + '.scheduler_snapshot', side_effect=snapshot):
+            with self.assertRaises(ValueError if overrun else AtResourceBoundary):
+                invoke()
+        self.assertEqual(observed, [0], 'scheduler reads must precede the scheduled resource boundary')
+        if overrun:
+            process.sample.assert_not_called()
+        else:
+            self.assertEqual(clock[0], 8_000_000_000)
+
+    def test_node_scheduler_reads_use_lead_not_measurement_start(self):
+        self.check_scheduler_lead(False)
+
+    def test_generator_scheduler_reads_use_lead_not_measurement_start(self):
+        self.check_scheduler_lead(True)
+
+    def test_node_rejects_scheduler_collection_overrunning_lead(self):
+        self.check_scheduler_lead(False, overrun=True)
+
+    def test_generator_rejects_scheduler_collection_overrunning_lead(self):
+        self.check_scheduler_lead(True, overrun=True)
+
+    def test_scheduler_receipt_brackets_real_owned_process(self):
+        import os
+        from pi_lab_measurement import Process
+        process = Process(os.getpid())
+        before, after = scheduler_snapshot(process), scheduler_snapshot(process)
+        self.assertGreaterEqual(after['monotonic_ns'], before['monotonic_ns'])
+        self.assertIn(str(os.getpid()), before['threads'])
+        self.assertEqual(len(before['threads'][str(os.getpid())]['schedstat']), 3)
+
+    def test_explicit_topologies_and_executor_options_are_bounded(self):
+        for local in (1, 4):
+            for hosts in (3, 4, 5):
+                options = {'hosts': hosts, 'workers_per_host': local,
+                           'executor_threads': 2, 'placement': True}
+                self.assertEqual(experiment_options(options), options)
+                profile(self.config() | {'global_workers': hosts * local,
+                        'first_role': (hosts - 1) * local,
+                        'nodes': [str(n) for n in range(local)]})
+        for key, value in (('hosts', 6), ('hosts', True), ('workers_per_host', 0),
+                           ('executor_threads', 32), ('executor_threads', True), ('placement', 'yes')):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                experiment_options(options | {key: value})
+        with self.assertRaises(ValueError):
+            profile(self.config() | {'global_workers': 5})
+
+    def test_new_reports_validate_five_and_twenty_member_identities(self):
+        for local in (1, 4):
+            report = self.report()
+            report.update(schema_version=3, kind='pi-network-capacity-load', global_workers=5 * local)
+            report['workers'] = report['workers'][:local]
+            expected = self.config() | {'schema_version': 3, 'global_workers': 5 * local,
+                                       'nodes': [str(n) for n in range(local)]}
+            self.assertEqual(len(capacity.review_load(report, expected, network=True)), local)
+            report['global_workers'] = 16
+            with self.assertRaises(ValueError):
+                capacity.review_load(report, expected, network=True)
+
+    def test_placed_launch_keeps_unix_control_and_sets_only_worker_executor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for address, wildcard in (('192.0.2.11', '0.0.0.0'), ('2001:db8::11', '[::]')):
+                session = Session.__new__(Session)
+                session.base = Path(directory)
+                (session.base / 'api.sock').touch()
+                session.worker, session.mode = None, 'compiled_off'
+                session.address, session.interface, session.name = address, 'eth0', 'test'
+                session.hashes, session.deadline = {}, time.monotonic() + 120
+                session.client_tls = (f'{address}:9440', Path('/tmp/cert'), Path('/tmp/key'))
+                session.experiment = {'hosts': 5, 'workers_per_host': 1,
+                                      'executor_threads': 2, 'placement': True}
+                with patch('pi_lab_session.subprocess.Popen') as spawn, patch('pi_lab_session.Drain'):
+                    session.start()
+                command = spawn.call_args.args[0]
+                self.assertEqual(command[command.index('--listen.peers') + 1], wildcard + ':9000')
+                self.assertIn(wildcard + ':9440', command)
+                self.assertIn(str(session.base / 'api.sock'), command)
+                self.assertIn('--advertise.peers', command)
+                self.assertIn('--interface.clients', command)
+                self.assertEqual(spawn.call_args.kwargs['env']['TOKIO_WORKER_THREADS'], '2')
+
     def test_failed_clock_planning_keeps_unmodified_input_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'clocks.json'

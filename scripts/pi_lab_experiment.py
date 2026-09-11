@@ -92,6 +92,9 @@ class Remote:
         try:
             send(self.child.stdin, code, min(deadline, time.monotonic() + 15))
             config = {} if mode == 'clock_only' else {key: node[key] for key in ('root', 'interface', 'peer_address', 'name')}
+            if mode != 'clock_only' and 'experiment' in node:
+                from pi_lab_session import experiment_options
+                config['experiment'] = experiment_options(node['experiment'])
             self.write(config | {'run_id': run_id, 'mode': mode})
             self.ready = self.read(30)
             require(self.ready.get('ok') is True and self.ready.get('ready') is True

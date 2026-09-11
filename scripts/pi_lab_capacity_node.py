@@ -14,10 +14,54 @@ import subprocess
 import sys
 import time
 
-from pi_lab_node import artifact, require, write_new_json
-from pi_lab_session import Session, Drain, decode, emit, line
+from pi_lab_node import artifact, require, write_new_json, bounded_command
+from pi_lab_session import Session, Drain, decode, emit, line, experiment_options
 from pi_lab_measurement import Process, watchdog_child, resource_delta
 from pi_lab_environment import KernelSeries, snapshot
+
+
+def scheduler_snapshot(process):
+    """Read-only per-thread brackets; unavailable/changing tasks stay explicit."""
+    began = time.monotonic_ns()
+    process.verify()
+    rows = {}
+    tasks = sorted(Path(f'/proc/{process.pid}/task').iterdir())
+    require(len(tasks) <= 128, 'scheduler task cap')
+    for task in tasks:
+        try:
+            with (task / 'schedstat').open() as source:
+                fields = source.read(257).split()
+            require(len(fields) == 3 and all(n.isdecimal() for n in fields), 'scheduler counter shape')
+            with (task / 'status').open() as source:
+                raw = source.read(65537)
+            require(len(raw) <= 65536, 'thread status cap')
+            switches = {line.split(':')[0]: int(line.split()[1]) for line in raw.splitlines()
+                        if line.startswith(('voluntary_ctxt_switches:', 'nonvoluntary_ctxt_switches:'))}
+            rows[task.name] = {'schedstat': [int(n) for n in fields], **switches}
+        except OSError:
+            rows[task.name] = {'unavailable': True}
+    process.verify()
+    return {'read_started_monotonic_ns': began, 'monotonic_ns': time.monotonic_ns(), 'threads': rows}
+
+
+def placement_snapshot(processes, interface):
+    """Private kernel socket evidence, plus all device byte counters, not packet attribution."""
+    response = bounded_command(['ss', '-H', '-n', '-a', '-t', '-u', '-p'], timeout=3, cap=131072)
+    require(response['exit'] == 0, 'socket inspection unavailable')
+    rows = []
+    for process in processes:
+        process.verify()
+        lines = [line for line in response['stdout'].splitlines() if f'pid={process.pid},' in line]
+        require(len(lines) <= 256, 'socket evidence cap')
+        rows.append({'pid': process.pid, 'lines': lines,
+                     'selected_device_visible': any('%' + interface + ':' in line for line in lines)})
+    counters = {}
+    devices = sorted(Path('/sys/class/net').iterdir())
+    require(len(devices) <= 64, 'device inventory cap')
+    for device in devices:
+        counters[device.name] = {key: int((device / 'statistics' / key).read_text())
+                                for key in ('rx_bytes', 'tx_bytes')}
+    return {'monotonic_ns': time.monotonic_ns(), 'sockets': rows, 'device_bytes': counters}
 
 
 class ProbeDrain(Drain):
@@ -52,14 +96,19 @@ class ProbeDrain(Drain):
 
 
 def profile(args):
-    require(isinstance(args, dict) and set(args) == {'cell', 'first_role', 'rate_per_worker',
+    require(isinstance(args, dict) and set(args) - {'global_workers'} == {'cell', 'first_role', 'rate_per_worker',
             'clients_per_worker', 'formation', 'nodes', 'probe_sha256'}, 'capacity profile fields')
+    total = args.get('global_workers', 16)
+    local = len(args['nodes']) if isinstance(args['nodes'], list) else 0
+    require(type(total) is int and local in (1, 4) and total % local == 0
+            and 3 <= total // local <= 5, 'capacity topology bounds')
+    require('global_workers' in args or local == 4, 'legacy capacity topology')
     require(type(args['cell']) is int and 0 <= args['cell'] < 12
-            and type(args['first_role']) is int and args['first_role'] in (0, 4, 8, 12)
+            and type(args['first_role']) is int and args['first_role'] in range(0, total, local)
             and type(args['clients_per_worker']) is int and args['clients_per_worker'] in (2, 8, 32, 64)
             and (args['rate_per_worker'] is None or type(args['rate_per_worker']) is int
                  and 100 <= args['rate_per_worker'] <= 100000), 'capacity profile bounds')
-    require(isinstance(args['nodes'], list) and len(args['nodes']) == len(set(args['nodes'])) == 4
+    require(isinstance(args['nodes'], list) and len(args['nodes']) == len(set(args['nodes'])) == local
             and all(isinstance(n, str) for n in args['nodes'])
             and isinstance(args['formation'], str)
             and isinstance(args['probe_sha256'], str)
@@ -72,9 +121,12 @@ class CapacitySession:
         self.sessions, self.child, self.stderr, self.cells = [], None, None, set()
         self.progress = None
         self.deadline = time.monotonic() + 570
+        self.experiment = experiment_options(config.get('experiment'))
+        self.global_workers = self.experiment['hosts'] * self.experiment['workers_per_host']
+        self.versioned = 'experiment' in config
         require(config.get('mode') == 'compiled_off', 'capacity telemetry mode')
         try:
-            for slot in range(4):
+            for slot in range(self.experiment['workers_per_host']):
                 child_config = config | {'name': config['name'] + '-' + str(slot),
                                          'run_id': config['run_id'] + '-' + str(slot)}
                 self.sessions.append(Session(child_config, peer_port=9000 + slot, lifetime=600))
@@ -125,6 +177,8 @@ class CapacitySession:
     def prepare(self, args):
         self.progress = {'cell': args.get('cell'), 'stage': 'profile'}
         profile(args)
+        require(args.get('global_workers', 16) == self.global_workers
+                and len(args['nodes']) == len(self.sessions), 'session topology mismatch')
         require(self.child is None and args['cell'] not in self.cells and len(self.cells) < 12,
                 'cell already attempted or probe still present')
         self.cells.add(args['cell'])
@@ -134,13 +188,14 @@ class CapacitySession:
         for slot, session in enumerate(self.sessions):
             view = session.cli(['cluster', 'info'])
             require(view['formationId'] == args['formation'] and view['sourceNodeId'] == args['nodes'][slot]
-                    and view['nodes'] == view['alive'] == 16 and view['introducerReady']
+                    and view['nodes'] == view['alive'] == self.global_workers and view['introducerReady']
                     and not view['locked'], 'capacity pre-load identity')
             targets.append({'socket': str(session.base / 'api.sock'), 'formation': args['formation'],
                             'node': args['nodes'][slot]})
         if self.probe_path is None:
             self.progress['stage'] = 'artifact-copy'
-            source = self.sessions[0].root / 'bin' / 'formation-telemetry-probe-capacity-v2'
+            probe_name = 'formation-telemetry-probe-capacity-v3' if self.versioned else 'formation-telemetry-probe-capacity-v2'
+            source = self.sessions[0].root / 'bin' / probe_name
             metadata = artifact(source)
             require(metadata['sha256'] == args['probe_sha256'] and metadata['elf64_aarch64']
                     and metadata['executable'], 'capacity probe artifact')
@@ -158,6 +213,8 @@ class CapacitySession:
         require(args['probe_sha256'] == self.probe_digest, 'probe changed between cells')
         self.config = {'schema_version': 1, 'first_role': args['first_role'], 'targets': targets,
                        'clients_per_worker': args['clients_per_worker'], 'rate_per_worker': args['rate_per_worker']}
+        if self.versioned:
+            self.config.update(schema_version=2, global_workers=self.global_workers)
         self.cell = args['cell']
         self.progress['stage'] = 'config-write'
         config_path = self.base / f'capacity-{self.cell}.json'
@@ -185,6 +242,10 @@ class CapacitySession:
         wait = args['start_unix_ns'] - wall
         require(2e9 <= wait <= 20e9 and time.monotonic() + wait / 1e9 + 20 < self.deadline, 'capacity future start')
         self.progress['stage'] = 'waiting'
+        # Diagnostic counters cover their own wider brackets. Collecting every
+        # thread at the scheduled start delays resource sampling under load.
+        scheduler_before = [scheduler_snapshot(p) for p in self.processes]
+        require(time.monotonic_ns() < mono + wait, 'scheduler collection overran start lead')
         while time.monotonic_ns() < mono + wait:
             time.sleep(min(.05, max(0, mono + wait - time.monotonic_ns()) / 1e9))
         before = [p.sample() for p in self.processes]
@@ -218,6 +279,7 @@ class CapacitySession:
             if not external:
                 require(line(self.child.stdout, min(self.deadline, time.monotonic() + 3)) == b'END', 'capacity END')
             after = [p.sample() for p in self.processes]
+            scheduler_after = [scheduler_snapshot(p) for p in self.processes]
             end_mono, end_wall = time.monotonic_ns(), time.time_ns()
             report = None
             if not external:
@@ -230,12 +292,16 @@ class CapacitySession:
                       'cell': self.cell, 'config': self.config, 'load': report,
                       'resources': [resource_delta(a, b, p, s) for a, b, p, s in zip(before, after, peaks, swaps)],
                       'threads': self.threads, 'samples': samples, 'missed_samples': missed,
+                      'scheduler_before': scheduler_before, 'scheduler_after': scheduler_after,
+                      'scheduler_scope': 'pre-start-lead-through-post-window',
                       'environment_series': env.finish(), 'start_unix_ns': actual_wall, 'end_unix_ns': end_wall,
                       'control_bracket_ns': end_mono - actual_mono,
                       'local_start_lateness_ns': actual_mono - (mono + wait),
                       'window_wall_change_ns': end_wall - actual_wall - (end_mono - actual_mono),
                       'acceptance_run': False}
             result['probe_cleanup'] = self.stop_probe()
+            if external and self.experiment['placement']:
+                result['placement_after'] = placement_snapshot(self.processes[:-1], self.interface)
             write_new_json(self.base / f'capacity-result-{self.cell}.json', result)
             return result
         finally:
@@ -248,7 +314,7 @@ class CapacitySession:
         require(isinstance(args, dict), 'capacity arguments')
         if op == 'worker':
             require(set(args) == {'slot', 'operation', 'arguments'} and type(args['slot']) is int
-                    and 0 <= args['slot'] < 4 and args['operation'] in
+                    and 0 <= args['slot'] < len(self.sessions) and args['operation'] in
                     ('start', 'info', 'members', 'material', 'join', 'join-status'), 'capacity worker operation')
             return self.sessions[args['slot']].request({k: args[k] for k in ('operation', 'arguments')})
         if op == 'prepare-capacity':

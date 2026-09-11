@@ -1,6 +1,7 @@
 # Review worker executor sizing after the formation PoC
 
-Status: **planned, post-PoC performance review; no runtime policy selected**.
+Status: **baseline diagnostics recorded; executor comparisons pending after a
+client-error stop; no runtime policy selected**.
 Owner: P-SCALE, consuming N-FORMATION and the physical experiment evidence.
 
 Target: **early M5 after M4 closeout**, independently of distributed execution.
@@ -8,6 +9,24 @@ Tracked in the [post-M4 register](../roadmap/README.md#post-m4-operational-follo
 and consumed by [staged scaling evidence](implement-staged-runtime-scaling-evidence.md).
 An inconclusive review must retain its limiting factor and next review point;
 this task does not silently disappear when the PoC measurements are accepted.
+
+Current experiment: [five-Pi placement/executor plan](../measurements/formation-post-m4-five-pi-plan.md).
+The approved five-Pi round passed placed formation/recovery after a temporary,
+rolled-back ARP correction. Five default-executor workers met the 5,000/sec
+per-worker delivery gate twice and peaked at 63.9k/sec aggregate. Twenty workers
+missed the per-worker target; a measurement-start diagnostic overhead bug was
+reproduced and fixed without changing timing gates. The subsequent run passed
+timing but stopped on 57 unclassified client errors at 64 clients per worker.
+All workers and host-policy changes cleaned up. One/two/four-thread comparisons
+remain **unexecuted**, not inconclusive measurements of those policies.
+The subsequent [classified diagnostic](../measurements/formation-pi-client-errors-2026-09-11.md)
+did not reproduce the errors; it reached 101.8k/100.1k unpaced requests/sec with
+substantially lower coordinator contention. Classification tooling is delivered,
+but the cause and the effect of probe-build/host conditions remain unresolved.
+Record an explicit disposition under the [physical experiment](implement-physical-formation-experiment.md)
+before resuming the sweep. Per-thread diagnostics now span the pre-start lead
+through the post-window bracket; do not treat their raw deltas as ten-second
+load-only counters or as measured allocation evidence.
 
 ## Outcome and current gap
 

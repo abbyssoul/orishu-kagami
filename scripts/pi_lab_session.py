@@ -24,6 +24,20 @@ CAP = 65536
 LIFETIME = 180
 
 
+def experiment_options(value):
+    """Explicit, bounded lab choices; never inherit host runtime settings."""
+    if value is None:
+        return {'hosts': 4, 'workers_per_host': 4, 'executor_threads': None, 'placement': False}
+    require(isinstance(value, dict) and set(value) ==
+            {'hosts', 'workers_per_host', 'executor_threads', 'placement'}, 'experiment option fields')
+    require(type(value['hosts']) is int and 3 <= value['hosts'] <= 5
+            and type(value['workers_per_host']) is int and value['workers_per_host'] in (1, 4)
+            and (value['executor_threads'] is None or type(value['executor_threads']) is int
+                 and value['executor_threads'] in (1, 2, 4))
+            and type(value['placement']) is bool, 'experiment option bounds')
+    return dict(value)
+
+
 def unique(pairs):
     result = {}
     for key, value in pairs:
@@ -89,6 +103,8 @@ class Drain:
 
 class Session:
     def __init__(self, config, *, peer_port=9000, lifetime=LIFETIME):
+        config = dict(config)
+        self.experiment = experiment_options(config.pop('experiment', None))
         require(type(peer_port) is int and 9000 <= peer_port <= 9003
                 and type(lifetime) is int and 180 <= lifetime <= 600, 'internal session bounds')
         self.peer_port = peer_port
@@ -130,7 +146,7 @@ class Session:
         write_new_json(self.base / 'manifest.json', {
             'schema_version': 1, 'kind': 'pi-formation-smoke-node', 'run_id': self.run_id,
             'mode': self.mode, 'artifacts': self.hashes, 'lifetime_seconds': lifetime,
-            'peer_port': peer_port})
+            'peer_port': peer_port, 'experiment': self.experiment})
 
     def start(self):
         require(self.worker is None, 'worker already started')
@@ -150,6 +166,19 @@ class Session:
         if getattr(self, 'client_tls', None) is not None:
             endpoint, certificate, key = self.client_tls
             command += ['--listen.clients', endpoint, '--tls-cert', str(certificate), '--tls-key', str(key)]
+        options = getattr(self, 'experiment', experiment_options(None))
+        if options['placement']:
+            wildcard = '[::]' if ':' in self.address else '0.0.0.0'
+            command[command.index('--listen.peers') + 1] = f'{wildcard}:{port}'
+            command += ['--advertise.peers', address, '--interface.peers', self.interface]
+            if getattr(self, 'client_tls', None) is not None:
+                client_port = self.client_tls[0].rsplit(':', 1)[1]
+                # Only the TCP listener changes; local Unix administration stays.
+                index = len(command) - 1 - command[::-1].index('--listen.clients')
+                command[index + 1] = f'{wildcard}:{client_port}'
+                command += ['--interface.clients', self.interface]
+        if options['executor_threads'] is not None:
+            environment['TOKIO_WORKER_THREADS'] = str(options['executor_threads'])
         # Independent watchdog survives an abrupt SSH/supervisor death. It owns
         # its worker child; no persisted PID is later used to control a process.
         lifetime = max(1, int(self.deadline - time.monotonic()))

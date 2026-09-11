@@ -17,7 +17,7 @@ import subprocess
 import time
 
 from pi_lab_experiment import Remote
-from pi_lab_capacity_node import ProbeDrain
+from pi_lab_capacity_node import ProbeDrain, scheduler_snapshot
 from pi_lab_measurement import watchdog_child, resource_delta
 from pi_lab_node import require, write_new_json
 from pi_lab_session import decode, line
@@ -138,7 +138,8 @@ class NetworkRemote(Remote):
         if self.credentials is not None:
             return
         raw = self.rpc('network-credentials', {})
-        require(isinstance(raw, list) and len(raw) == 4, 'network credential count')
+        local = self.node.get('experiment', {}).get('workers_per_host', 4)
+        require(isinstance(raw, list) and len(raw) == local, 'network credential count')
         self.credentials = []
         for slot, item in enumerate(raw):
             require(isinstance(item, dict) and set(item) == {'endpoint', 'certificate', 'token', 'certificate_sha256'}
@@ -167,8 +168,11 @@ class NetworkRemote(Remote):
             result = self.rpc(operation, arguments)
             public = result['config']
             expected = [{'endpoint': endpoint(self.node['peer_address'], slot), 'formation': arguments['formation'],
-                         'node': arguments['nodes'][slot]} for slot in range(4)]
-            require(public['targets'] == expected and public['schema_version'] == 2, 'network targets changed')
+                         'node': arguments['nodes'][slot]} for slot in range(len(arguments['nodes']))]
+            version = 4 if 'global_workers' in arguments else 2
+            require(public['targets'] == expected and public['schema_version'] == version
+                    and public.get('global_workers', 16) == arguments.get('global_workers', 16),
+                    'network targets changed')
             private = public | {'targets': [t | c for t, c in zip(expected, self.credentials)]}
             config = self.base / f'cell-{arguments["cell"]}.json'
             write_new_json(config, private)
@@ -197,6 +201,8 @@ class NetworkRemote(Remote):
         mono, wall = time.monotonic_ns(), time.time_ns()
         target = mono + self.local_start_ns - wall
         require(2e9 <= target - mono <= 20e9, 'local future start')
+        scheduler_before = scheduler_snapshot(self.process)
+        require(time.monotonic_ns() < target, 'scheduler collection overran start lead')
         while time.monotonic_ns() < target:
             time.sleep(min(.02, max(0, target - time.monotonic_ns()) / 1e9))
         before = self.process.sample()
@@ -214,6 +220,7 @@ class NetworkRemote(Remote):
             time.sleep(.1)
         require(line(self.probe.stdout, min(self.deadline, time.monotonic() + 3)) == b'END', 'network probe END')
         after = self.process.sample()
+        scheduler_after = scheduler_snapshot(self.process)
         environment.append(generator_environment())
         self.probe.stdin.write(b'A')
         report = decode(line(self.probe.stdout, min(self.deadline, time.monotonic() + 8)))
@@ -221,6 +228,8 @@ class NetworkRemote(Remote):
         cleanup = self.stop_probe()
         return {'load': report, 'resources': resource_delta(before, after, peak, swap),
                 'samples': samples, 'cleanup': cleanup, 'location': 'coordinator', 'executor_threads': 2,
+                'scheduler_before': scheduler_before, 'scheduler_after': scheduler_after,
+                'scheduler_scope': 'pre-start-lead-through-post-window',
                 'environment': environment}
 
     def stop_probe(self):

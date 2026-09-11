@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from pi_lab_capacity_node import CapacitySession, profile
+from pi_lab_capacity_node import CapacitySession, profile, placement_snapshot
 from pi_lab_measurement import Process, watchdog_child
 from pi_lab_node import require
 
@@ -53,6 +53,8 @@ class NetworkSession(CapacitySession):
 
     def prepare(self, args):
         profile(args)
+        require(args.get('global_workers', 16) == self.global_workers
+                and len(args['nodes']) == len(self.sessions), 'network topology mismatch')
         require(args['cell'] not in self.cells and len(self.cells) < 12
                 and time.monotonic() + 60 < self.deadline, 'network cell bound')
         self.cells.add(args['cell'])
@@ -62,17 +64,23 @@ class NetworkSession(CapacitySession):
         for slot, session in enumerate(self.sessions):
             view = session.cli(['cluster', 'info'])
             require(view['formationId'] == args['formation'] and view['sourceNodeId'] == args['nodes'][slot]
-                    and view['nodes'] == view['alive'] == 16 and view['introducerReady']
+                    and view['nodes'] == view['alive'] == self.global_workers and view['introducerReady']
                     and not view['locked'], 'network pre-load identity')
             targets.append({'endpoint': session.client_tls[0], 'formation': args['formation'], 'node': args['nodes'][slot]})
         self.config = {'schema_version': 2, 'first_role': args['first_role'], 'targets': targets,
                        'clients_per_worker': args['clients_per_worker'], 'rate_per_worker': args['rate_per_worker']}
+        if self.versioned:
+            self.config.update(schema_version=4, global_workers=self.global_workers)
         self.processes = [watchdog_child(s.worker, s.base / 'bin' / 'orishu-worker') for s in self.sessions]
         self.processes.append(Process(os.getpid()))
         self.threads = [len(list(Path(f'/proc/{p.pid}/task').iterdir())) for p in self.processes]
+        placement = placement_snapshot(self.processes[:-1], self.interface) if self.experiment['placement'] else None
+        if placement is not None:
+            require(all(row['selected_device_visible'] for row in placement['sockets']),
+                    'selected device missing from live sockets')
         self.progress['stage'] = 'warmup'
         return {'prepared': True, 'cell': self.cell, 'config': self.config,
-                'probe_sha256': args['probe_sha256'], 'threads': self.threads}
+                'probe_sha256': args['probe_sha256'], 'threads': self.threads, 'placement': placement}
 
     def request(self, request):
         if request == {'operation': 'network-credentials', 'arguments': {}}:

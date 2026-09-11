@@ -382,13 +382,18 @@ the workload or repeat it automatically.
 
 ## Four hosts / sixteen workers: capacity diagnostic
 
+This heading preserves the historical experiment link. The current harness
+also accepts three to five hosts and `--workers-per-host 1` or `4` (default).
+Use the [post-M4 five-Pi plan](measurements/formation-post-m4-five-pi-plan.md)
+for the new 5-/20-worker comparison and its separate approval/budget.
+
 The [2026-09-11 hardware report](measurements/formation-pi-capacity-2026-09-11.md)
 records seven completed cells, all earlier attempts and independently verified
 cleanup. The highest observed aggregate is 86.2k requests/sec at eight clients
 per worker; the generator itself uses nearly half of each host's CPU.
 
-The separate `scripts/pi-lab-capacity.py` diagnostic uses exactly four physical
-hosts from the existing inventory, with four worker processes per host. Do not
+The original `scripts/pi-lab-capacity.py` diagnostic used four physical
+hosts from the inventory, with four worker processes per host. Do not
 duplicate inventory entries: physical hosts and membership nodes are different
 dimensions. Each process has a private state/client socket and a distinct peer
 port, 9000–9003. All sixteen workers join one formation over real QUIC peers.
@@ -398,7 +403,17 @@ governors, firmware, services or worker binaries.
 The observed default is four Tokio executor threads plus the main thread per
 Pi worker, not single-threaded async IO. The
 [post-PoC executor-sizing review](tasks/review-worker-executor-performance.md)
-tracks oversubscription and alternative policies; this diagnostic does not tune them.
+tracks oversubscription and alternative policies. The new optional
+`--executor-threads 1|2|4` sets `TOKIO_WORKER_THREADS` only for disposable
+experiment workers; omission clears inherited overrides and retains the worker
+default. It does not change a host policy or select a production default.
+These are Tokio multi-thread pools, not the current-thread runtime.
+
+`--placement` opts into the inventory interface for peer sockets and, with
+`--network-probe`, TCP client listeners/replies. The launcher uses wildcard
+binds plus the explicit advertised peer address as required by ADR 0026.
+Unix administration and loopback diagnostics are unchanged. Kernel socket and
+device-counter receipts remain private. No route, firewall or link is changed.
 
 This is **colocated public cluster-summary API capacity over Unix sockets**,
 not peer-message throughput, remote-client networking, simulation throughput,
@@ -409,7 +424,7 @@ Mixed Pi models must retain per-host/per-worker results, not just a cluster sum.
 
 Build the probe example with the pinned toolchain and stage the resulting ARM64
 binary under the new, no-overwrite name
-`bin/formation-telemetry-probe-capacity-v2`. Preserve prior probes and record
+`bin/formation-telemetry-probe-capacity-v3` for current invocations. Preserve prior probes and record
 the source archive, compiler, features and all binary digests. A scoped command
 for an explicitly authorized diagnostic batch is:
 
@@ -423,7 +438,18 @@ python3 scripts/pi-lab-capacity.py \
   --start-policy etc/experiments/pi-pilot-policy.example.json
 ```
 
-Here 5,000 means **per worker**, or 80,000 offered requests/sec cluster-wide.
+Rebuild the coordinator's `--network-probe` too when using HTTPS: new network
+input/output schema 4 and Unix schema 2 explicitly carry `global_workers`.
+Network schema 4 also requires bounded client-error details; network schema 3
+retains its earlier explicit-topology report without those details.
+Old network schema 2 / Unix schema 1 retain their exact 16-worker shape for
+historical replay, but old probe executables cannot execute the new profiles.
+The CLI defaults to four workers per host; five inventory entries therefore
+mean 20 workers and a 100,000/sec aggregate offered baseline. Never confuse
+physical hosts, worker processes and executor threads.
+
+Here 5,000 means **per worker**; multiply by the selected worker count (80,000
+cluster-wide for the historical four-host/four-worker setup).
 It is now the default; `--baseline-per-worker` explicitly overrides it within
 100–100,000. This capacity target does not change the existing 500/second
 observability acceptance workload.
@@ -435,7 +461,7 @@ Timer granularity and generator scheduling delay are part of this profile.
 Next, unpaced windows use 2/8/32 clients per worker. If 32 clients improve
 aggregate throughput over eight by more than 5%, try 64, the existing worker's
 connection ceiling; then confirm the best observed concurrency once. Each successful response
-must retain the expected formation, source node, sixteen live members, unlocked
+must retain the expected formation, source node, configured live-member count, unlocked
 policy and introducer readiness. Failed cells are retained, not silently retried.
 
 The coordinator keeps one whole-run deadline and cleanup reserve; node-owned
@@ -465,8 +491,9 @@ Add `--network-probe /absolute/path/to/native/formation-telemetry-probe` to
 the capacity command. Build that example in release mode on the **coordinator**
 with the pinned toolchain and `observability,otlp-tracing`; the supplied
 `--probe-sha256` now identifies this local native binary, not the ARM64 probe.
-Four coordinator probe processes (two executor threads each) drive four workers
-each. No generator is installed or run on the Pis in this mode.
+One coordinator probe process per physical host (two executor threads each)
+drives that host's selected one or four workers. No generator is installed or
+run on the Pis in this mode.
 
 The adapter creates disposable TLS client listeners on each inventory IP at
 9440–9443, alongside the private Unix admin sockets and QUIC peer ports
@@ -480,17 +507,32 @@ are untouched; ephemeral node state remains private evidence.
 
 Before load, every endpoint must reject missing/wrong bearer tokens, untrusted
 certificates and a wrong server identity. Typed-client warmup must then succeed
-with the correct credential and exact sixteen-node membership. There is no
+with the correct credential and exact configured membership. There is no
 plaintext, insecure-certificate or SSH-forwarded-socket fallback.
 
-Network load/output uses explicit schema 2 and network-specific kinds, separate
-from the colocated schema 1 profile. Pi receipts contain four workers and their
+Current network load/output uses schema 4 and network-specific kinds, separate
+from the colocated schema 2 profile; the older fixed-sixteen shapes remain for
+historical replay. Pi receipts contain the selected local workers and their
 supervisor; coordinator receipts add a separately measured generator, CPU and
 temperature observations. Retain both actual generator starts and offset-mapped
 Pi sampler starts; require their conditional joint skew below 100 ms. This
 does not prove continuous per-client activity or a paired overhead result.
 Report desktop routing/link type and generator pressure: moving load off the
 Pis can expose the coordinator's network or CPU limit rather than the cluster's.
+
+Per-thread scheduler snapshots are collected during the existing pre-start lead
+and after the resource window, with explicit read timestamps and a wider-bracket
+scope marker. They include idle lead time; do not interpret raw deltas as exactly
+ten seconds of load or substitute them for CPU/resource-window measurements.
+Collection that overruns the lead aborts that local measurement path; other
+already-dispatched samplers/generators may have started, so retain partial
+receipts and never infer a globally idle window from that error. This
+ordering avoids diagnostic reads delaying the scheduled sampler start, as seen
+in the [five-Pi timing diagnostic](measurements/formation-post-m4-five-pi-plan.md).
+The same round passed physical placement/recovery after an explicitly approved
+temporary ARP correction, but stopped capacity load on unclassified client
+errors. Device binding does not repair a neighbour's wrong-interface ARP mapping;
+verify ingress and saved-setting rollback before changing host policy.
 
 For an explicitly approved transport comparison, add `--short-comparison`.
 This network-only selection runs `(baseline, 32 clients)`, `(unpaced, 32)`,
@@ -509,6 +551,23 @@ claiming all-wired operation, check each Pi's route to the generator **from the
 bound server IP**, as well as the coordinator route and link negotiation.
 An inventory IP assigned to `eth0` does not guarantee egress on `eth0`.
 Interface-scoped counters cannot measure traffic using another interface.
+
+For an explicitly approved error-classification diagnostic, `--error-diagnostic`
+selects **one** unpaced 32/64-client pair, without a baseline, repetition or rate
+sweep. It requires the network profile and cannot be combined with
+`--short-comparison`. The first failed window stops the pair. Network schema 4
+requires `client_error_details`: bounded fixed-category/status counts summing
+exactly to `transport_errors`, and first-error request/completion/duration times
+in microseconds relative to the probe's start. Each client stops on its first
+error, so counts cannot exceed client concurrency. Empty counts require a null
+first error. Unknown fields/categories, duplicate buckets and inconsistent
+counts/timing are rejected. Raw messages, response bodies, URLs and credentials
+are never exported. Older network schemas 2/3 retain their original row shape.
+Statuses are those retained by `ClientError`, not necessarily observed HTTP
+statuses: its API-error variant can hold zero or a synthesized status. Known
+client-owned empty-body formatting retains its HTTP status explicitly; other
+transport failures remain grouped rather than guessed to be timeouts. See the
+[five-Pi diagnostic](measurements/formation-pi-client-errors-2026-09-11.md).
 
 The network capacity profile also accepts `--ssh-via-peer-address`: connect
 the control channel to the inventory's literal `peer_address`, but retain
