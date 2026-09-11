@@ -1,10 +1,24 @@
 # Document and verify operator observability workflows
 
-Status: **partial — formation-stage source-built recipes and selected deployment collection verified; final M4 performance acceptance and later release/workload handoff pending**
+Status: **formation-stage source-built recipes and selected deployment collection
+accepted for M4; later release/workload handoff remains planned**.
+
+The [current M4 checkpoint](cluster-formation-final-validation-2026-09-11.md)
+records scoped measurement acceptance, fresh feature/backend checks and the
+source-applicability review for retained recipes and final combined acceptance.
+Earlier performance-pending
+statements below describe historical checkpoints, not a new experiment gate.
 
 Decision: [ADR 0017](../adr/0017-worker-operational-observability.md)
 Roadmap package: **P-OBS-DOCS**
 Dependency: [Worker observability](implement-worker-observability.md)
+
+Post-M4 deployment handoff: [P-DEPLOY](qualify-worker-deployment-profiles.md)
+selects candidate environments in M5 and qualifies claimed supported profiles
+for M8. This task supplies their monitoring recipes, dashboards, runbooks and
+operator-story updates. Optional Kubernetes/cloud examples are not support
+promises. Review progress through the
+[post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups).
 
 The [structured stdout manual](../../apps/orishu-worker/README.md#structured-stdout-logs)
 and [configuration table](../orishu-configuration.md#implemented-structured-stdout-logging)

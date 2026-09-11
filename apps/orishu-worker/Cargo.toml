@@ -61,6 +61,9 @@ rustls = { version = "=0.23.43", default-features = false, features = ["std", "a
 # Self-sufficient peer certificate bootstrap; no openssl executable is required.
 rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "aws_lc_rs", "pem"] }
 sha2 = { workspace = true }
+# Device-constrained sockets (SO_BINDTODEVICE) for explicit network placement.
+# Already resolved in the tree through quinn-udp and tokio; this only names it.
+socket2 = "=0.6.5"
 serde_json = { workspace = true }
 subtle = "=2.6.1"
 clap = { version = "4.5.60", features = ["derive", "env"] }
@@ -80,8 +83,9 @@ serde_yaml = "0.9"
 tokio = { version = "1.50.0", features = ["macros", "signal"] }
 
 [target.'cfg(unix)'.dependencies]
-# Descriptor-relative credential access and advisory instance lock, without unsafe code.
-rustix = { version = "=1.1.4", features = ["fs", "process"] }
+# Descriptor-relative credential access, advisory instance lock and interface
+# index lookup, without unsafe code.
+rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
 
 [dev-dependencies]
 tempfile = "=3.27.0"

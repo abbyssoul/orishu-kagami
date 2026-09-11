@@ -1,13 +1,19 @@
 # Cluster-formation conformance ledger
 
-Status: **N-FORMATION accepted for the tested source-built Linux scope; combined M4 incomplete**
-Checkpoint: **2026-09-09**
+Status: **N-FORMATION and combined M4 accepted for the documented source-built Linux scope**
+Checkpoint: **2026-09-11** — [current validation and requirement audit](cluster-formation-final-validation-2026-09-11.md)
 Owner: [N-FORMATION](implement-cluster-formation-poc.md)
 
 This maps the task's required failure rows to inspected tests and remaining
 work. It does not replace the task's other acceptance criteria or the combined
 M4 observability gate. Keep historical narratives in the integration
 record; update this table when a specific requirement gains evidence.
+
+The current checkpoint supersedes earlier remaining-work statements below.
+All current required process checks and the final criterion audit pass, with
+scoped operator acceptance of the measured results. Historical numerical
+limitations and failed attempts remain unchanged. Follow-up work has its own
+[post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups).
 
 ## Shared setup convergence policy verified — 2026-09-09
 

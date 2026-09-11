@@ -16,6 +16,18 @@ extend it if available. Neither the one-worker-per-host baseline nor the
 separate sixteen-worker diagnostic proves the thirty-worker performance target
 or retroactively turns the local inconclusive curve into a pass.
 
+## Publishing experiment evidence
+
+Keep real inventories, raw route snapshots, endpoint-bearing receipts and
+credentials private. Before committing a report, replace lab IPv4/IPv6
+addresses with documentation-only addresses (for example `192.0.2.11`), real
+hostnames with stable role aliases (`pi1`, `pi2`, etc.), and MAC-derived device
+names with descriptive aliases. State that identities were anonymized, preserve
+cross-report mappings and routing relationships, and never change measurements
+or overwrite the private original evidence. The checked-in inventory example
+must contain placeholders only. Root-level `pi.lab.*.json` inventories and the
+local `update-fleet.sh` helper are Git-ignored; do not force-add them.
+
 ## Hardware and OS
 
 Use the Pis already available; report each model and RAM size before choosing
@@ -515,9 +527,47 @@ The [route-corrected comparison](measurements/formation-pi-ethernet-routing-2026
 retains six windows and rollback evidence. With temporary routing, arm bounded
 rollback before mutation and record its actual execution relative to the last
 sample. Capture both NICs; background Wi-Fi packets do not by themselves imply
-that HTTPS load used Wi-Fi. Worker-enforced role/interface selection is
-[prioritized PoC support work](tasks/implement-worker-network-placement.md),
-not an existing capability or something this harness flag implements.
+that HTTPS load used Wi-Fi.
+
+### Worker-enforced interface placement
+
+The worker can now bind each role to one named interface instead of relying on a
+temporary route: `--interface.peers eth0` and `--interface.clients eth0`, decided
+in [ADR 0026](adr/0026-worker-network-interface-placement.md). A placed role
+needs a wildcard bind (`--listen.peers 0.0.0.0:6655` with `--advertise.peers
+<inventory IP>:6655`), because a concrete address paired with a device binds
+successfully and then matches no ingress. This is the intended replacement for
+the manual `ip route` correction; re-running the network profile with these
+flags, rather than with a temporary metric-50 route, is outstanding work.
+
+The [seven-case isolated namespace proof](measurements/worker-network-placement-2026-09-11.md)
+now verifies the Linux socket paths, including different peer/client devices and
+fresh state propagation after link restoration. The report includes a rootless
+`unshare` recipe requiring no host route changes. This is not a Pi recheck:
+rebuild/deploy the placement-enabled binaries before running that physical
+follow-up; the existing fleet and private inventories have not been changed by
+the namespace verification.
+
+Troubleshooting, in this order:
+
+- **No `placement` lines on the worker's stderr.** The selection never reached
+  the worker. YAML `spec.interface` is strict about its own keys, but a
+  misspelled outer key such as `spec.interfaces` is discarded silently.
+- **Startup exits 2 naming the interface.** The device does not exist in that
+  network namespace, or a concrete bind was paired with it. Both are refused
+  deliberately; the worker never falls back to an unconstrained socket.
+- **Placement reported, but traffic still absent.** Check `ip route get <dst>
+  from <bound source IP>` on both ends. A placed worker excludes the wrong
+  interface, so a peer that still prefers the wrong route cannot reach it — the
+  correct outcome, and the reason both ends must be placed or routed together.
+- **Traffic stopped after a link event.** A socket bound to a device with no
+  usable route fails route lookup rather than selecting another device.
+  Recovery is the interface returning, or a restart. There is no hot reload.
+
+Rollback is removing the two flags and restarting; nothing persists on the host,
+and no routing table or firewall rule is written by the worker. Bounded
+multi-interface lists, failover and pod-namespace semantics remain
+[planned work](tasks/implement-worker-network-placement.md).
 
 ## Current verification and next handoff
 

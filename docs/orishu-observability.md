@@ -1,6 +1,10 @@
 # Orishu operational observability
 
-Status: **local probes, metrics and sampled trace export implemented; full instrumentation and distributed tracing pending**
+Status: **formation-stage probes, metrics, sampled cross-peer admission traces
+and operator handoff accepted for source-built Linux; later workload
+instrumentation and release qualification remain planned**. See the
+[final checkpoint](tasks/cluster-formation-final-validation-2026-09-11.md) and
+[post-M4 follow-ups](roadmap/README.md#post-m4-operational-follow-ups).
 
 [ADR 0017](adr/0017-worker-operational-observability.md) defines feature-gated
 worker metrics, health probes and trace export. This page is the operator
@@ -9,8 +13,8 @@ health probes, three health gauges, thirteen owner counters, eight lane-slot gau
 and seven client-service instruments, plus inbound handshake and reliable peer
 exchange metrics. The
 [mTLS proxy recipe](testing-worker-monitoring-proxy.md) provides a tested
-source-build secure-proxy path; native remote diagnostics, broader
-instrumentation and distributed tracing remain work. See the [worker manual](../apps/orishu-worker/README.md).
+source-build secure-proxy path; native remote diagnostics and broader workload
+instrumentation are not established by this formation scope. See the [worker manual](../apps/orishu-worker/README.md).
 
 The [user-service](testing-worker-user-service.md) and
 [rootless container](testing-worker-container.md) recipes have scoped
@@ -146,8 +150,10 @@ measurements, see the [manual local overhead harness](testing-worker-overhead.md
 It distinguishes the historical single-worker baseline from the current
 3/10/30-worker fixed-rate curve. The [post-diagnostic results](measurements/formation-post-diagnostic-2026-09-10.md)
 meet reviewed normal-instrumentation gates at three/ten workers, but
-thirty-worker baseline latency variation keeps full M4 overhead acceptance
-open. Full sampling is separately high-cost and loses operation logs through
+thirty-worker baseline latency variation prevents a numerical overhead pass
+for that profile. The operator explicitly accepted these limitations for the
+scoped M4 PoC; this does not turn inconclusive results into threshold passes.
+Full sampling is separately high-cost and loses operation logs through
 bounded contention shedding in this experiment; it is not a normal-compute
 or lossless-delivery recommendation. Do not infer scientific-workload,
 cross-host or supervisor-specific performance from these local API measurements.

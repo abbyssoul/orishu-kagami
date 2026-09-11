@@ -29,3 +29,4 @@ consequences, and status.
 - [0023 — Fields are plugin-modelled state over the experiment domain](0023-fields-are-plugin-modelled-domain-state.md)
 - [0024 — Orishu orchestrates a workload component graph](0024-orishu-orchestrates-a-workload-component-graph.md)
 - [0025 — Version peer trace-context propagation separately from membership semantics](0025-version-peer-trace-context-propagation.md) (**accepted; formation admission propagation implemented**)
+- [0026 — Bind each network role's sockets to one explicitly named interface](0026-worker-network-interface-placement.md) (**accepted; one interface per role, Linux-only PoC enforcement**)

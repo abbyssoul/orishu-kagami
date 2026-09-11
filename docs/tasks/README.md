@@ -7,6 +7,16 @@ once promoted, an idea links to a task here.
 See the [implementation roadmap](../roadmap/README.md) for milestone order,
 cross-task dependencies, unrefined work packages, and parallel-agent ownership.
 
+Current M4 closeout: [final validation and requirement audit](cluster-formation-final-validation-2026-09-11.md).
+Combined M4 is accepted for source-built Linux, with final verification complete
+and the operator's scoped measurement acceptance retaining all limitations.
+This checkpoint supersedes older performance-pending summaries below while
+retaining their measurement limitations and later programme obligations.
+
+The [post-M4 operational follow-up register](../roadmap/README.md#post-m4-operational-follow-ups)
+assigns owners, milestone targets and exit artifacts to the retained performance,
+networking, deployment, runtime and release work. It is not another M4 gate.
+
 Kagami's capability work is a multi-task programme with its own index:
 [docs/tasks/kagami](kagami/README.md) carries the authoring spine and its
 cross-lane work — the experiment
@@ -16,7 +26,11 @@ and viewport/app adoption.
 
 | Task | Status |
 | --- | --- |
-| [Implement worker network placement](implement-worker-network-placement.md) | Planned: single-interface-per-role slice prioritized for PoC isolation; ADR and bounded multi-interface production semantics remain to resolve |
+| [Implement staged runtime scaling evidence](implement-staged-runtime-scaling-evidence.md) | Specified: early-M5 lab follow-ups, M5 scientific 1/3/5-worker stages, M8 complete 1/3/5/12/32-worker evidence; services and experiment plans gate execution |
+| [Qualify selected worker deployment profiles](qualify-worker-deployment-profiles.md) | Specified: M5 candidate selection, M8 selected supported-profile qualification; optional Kubernetes/cloud environments not yet selected |
+| [Implement the single-node workload runtime](implement-single-node-workload-runtime.md) | Specified; M2/M3 foundations required by M5; gated on lifecycle contracts and O-WASM |
+| [Implement distributed workload execution](implement-distributed-workload-execution.md) | Specified for M5; gated on single-node reference, reviewed distributed protocol and concrete scientific profile |
+| [Implement worker network placement](implement-worker-network-placement.md) | Slices 1-2 delivered: contract in [ADR 0026](../adr/0026-worker-network-interface-placement.md), one interface per role enforced on Linux across listening, initial join and client replies; [seven-case namespace wire proof verified](../measurements/worker-network-placement-2026-09-11.md). Physical Pi revalidation, bounded multi-interface lists, failover, pod qualification and remote inspection remain planned |
 | [Review worker executor sizing](review-worker-executor-performance.md) | Planned post-PoC: bounded executor sizing, scheduler/CPU and allocation evidence; desktop oversubscription hypothesis remains unverified |
 | [Kagami capability programme](kagami/README.md) (K1–K14) | K1, K3, the landed-boundary follow-up, and K4 implemented; K2, K5, K6 and K11 have implemented slices with named gates; K7 partial; K8–K10 and K12–K13 specified; [K14 scene scale](kagami/choose-scene-scale.md) ready in M2 |
 | [Extract the shared Kubernetes-style resource envelope](extract-shared-resource-envelope.md) | Implemented and accepted; discriminator bounds precede allocation, both no-status policies are documented and tested, and consumer wire compatibility is pinned |
@@ -32,17 +46,19 @@ and viewport/app adoption.
 | [Implement time-addressable run playback](implement-time-addressable-run-playback.md) | Ready |
 | [Implement the sans-IO cluster membership core](implement-membership-model.md) | Implemented and accepted |
 | [Fix membership liveness propagation through full-record merge](fix-membership-liveness-gossip-merge.md) | Implemented and accepted |
-| [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | N-FORMATION accepted for historical source-built Linux scope; selected systemd/rootless log collection verified. [Revised-policy setup checks](../measurements/formation-reliability-2026-09-09.md#approved-policy-verification--2026-09-09) pass at 3/10/30 workers with telemetry omitted and metrics enabled. Final-log contention fixed; [correctness revalidation](cluster-formation-m4-checklist.md#post-reliability-regression-checkpoint--2026-09-09) records current evidence. Noise, full-sampling cost/loss, per-size budget feasibility, full overhead curve and final M4 acceptance remain open |
-| [Implement worker operational observability](implement-worker-observability.md) | Formation-stage capabilities, correlation and selected operator recipes verified at the current source-built checkpoint; reviewed overhead and final M4 acceptance remain open; later workload instruments remain planned |
-| [Implement the physical Raspberry Pi formation experiment](implement-physical-formation-experiment.md) | Partial: route-corrected HTTPS comparison completed six windows, peak 94.28k/sec and 32-client repeat 91.10k/sec; original routes restored. Per-worker target unmet; interface enforcement and paired telemetry/acceptance matrix remain |
-| [Document and verify operator observability workflows](document-worker-observability.md) | [Current-build formation recipes](cluster-formation-m4-checklist.md#current-build-operator-recipe-verification--2026-09-09) verified, including both selected deployments, ingestion, security, correlation and dashboard/incident controls; M4 performance acceptance and later release/workload handoff remain open |
+| [Implement the operational cluster-formation PoC](implement-cluster-formation-poc.md) | Combined M4 accepted for source-built Linux; [final validation](cluster-formation-final-validation-2026-09-11.md) covers workspace, four features, backend, placement and all ten fault cases; measured limitations retained |
+| [Implement worker operational observability](implement-worker-observability.md) | Formation scope accepted for M4; later workload instruments and release qualification remain planned |
+| [Implement the physical Raspberry Pi formation experiment](implement-physical-formation-experiment.md) | Recorded Pi measurements accepted for scoped PoC; [post-M4 follow-ups](../roadmap/README.md#post-m4-operational-follow-ups) retain physical placement revalidation and selected future experiments, with original performance limitations |
+| [Document and verify operator observability workflows](document-worker-observability.md) | Formation scope accepted for M4 with [current applicability review](cluster-formation-final-validation-2026-09-11.md#operator-recipe-applicability); later release/workload handoff remains planned |
 | [Implement the `orishu-monitor` TUI shell](implement-orishu-monitor-admin-tui.md) | Implemented; first slice toward full operator parity, with live APIs/actions deferred and raw admission-secret output CLI-only |
 | [Integrate `orishu-monitor` with the operator API](integrate-orishu-monitor-operator-api.md) | Backlog; promote bounded increments as N-FORMATION and O-CLIENT contracts land |
 
 The [cluster-formation integration record](cluster-formation-integration-record.md)
 preserves historical implementation reports and dated lifecycle/recovery
 checkpoints; it is not another task or a
-current acceptance checklist. Select remaining M4 work through the task's
+current acceptance checklist. The following links preserve historical M4 work
+selection, not current instructions to reopen completed gates. Current follow-up
+selection belongs to the post-M4 register above. Historical work used the task's
 [open-work table](implement-cluster-formation-poc.md#open-m4-work-selection)
 and [bounded increment rules](implement-cluster-formation-poc.md#selecting-and-closing-an-audit-increment).
 The [completed foundation audit](cluster-formation-conformance.md#m4-foundation-evidence-reconciliation--2026-09-07)

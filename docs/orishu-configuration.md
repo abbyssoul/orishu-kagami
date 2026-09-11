@@ -85,6 +85,24 @@ Worker startup configuration includes listener addresses, TLS identity,
 resource limits, peer/client/work admission flags, storage backend and
 replication settings, and optional explicit introducer/join information.
 
+Explicit per-role network placement uses the same precedence:
+
+| YAML setting | Environment | CLI | Default |
+| --- | --- | --- | --- |
+| `spec.interface.peers` | `ORISHU_INTERFACE_PEERS` | `--interface.peers NAME` | unset; peer sockets follow host routing |
+| `spec.interface.clients` | `ORISHU_INTERFACE_CLIENTS` | `--interface.clients NAME` | unset; client replies follow host routing |
+
+A placed role binds every socket it creates to that device, covering listening,
+the outbound initial join and client replies. Placing a role requires a wildcard
+bind for it, because an address belonging to a different device binds
+successfully and then matches no ingress. An unknown interface, a concrete bind,
+a client interface with only Unix listeners, or a non-Linux platform fails
+startup before any listener exists; there is no fallback to an unconstrained
+socket. Unknown keys within `spec.interface` are rejected, though a misspelled
+outer key is still discarded like any other unknown `spec` key, so operators
+confirm the startup `placement` report. Startup-only; no hot reload. See
+[ADR 0026](adr/0026-worker-network-interface-placement.md).
+
 Workers may intentionally expose only the client or peer listener appropriate
 to their topology. A worker not accepting inbound peers may still join and
 perform work; a worker not accepting clients remains observable through

@@ -1,8 +1,10 @@
 # Implement the operational cluster-formation PoC
 
-Status: **N-FORMATION accepted for source-built Linux; combined M4 handoff open** —
-formation criteria and final process validation pass at their documented
-boundaries; telemetry and its operator handoff remain incomplete
+Status: **implemented and accepted — N-FORMATION and combined M4 for the
+documented source-built Linux scope**. The [final checkpoint](cluster-formation-final-validation-2026-09-11.md)
+records the complete current validation, requirement audit and scoped acceptance
+of measured results with their original limitations. Later work is tracked in
+the [post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups).
 
 Roadmap package: **N-FORMATION**; companion milestone: **M4**
 
@@ -39,18 +41,20 @@ The combined **M4** outcome adds an operator-verifiable monitoring journey:
 scrape each worker, observe truthful process probes, and receive a sampled
 client-to-peer trace using the documented secure configuration. Formation must
 remain correct with telemetry compiled out, runtime-disabled or unavailable.
-This companion outcome is still open; it does not reopen accepted formation
-work or introduce scientific execution.
+The companion formation-stage implementation and operator handoff are accepted
+at the final checkpoint. This does not introduce scientific execution or close
+the companions' later workload and release obligations.
 
 ## How to use this task
 
-This records accepted formation work and an unfinished M4 companion handoff,
-not a greenfield implementation brief.
+This records accepted formation work and completed M4 validation, not a
+greenfield implementation brief. The final checkpoint governs current closure;
+dated implementation/experiment narratives retain their historical dispositions.
 
 | Read first | Purpose |
 | --- | --- |
-| [Open M4 work](#open-m4-work-selection) | Remaining deliverables, their owners and decision gates |
-| [M4 checklist](cluster-formation-m4-checklist.md) | Finite requirement/evidence map; deployment choice accepted and scoped collection verified, overhead/final acceptance pending |
+| [Historical M4 work selection](#open-m4-work-selection) | Earlier selections and decisions; no remaining M4 work at the final checkpoint |
+| [M4 checklist](cluster-formation-m4-checklist.md) and [final checkpoint](cluster-formation-final-validation-2026-09-11.md) | Complete requirement/evidence map, source/artifact identities, current checks, scoped measurement acceptance and final disposition |
 | [Scope and companion ownership](#roadmap-placement-and-dependencies) | Separate formation, telemetry and operator-documentation obligations |
 | [Operator journey](#m4-operator-journey) and [capability/runtime matrix](#m4-capability-and-runtime-matrix) | Observable behavior the companion delivery must demonstrate |
 | [Acceptance criteria](#acceptance-criteria) and [conformance ledger](cluster-formation-conformance.md) | Completion contract versus recorded evidence and its applicable checkpoint |
@@ -141,11 +145,14 @@ validation, not on increasing that budget alone.
 
 ### Remaining reviewable increments
 
-The remaining work is the companion M4 observability handoff. N-FORMATION's
-final validation and acceptance are complete at the linked checkpoint.
-Retained regression and review briefs below preserve its closure contract;
-they are not new implementation increments. M4 remains open until both
-companion deliveries pass too.
+Post-PoC performance, physical revalidation, networking, deployment and release
+work now has a [cross-milestone register](../roadmap/README.md#post-m4-operational-follow-ups)
+with owners and task briefs. The operator's scoped measurement acceptance and
+completed formation, observability and operator gates are recorded in the
+[final M4 disposition](cluster-formation-final-validation-2026-09-11.md#final-integrity-and-disposition).
+These follow-ups must not become new formation gates or be lost during closeout.
+Retained regression and review briefs below preserve the historical closure
+contract; they are not new M4 implementation increments.
 
 Preserve the catch-up lifecycle and receiver-fault regressions in the evidence
 ledger, together with deterministic incomplete/cancelled-transfer readiness
@@ -153,6 +160,15 @@ and the public A-to-B-to-C handoff. Their bounded wire/runtime coverage does
 not replace public ejection/exclusion or process-level fault acceptance.
 
 #### Open M4 work selection
+
+**Current disposition:** M4 is complete at the
+[final checkpoint](cluster-formation-final-validation-2026-09-11.md).
+The operator accepts the measured results with their original limitations;
+another curve is not an M4 prerequisite. The experiment narrative and work
+table below preserve the earlier selection history, not an instruction to
+restart completed experiments or an unrecorded override of that acceptance.
+There are no new M4 implementation selections. Further capacity/network/deployment work belongs in the
+[post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups).
 
 The operator subsequently requested the [physical 3–5-Pi experiment](implement-physical-formation-experiment.md)
 as a forward path independent of further local-host tuning. Its

@@ -189,7 +189,8 @@ The worker defaults to a per-user Unix socket. Pass `--host` or set
 `make run-ctl ARGS="cluster info"` now reports the worker's real standalone
 formation identity and local membership summary. Authenticated join/catch-up
 and lock/unlock/leave have accepted source-built Linux formation/recovery
-evidence; the combined M4 telemetry/operator handoff remains open. See the
+evidence; the combined M4 telemetry/operator handoff is accepted for the
+documented source-built Linux scope, with measured limitations retained. See the
 [acceptance ledger](docs/tasks/cluster-formation-conformance.md).
 Each instance needs its
 own private state directory and client socket; see the

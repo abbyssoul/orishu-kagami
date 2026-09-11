@@ -1,8 +1,18 @@
 # Implement worker network placement
 
-Status: **planned; bounded single-interface slice prioritized for PoC support;
-multi-interface production behavior requires a design decision**.
+Status: **slices 1-2 delivered — contract recorded in
+[ADR 0026](../adr/0026-worker-network-interface-placement.md) and one selected
+interface per role enforced on Linux with verified namespace wire evidence;
+physical Pi revalidation and the remaining slices 3-4 are still planned**.
 Owner: N-FORMATION network IO shell and operator configuration.
+
+Post-M4 targets: physical single-interface recheck in early M5; slices 3–4
+design review in M5 and production implementation/qualification target M8.
+Endpoint selection, failover and migration require the existing decision gate;
+they are not selected by this schedule. Track any explicit deferral in the
+[post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups).
+[P-DEPLOY](qualify-worker-deployment-profiles.md) owns the environment/support
+matrix and reuses this task's wire proof, rather than duplicating socket work.
 
 ## Outcome and current gap
 
@@ -12,12 +22,14 @@ placement must cover listening **and outbound/reply traffic**, not merely the
 address published to other nodes. This supports bare metal, containers and
 Kubernetes without making interface names part of membership identity.
 
-Today, repeated `--listen.clients` selects multiple TCP/Unix addresses;
-`--listen.peers` and `--advertise.peers` each select one literal socket address.
-The YAML peer lists also reject more than one element. There is no interface
-allowlist or device-bound egress policy. Initial admission creates a separate
-wildcard-bound outbound QUIC endpoint; peer listening does not constrain it.
-See the [current worker manual](../../apps/orishu-worker/README.md#network-placement-current-limitations).
+Repeated `--listen.clients` selects multiple TCP/Unix addresses; `--listen.peers`
+and `--advertise.peers` each select one literal socket address, and the YAML peer
+lists still reject more than one element. `--interface.peers` and
+`--interface.clients` now bind every socket of their role to one named device,
+including the outbound QUIC endpoint used for initial admission, which was
+previously wildcard-bound and unconstrained by peer listening. There is still no
+interface *allowlist*: one interface per role, Linux only, no failover.
+See the [worker manual](../../apps/orishu-worker/README.md#network-placement).
 
 The [Pi routing experiment](../measurements/formation-pi-ethernet-routing-2026-09-11.md)
 demonstrated the practical gap: three hosts selected Wi-Fi for replies even
@@ -58,6 +70,72 @@ This does not reopen historical N-FORMATION acceptance or close M4 overhead.
    appropriate read-only inspection into `orishuctl` and the monitor's API
    integration task. Include wrong-route/interface-down troubleshooting and
    rollback. Do not expose credentials or add unbounded interface metric labels.
+
+## Delivered increment: one interface per role — 2026-09-11
+
+Slice 1 is recorded as [ADR 0026](../adr/0026-worker-network-interface-placement.md).
+It compares address selection, OS routes, per-socket device binding and
+deployment-owned namespaces, and selects `SO_BINDTODEVICE` for the PoC: it
+constrains ingress and egress, mutates no host state, and needs no added
+capability on current Linux kernels. `socket2` was already resolved in the tree
+through quinn-udp and tokio, so naming it adds no new code.
+
+Slice 2 landed in `apps/orishu-worker`. `--interface.peers` /
+`--interface.clients` (plus `ORISHU_INTERFACE_*` and `spec.interface.*`) bind
+every socket of their role in `net_placement.rs`. All four production socket
+paths were audited: the QUIC peer listener and the lazily created outbound join
+endpoint both go through `placed_udp_socket`, and TCP client listeners go
+through `placed_tcp_listener` behind a small salvo `Listener` adapter that keeps
+the existing TLS composition. Catch-up, SWIM/gossip and reconnection create no
+sockets of their own — they reuse registered connections on the placed endpoint.
+Unix client sockets and the loopback diagnostics listener are deliberately
+unplaced, so ADR 0017's exposure policy is unchanged.
+
+Two semantics were settled against the kernel rather than assumed. A socket
+bound to a device with no usable route fails its route lookup instead of
+selecting another device, which is what makes this enforcement rather than
+preference. A concrete bind address paired with a *different* device binds
+successfully and then matches no ingress, and neither a bind probe nor a
+device-scoped route lookup distinguishes that from a correct pairing — so
+placing a role requires a wildcard bind, and the combination is refused.
+
+The [two-namespace veth wire proof](../measurements/worker-network-placement-2026-09-11.md)
+(`make test-worker-network-placement`, or the isolated user-namespace recipe in
+the report) covers seven scenarios: peer misrouting control, exclusion, placed
+formation and interface loss/recovery, client reachability control and placed
+client enforcement, and simultaneous peers/clients on different devices.
+Each role has its own negative control, because client placement
+binds different sockets and replies over accepted connections rather than
+inheriting the peer verdict. The client checks open fresh connections and issue
+authenticated `GET /api/v1/cluster` requests, so they exercise real application
+replies rather than a bare handshake. Missing/wrong credentials must yield 401;
+wrong IP SAN and untrusted certificates must fail TLS. Those failures are
+distinguished from network exclusion, so a broken harness cannot read as a pass.
+
+A peer run counts only when catch-up has completed, both sides are introducer
+ready, and their exact two live member IDs and certificate fingerprints match
+the initial identities and the assignment in the completed join operation.
+Matching formation IDs alone, or a stalled `catchingUp`, is
+reported as such rather than passing or masquerading as correct exclusion. The
+interface-loss scenario requires a working formation before disruption, creates
+a fresh replicated lock while disconnected, proves it has not reached the other
+worker, then restores the link and route and requires that lock to cross with
+the same verified membership. Restoration runs even on failure. Later scenarios
+do not inherit a broken topology. Carried-traffic thresholds are per role and
+measured: the client probe moved 20,981 bytes against 0 on an idle window, so
+one peer-sized threshold would have misread a real client check as no traffic.
+The harness never reclaims namespaces or veth devices implicitly — it refuses to
+start when its names are already in use and offers `--cleanup` for leftovers, so
+it cannot destroy a concurrent run. Shutdown must be clean and bounded, with no
+forced worker kill or leftover Unix socket. `--output` retains a private report
+and sibling evidence directory, including failure evidence, without overwriting
+an earlier report. The evidence directory contains disposable credentials and
+must not be committed or published.
+
+The [verified run](../measurements/worker-network-placement-2026-09-11.md) closes
+the local Linux namespace wire-proof gap, not physical deployment qualification.
+Physical Pi re-verification, bounded multi-interface lists, failover, container/pod
+namespace semantics and `orishuctl`/monitor inspection all remain open.
 
 ## Acceptance criteria
 

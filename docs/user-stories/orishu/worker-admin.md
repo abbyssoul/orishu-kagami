@@ -175,9 +175,19 @@ respect their selected role's interfaces, without silently using excluded ones.
 - The initial PoC support slice may permit one selected interface per role;
   bounded multi-interface lists and failover remain a separately verified slice.
 
-Status: **planned** in the [network-placement task](../../tasks/implement-worker-network-placement.md).
-Multiple client addresses and one peer address work today; interface enforcement
-does not. The task is prioritized to support physical-cluster isolation tests.
+Status: **partially implemented** — one selected interface per role on Linux,
+decided in [ADR 0026](../../adr/0026-worker-network-interface-placement.md) and
+tracked in the [network-placement task](../../tasks/implement-worker-network-placement.md).
+`--interface.peers` and `--interface.clients` bind every socket of their role,
+including the outbound initial join and client replies, and an unenforceable
+selection fails startup rather than falling back. Placing a role requires a
+wildcard bind for it. Inspection is currently the startup `placement` report on
+the worker's stderr, not an `orishuctl` or monitor surface. The
+[seven-case namespace proof](../../measurements/worker-network-placement-2026-09-11.md)
+verifies the Linux slice, including separate role devices, authentication and
+link recovery; physical Pi revalidation is still outstanding. Bounded
+multi-interface lists, failover, pod-namespace semantics and remote inspection
+remain planned slices of that task.
 
 ### Run a local and remotely accessible instance
 

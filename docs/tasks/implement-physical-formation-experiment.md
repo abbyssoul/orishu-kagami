@@ -3,6 +3,17 @@
 Status: **partial; four-Pi pilot and sixteen-worker Unix/HTTPS capacity diagnostics executed;
 host-network findings and paired telemetry/acceptance matrix open**.
 Owner: N-FORMATION/P-OBSERVABILITY physical-host evidence, with P-SCALE reuse.
+
+Post-M4 target: **early M5** for the new worker-placement hardware recheck and
+any selected bounded capacity diagnostic. The operator has accepted the measured
+results for the scoped M4 PoC; retained unexecuted telemetry comparisons are
+future experiments, not a requirement to repeat that acceptance campaign.
+Preserve historical results and limitations below. Select a fresh question,
+profile, budget and stop condition before more timed work. The
+[post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups) tracks this
+handoff; [P-SCALE](implement-staged-runtime-scaling-evidence.md) owns subsequent
+scientific scaling and [P-DEPLOY](qualify-worker-deployment-profiles.md) owns
+optional Kubernetes/cloud qualification, which remains outside this lab task.
 Requested by the operator on 2026-09-10 after the
 [local full curve](../measurements/formation-post-diagnostic-2026-09-10.md).
 Operator guide: [three-to-five-Pi setup](../testing-worker-pi-cluster.md).

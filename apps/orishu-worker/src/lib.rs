@@ -7,6 +7,7 @@ pub mod formation_metrics;
 pub mod health;
 pub mod join_operations;
 mod membership_view;
+pub mod net_placement;
 pub mod operational_log;
 pub mod peer;
 mod reconciliation;

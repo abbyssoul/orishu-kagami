@@ -22,23 +22,67 @@ examples live in `etc/`; the root `Dockerfile` produces a non-root worker image.
 
 ## Identity and local inspection
 
-### Network placement: current limitations
+### Network placement
 
-Client and peer addresses can be selected independently. `--listen.clients`
-is repeatable for TCP/Unix listeners; `--listen.peers` supports one literal
-socket address, with one optional `--advertise.peers` override. These are
-**address selectors, not interface allowlists or egress guarantees**. The OS
-routes replies, and initial peer admission uses a separate wildcard-bound
-outbound QUIC socket. Binding an Ethernet IP does not by itself exclude Wi-Fi.
+Peer and client traffic can each be pinned to one named interface, independently.
+`--interface.peers <name>` binds every peer socket — the QUIC listener *and* the
+outbound socket used for the initial join — to that device. `--interface.clients
+<name>` binds TCP client listeners, and accepted connections inherit it, so
+replies leave through the selected device rather than whichever one the route
+table prefers. Naming the same interface for both roles is allowed and explicit.
+Environment equivalents are `ORISHU_INTERFACE_PEERS` and
+`ORISHU_INTERFACE_CLIENTS`; YAML uses `spec.interface.peers` and
+`spec.interface.clients`; precedence is file < environment < CLI. See
+[ADR 0026](../../docs/adr/0026-worker-network-interface-placement.md).
 
-Named-interface selection, device-constrained traffic and multiple peer
-interfaces are [planned work](../../docs/tasks/implement-worker-network-placement.md),
-not current worker options. Until that work lands, operators must arrange and
-verify network placement through their deployment's routing/network namespace
-and firewall policy. Check routes from the actual bound source IP, not only
-destination reachability. Client TLS and peer mTLS remain separate; selecting
-an internal address does not replace authentication. Diagnostics retain their
-separate exposure policy.
+```sh
+orishu-worker \
+  --listen.peers 0.0.0.0:6655 --advertise.peers 192.0.2.11:6655 \
+  --interface.peers eth0 \
+  --listen.clients 0.0.0.0:6680 --interface.clients eth0 \
+  --tls-cert /etc/orishu/pki/worker.crt --tls-key /etc/orishu/pki/worker.key
+```
+
+Replace the documentation-only `192.0.2.11` with the worker's reachable address.
+
+**Placing a role requires a wildcard bind.** A concrete bind address combined
+with an interface is refused: the kernel accepts a socket bound to an address
+that belongs to a *different* device and then matches no ingress at all, and
+nothing distinguishes that from a correct pairing at bind time. The device does
+the constraining; `--advertise.peers` still publishes the reachable address.
+
+Selections must be enforceable or startup fails. An unknown interface, a
+concrete bind, a client interface with only Unix listeners, or any non-Linux
+platform is a startup error naming the problem. **The worker never falls back to
+another interface and never degrades to address-only binding.** Losing a placed
+interface stops that role's traffic; it does not move it onto an excluded one.
+Recovery is the interface returning or a restart — there is no hot reload.
+
+A worker with any placed role prints one `placement …` line per role to stderr
+at startup, naming the requested interface and the index it resolved to. Check
+for it: the configuration format accepts and discards unknown `spec` keys, so a
+misspelled outer key such as `spec.interfaces` leaves the role unplaced with no
+error, and the missing line is the signal. Keys *inside* `spec.interface` are
+rejected.
+
+Unix client sockets have no interface and are never placed; local administration
+is unchanged. The optional diagnostics listener keeps its own loopback-only
+policy and is not affected by client placement. Client TLS and peer mTLS remain
+separate — selecting an interface never replaces authentication or grants
+admission.
+
+Limits of this slice: one interface per role, Linux only, no automatic failover,
+and no bounded multi-interface lists. Inside a container or pod, interface names
+refer to that namespace's devices, so host interface names must not be assumed
+visible. Non-Linux placement is rejected; Linux reports an error if the kernel
+denies device binding. An [isolated user-namespace wire test](../../docs/measurements/worker-network-placement-2026-09-11.md)
+is verified, but does not qualify arbitrary rootless containers or Kubernetes
+network plugins. Bounded lists, failover and deployment qualification remain
+[planned work](../../docs/tasks/implement-worker-network-placement.md).
+
+When troubleshooting, check routes from the actual bound source IP, not only
+destination reachability, and read per-interface counters rather than inferring
+isolation from link-up status.
 
 ### Peer identity and admission
 
@@ -401,7 +445,9 @@ Prometheus server, including fresh delivery counts after collector recovery;
 see the [test guide](../../docs/testing-worker-prometheus.md#ingest-trace-counters-through-prometheus)
 for pinned tool prerequisites and the supported local source-build scope.
 Profile-5 admission propagation and [structured local span-correlated logs](#structured-stdout-logs)
-are implemented with scoped process evidence; full M4 acceptance remains open.
+are implemented with scoped process evidence; the
+[final M4 checkpoint](../../docs/tasks/cluster-formation-final-validation-2026-09-11.md)
+accepts the source-built Linux formation/monitoring handoff with measured limitations.
 `make test-worker-otelcol OTELCOL=/absolute/path/to/otelcol` runs the
 [pinned local Collector walkthrough](../../docs/testing-worker-otelcol.md):
 real OTLP decoding/file receipt, disabled/zero sampling and collector
@@ -438,9 +484,10 @@ the worker remains loopback-only. Its
 [stalled-reader journey](../../docs/testing-worker-monitoring-proxy.md#downstream-response-backpressure-and-expiry)
 checks actual TLS write pressure, bounded generation, timeout-driven request
 slot reuse and independent operator progress; it is not a fleet-scale or
-arbitrary slow-client guarantee. Worker-native remote diagnostics, sampled
-Cross-peer OTLP traces, broader metrics and service/container/release handoff
-remain pending.
+arbitrary slow-client guarantee. Cross-peer admission traces and selected
+source-built service/container collection have accepted formation-stage evidence.
+Worker-native remote diagnostics, workload instrumentation and supported-release
+qualification are not established by these checks.
 See the [configuration mapping](../../docs/orishu-configuration.md#worker-configuration).
 
 Reserved join/reconnect/catch-up completions retain explicit disposal ownership:
@@ -714,7 +761,8 @@ direct scrapes, probes and cross-worker policy checks. The separate
 and [rootless-container collection check](../../docs/testing-worker-container.md#verify-enabled-container-and-trace-collection)
 now match actual journal/runtime records to received spans across deliberate
 restarts. These are local collection checks, not full supervisor-specific
-formation or performance qualification; the final M4 checklist remains open.
+formation or performance qualification; the final M4 checkpoint retains those
+scope limits while accepting the formation-stage operator handoff.
 
 ## Monitoring interface and remaining work
 
@@ -735,12 +783,13 @@ The optional `observability` build provides loopback Prometheus metrics and
 startup/liveness/readiness probes with explicit runtime enablement, as described
 in the [implemented local surface](../../docs/orishu-observability.md#implemented-local-surface).
 No monitoring port is enabled by default. Local sampled OTLP export and the
-documented mTLS monitoring proxy have scoped source-build evidence; cross-peer
-tracing and full remote deployment acceptance remain incomplete under
+documented mTLS monitoring proxy have scoped source-build evidence, alongside
+cross-peer admission correlation under
 [ADR 0017](../../docs/adr/0017-worker-operational-observability.md). The
-[operator manual task](../../docs/tasks/document-worker-observability.md) tracks
-the remaining deployment, collector and troubleshooting acceptance. Local
-metrics/probes do not establish the complete M4 monitoring handoff.
+[post-M4 register](../../docs/roadmap/README.md#post-m4-operational-follow-ups)
+tracks later workload instrumentation, deployment qualification and operator
+manuals. Accepted M4 monitoring does not qualify arbitrary remote deployments
+or published artifacts.
 
 The [monitoring incident runbook](../../docs/worker-monitoring-runbook.md)
 provides bounded read-only checks for peer loss, local unreadiness and missing

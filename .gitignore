@@ -4,3 +4,7 @@
 *.profraw
 .DS_Store
 __pycache__/
+
+# Local lab inventory and host-specific helper; publish sanitized examples only.
+/pi.lab.*.json
+/update-fleet.sh

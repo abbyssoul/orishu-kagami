@@ -12,6 +12,12 @@ These objectives are targets, not claims about the current implementation.
 They complement the scientific targets in `target-experiments.md` and the
 delivery gates in `roadmap/README.md`.
 
+Implementation is tracked in [P-SCALE](tasks/implement-staged-runtime-scaling-evidence.md):
+scientific 1/3/5-worker stages target M5, with complete 1/3/5/12/32-worker evidence
+for M8. The [post-M4 register](roadmap/README.md#post-m4-operational-follow-ups)
+separately retains executor and physical capacity diagnostics; summary-API
+measurements are not substitutes for the scientific stages below.
+
 ## Why Orishu scales
 
 Orishu primarily exists to let a workload exceed one machine's compute, memory,

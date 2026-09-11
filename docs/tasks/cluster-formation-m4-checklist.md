@@ -1,7 +1,8 @@
 # Combined M4 acceptance checklist
 
-Status: **deployment/correctness checkpoints verified; full curve executed;
-thirty-worker performance stability and final acceptance pending**.
+Status: **combined M4 accepted for the documented source-built Linux scope**.
+Final evidence and criterion dispositions:
+[2026-09-11 checkpoint](cluster-formation-final-validation-2026-09-11.md).
 Owner: [cluster-formation task](implement-cluster-formation-poc.md#acceptance-criteria).
 Companions: [P-OBSERVABILITY](implement-worker-observability.md) and
 [P-OBS-DOCS](document-worker-observability.md).
@@ -12,7 +13,22 @@ at its historical source-built Linux checkpoint. M4 requires the companion
 gates to hold together for the delivered profile-5/logging contract. Historical
 passes do not certify arbitrary later dirty-worktree changes.
 
+The final checkpoint supersedes the historical pending-work statements below.
+It records the current source/feature/fault/backend validation, explicitly
+retained operator-recipe applicability and operator acceptance of the measured
+results with limitations. No additional M4 validation remains at that checkpoint.
+
 ## Decisions and execution gates
+
+- **Scoped PoC measurement acceptance and final validation, 2026-09-11:** the
+  operator accepts the measured results with their recorded limitations. The
+  [final validation checkpoint](cluster-formation-final-validation-2026-09-11.md)
+  records the exact disposition, current source comparison and passing workspace
+  checks. It supersedes the historical measurement-approval blocker below, not
+  the original numerical observations or required correctness assertions.
+  Final feature/process/correlation verification, integrity and evidence
+  reconciliation now pass. Combined M4 is accepted for that bounded scope;
+  no new performance campaign or broader production guarantee is implied.
 
 - **Route-corrected Pi HTTPS comparison, 2026-09-11:** the
   [six-window diagnostic](../measurements/formation-pi-ethernet-routing-2026-09-11.md)
@@ -205,6 +221,11 @@ proposal, published artifacts, Kubernetes or cloud qualification.
 
 ## Requirement-to-evidence review
 
+Final review is complete: the
+[requirement audit](cluster-formation-final-validation-2026-09-11.md#requirement-audit)
+records evidence and disposition for every boundary below. This table preserves
+the review obligations, not outstanding work after that checkpoint.
+
 Each row must receive a final disposition: applicable passing evidence with
 checkpoint justification, a named rerun, or an unresolved gap. None is a final
 pass merely because it has a link. Failed required assertions stay open.
@@ -219,7 +240,7 @@ pass merely because it has a link. Failed required assertions stay open.
 | Export/log failure, recovery and shutdown | [Runtime log evidence](cluster-formation-conformance.md#runtime-logging-and-local-span-receipt--2026-09-09), [reader recovery](cluster-formation-conformance.md#real-worker-stdout-reader-recovery--2026-09-09), HTTP/mTLS Collector recipes and worker pressure tests | Keep collector failure separate from log failure; retain slow/closed output, recovery without restarting, bounded exit and loss accounting. No durable-delivery or lossless-shutdown assumption. |
 | Real parser/backend ingestion | [Logging-counter ingestion](cluster-formation-conformance.md#logging-counter-prometheus-ingestion--2026-09-09); `make test-worker-log-prometheus` plus base/trace recipes | Preserve 151/160/163/172-series applicability, target-only labels, absence versus zero, fresh counters after actual scraper outage, and parser byte limits. Direct scrapes are not ingestion. |
 | Operator manuals, stories and examples | [Recipe map](cluster-formation-conformance.md#m4-operator-recipe-applicability--2026-09-08), worker/CLI manuals, both operator story sets; dashboard, alerts and incident evidence | Reconcile selected build/catalogue and deployment commands; retain tested queries, failure/idle controls and safe read-only incident procedures. Do not claim all P-OBS-DOCS release/workload criteria are complete. |
-| Formation-stage overhead | [Approved experiment](../measurements/formation-telemetry-plan.md), not the historical v1 result | Implement and test the versioned 3/10/30-worker scaling harness, freeze the measurement manifest, retain every cell/failure/loss within the accepted 90-minute limit and compare against the accepted cost bands. No accepted result exists yet. |
+| Formation-stage overhead | [Completed curve](../measurements/formation-post-diagnostic-2026-09-10.md), physical reports and [scoped operator acceptance](cluster-formation-final-validation-2026-09-11.md#accepted-measurement-disposition) | Record accepted PoC scope and every numerical limitation; do not turn noisy/inconclusive comparisons into threshold passes. The executed curve used the subsequently approved 120-minute allowance. No repeat performance campaign is required for closeout. |
 | Final validation and release fault exclusion | Workspace commands below, `make test-formation-release-guard`, applicable fault-process commands in the formation ledger | Run required validation at the final checkpoint; record ignored/skipped/platform-dependent cases and investigate failures. A green default build is not optional-feature or fault-build acceptance. |
 
 ## Command manifest to freeze
@@ -616,6 +637,17 @@ overhead gates, no automatic retry and no host-policy change. The earlier
 remainder is 56m38s; approval is not performance acceptance.
 
 ## Final disposition
+
+**Current disposition:** [M4 accepted, 2026-09-11](cluster-formation-final-validation-2026-09-11.md#final-integrity-and-disposition).
+The paragraphs below preserve the historical pre-acceptance disposition and
+its performance limitations; they are not an instruction to reopen the gate.
+
+Closeout handoff: the [post-M4 operational register](../roadmap/README.md#post-m4-operational-follow-ups)
+now assigns the retained follow-ups to tasks and target milestones. Record the
+operator's scoped acceptance of the measured results in the final disposition,
+preserving the limitations in the historical execution record below. Register
+creation is not final source validation or proof that an inconclusive metric
+passed; it must not reopen M4 through new production requirements.
 
 The [completed post-diagnostic experiment](../measurements/formation-post-diagnostic-2026-09-10.md)
 closes execution of the requested curve, **not** the combined performance gate.

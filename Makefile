@@ -48,6 +48,17 @@ measure-formation-telemetry:
 	python3 scripts/measure-formation-telemetry.py --worker target/formation-telemetry-enabled/release/orishu-worker --omitted target/formation-telemetry-omitted/release/orishu-worker --ctl target/formation-telemetry-enabled/release/orishuctl --probe target/formation-telemetry-enabled/release/examples/formation-telemetry-probe --otelcol "$(OTELCOL)" --output "$(FORMATION_TELEMETRY_OUTPUT)" $(FORMATION_TELEMETRY_ARGS)
 	python3 scripts/summarize-formation-telemetry.py "$(FORMATION_TELEMETRY_OUTPUT)"
 
+# Real peer and client sockets over a deliberately misrouting two-namespace
+# veth topology; each role has its own negative control. Requires root and
+# openssl: veth and namespace creation need CAP_NET_ADMIN. The placement task
+# also documents a user-namespace alternative. Never part of `make check` or CI.
+# Leftovers from a crashed run: check-worker-network-placement.py --cleanup
+.PHONY: test-worker-network-placement
+test-worker-network-placement:
+	$(CARGO) build --locked -p orishu-worker -p orishuctl
+	python3 -m unittest discover -s scripts -p 'test_worker_network_placement*.py'
+	sudo python3 scripts/check-worker-network-placement.py --worker target/debug/orishu-worker --ctl target/debug/orishuctl
+
 # Requires pinned external test tools; downloads nothing and binds loopback only.
 .PHONY: test-worker-prometheus
 test-worker-prometheus:

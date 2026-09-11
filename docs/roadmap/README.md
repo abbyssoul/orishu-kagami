@@ -174,7 +174,7 @@ slices and acceptance criteria before implementation begins.
 | K-VIEW | [Kagami viewport workflows](../tasks/kagami/implement-kagami-viewport-workflows.md) and [scene scale](../tasks/kagami/choose-scene-scale.md) | K/V | K11 slices 1–2 implemented: mode machine/gate, orthographic projection, and persisted default view with its own revision. Nothing enters Observation/replay yet. K14 scene scale implemented: `SceneScale`, camera reach declared in render units with the metre-space limit derived from it, `defaultView` section version 2 with the envelope version unchanged, and the view control. Minimal field visualization in M3, richer replay in M6; distant-origin precision remains follow-up work, not a claim of K14 | K-RUN/K-PREVIEW to enter observation; K-RUN/S-OBSERVE/X-FIELDS for follow/fields; V-LIVE for best-effort trails; V-REPLAY/K-OBSERVATION for exact trajectories. Later object/field/trail consumers must convert through `SceneScale` at the render boundary |
 | X-EMITTER | [Particle emitters](../tasks/kagami/implement-particle-emitters.md) | X/K/O/N | Specified | K-CATALOG/K5; X-COMPOSITION; S-WORKLOAD; O-RUNTIME; N-CLUSTER for distributed proof |
 | O-WASM | [Multi-component WebAssembly host](../tasks/implement-wasm-component-graph-host.md) implementing `orishu.component/v1` and the admitted step plan | O | Specified; gated on shared graph/ABI | S-WORKLOAD graph/descriptors; protocol-workload contract |
-| O-RUNTIME | Single-node admission, fixed-step component-plan authority and commit loop | O | **Task specification required** | S-IDENTITY; S-WORKLOAD; X-COMPOSITION; O-WASM; S-OBSERVE |
+| O-RUNTIME | [Single-node admission, fixed-step component-plan authority and commit loop](../tasks/implement-single-node-workload-runtime.md) | O | Specified; lifecycle and integration contracts gated; M2/M3 prerequisite to M5 | S-IDENTITY; S-WORKLOAD; X-COMPOSITION; O-WASM; S-OBSERVE |
 | O-STORAGE | Local content-addressed inputs plus checkpoint/result records, [lifecycle states](../storage-spec.md), persistence and coverage index | O | **Task specification required** | S-IDENTITY; S-WORKLOAD artifact identity; S-PROVENANCE; O-RUNTIME boundaries |
 | O-API-SHAPE | Resolve imported [client-API compaction findings](../orishu-runtime-future-work.md#client-api-compaction-review) and version the initial resource surface | O/P/S | **Decision/task specification required before O-CLIENT**; the `metadata.uid` spelling is decided and implemented (`ResourceUid`, node resources project their `NodeId`) | S-IDENTITY; runtime data model; storage authority model |
 | O-CLIENT | Implement authenticated client API and align `orishuctl` with real server behavior | O/P | **Task specification required** | O-API-SHAPE; O-RUNTIME; O-STORAGE; S-OBSERVE |
@@ -183,16 +183,17 @@ slices and acceptance criteria before implementation begins.
 | V-LIVE | [Resumable live observation streaming](../tasks/implement-resumable-observation-streaming.md) slices 3–6 | V/O | Ready after shared frame types | S-OBSERVE; O-RUNTIME; O-CLIENT |
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
 | N-MEMBERSHIP | [Sans-IO cluster membership core](../tasks/implement-membership-model.md) | N/S | **Accepted**, including the [liveness-gossip merge correction](../tasks/fix-membership-liveness-gossip-merge.md) | Membership portion of S-IDENTITY landed as `crates/orishu-identity`; no O-RUNTIME dependency |
-| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Accepted for source-built Linux; combined M4 observability/operator handoff remains open | N-MEMBERSHIP; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
-| N-NETWORK-PLACEMENT | [Independent peer/client interface placement](../tasks/implement-worker-network-placement.md) | N/P | Prioritized PoC support: ADR and single-interface enforcement first; bounded multi-interface production slice later | Existing N-FORMATION IO shell; reviewed platform/configuration contract before implementation; not a reopened formation-acceptance gate |
-| N-CLUSTER | Fenced component-partition ownership, halo/channel exchange and distributed step commit over the proven formation transport | N/O | **Task specification required** | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD component graph; X-DIST-PROFILE candidate fixtures for scientific acceptance |
+| N-FORMATION | [Operational cluster-formation PoC](../tasks/implement-cluster-formation-poc.md): peer IO shell, membership driver and minimal admin surface | N/P/S | Accepted for source-built Linux, including combined M4 observability/operator handoff at the final checkpoint | N-MEMBERSHIP; membership subset of O-API-SHAPE; companion P-OBSERVABILITY/P-OBS-DOCS for combined M4 acceptance |
+| N-NETWORK-PLACEMENT | [Independent peer/client interface placement](../tasks/implement-worker-network-placement.md) | N/P | Slices 1-2 delivered: [ADR 0026](../adr/0026-worker-network-interface-placement.md) and one enforced interface per role on Linux; [namespace wire proof verified](../measurements/worker-network-placement-2026-09-11.md); physical Pi revalidation and multi-interface production slice later | Existing N-FORMATION IO shell; reviewed platform/configuration contract before implementation; not a reopened formation-acceptance gate |
+| N-CLUSTER | [Fenced component-partition ownership, halo/channel exchange and distributed step commit](../tasks/implement-distributed-workload-execution.md) over the proven formation transport | N/O | Specified for M5; protocol and scientific-profile decisions gated | N-FORMATION; proven O-RUNTIME single-node semantics; S-WORKLOAD component graph; X-DIST-PROFILE candidate fixtures for scientific acceptance |
 | N-TRANSFER | Bounded QUIC `FetchChunk` framing, offset resume, incremental verification, limits and errors from [ADR 0015](../adr/0015-use-quic-native-artifact-transfer.md) | N/O | **Task specification required**; transport choice accepted | O-STORAGE chunk identity; N-FORMATION authenticated transport |
 | N-PURGE | Persisted purge tombstones and bounded inventory suppression from [ADR 0014](../adr/0014-prevent-purged-artifact-resurrection.md) | N/O | **Task specification required**; in-formation behavior accepted | S-IDENTITY; O-STORAGE; N-FORMATION reconciliation transport |
 | N-ARTIFACT | [Availability, replication, re-replication, repair](../storage-spec.md) and committed-artifact discovery | N/O | **Task specification required** | O-STORAGE; N-CLUSTER; N-TRANSFER; N-PURGE |
-| P-SCALE | Reproducible [1/3/5/12/32-worker](../orishu-scaling-objectives.md#staged-evidence) compute, capacity, storage, retrieval and churn evidence | P/N/O | **Task specification required**; implement harness incrementally | O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
+| P-SCALE | [Staged compute, capacity, storage, retrieval and churn evidence](../tasks/implement-staged-runtime-scaling-evidence.md) at [1/3/5/12/32 workers](../orishu-scaling-objectives.md#staged-evidence) | P/N/O | Specified; early-M5 executor/lab follow-ups, scientific stages as services land, complete release evidence in M8 | Lab slice consumes N-FORMATION; scientific/storage slices need O-RUNTIME; O-STORAGE; N-CLUSTER; N-ARTIFACT |
+| P-DEPLOY | [Qualification of selected worker deployment profiles](../tasks/qualify-worker-deployment-profiles.md) | P/N | Specified; candidate selection in M5, supported-profile qualification in M8; Kubernetes/cloud candidates remain optional and unselected | N-NETWORK-PLACEMENT; P-OBS-DOCS; P-INSTALL artifacts for release qualification |
 | P-INSTALL | [Installable archives, native packages, Cargo applications, containers, Kagami installers, and first-run journeys](../tasks/publish-installable-artifacts.md) | P | In progress: candidate archives, Debian builds, Cargo-path installs, checksums/provenance, and Homebrew handoff; supported publication gated by M8 | Stable binaries and [configuration contract](../orishu-configuration.md); can prototype packaging earlier |
-| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Formation-stage capabilities, causal/log correlation and selected operator recipes verified; reviewed overhead and final M4 acceptance pending | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
-| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Current-build formation recipes, both selected deployments, security, ingestion and dashboard/incident controls verified; final M4 performance acceptance and later release/workload handoff remain open | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
+| P-OBSERVABILITY | [Feature-gated worker Prometheus metrics, process probes and sampled OTLP traces](../tasks/implement-worker-observability.md) | P/O/N | Formation scope accepted for M4, with measured limitations retained; later workload instruments and release qualification remain planned | Worker startup for probes/metrics; N-FORMATION for peer instrumentation; later O-RUNTIME/O-STORAGE, N-CLUSTER/N-ARTIFACT and V-LIVE/V-REPLAY |
+| P-OBS-DOCS | [Operator observability stories, manuals, scrape/probe/collector examples, dashboards and runbooks](../tasks/document-worker-observability.md) | P | Formation recipes and selected deployment collection styles accepted for M4; later release/workload handoff remains planned | P-OBSERVABILITY consumed contracts; P-INSTALL release feature matrix |
 | P-MONITOR | [`orishu-monitor` admin TUI shell](../tasks/implement-orishu-monitor-admin-tui.md), followed by [operator API integration and parity](../tasks/integrate-orishu-monitor-operator-api.md); raw formation-admission secrets remain CLI-only | P | Shell task implemented; integration task recorded in backlog | No API gate for the shell; N-FORMATION membership projection for first live views; O-CLIENT and owning mutation contracts for later parity |
 
 ## Dependency graph
@@ -747,8 +748,22 @@ product using a single worker—the degenerate one-node cluster.
 **Objective:** form, inspect, and safely change a real authenticated peer
 cluster through operator interfaces, without distributing computation yet.
 
+**Current status:** accepted for the documented source-built Linux scope.
+The operator accepts the measured results for the scoped PoC, preserving all
+numerical limitations. The
+[final checkpoint](../tasks/cluster-formation-final-validation-2026-09-11.md)
+records passing workspace, four-feature, backend, placement and all ten
+fault-process cases, with separate formation, telemetry and operator
+dispositions. No further M4 verification remains. Later work is in the
+[post-M4 register](#post-m4-operational-follow-ups).
+
 This milestone is the next operational demonstration now that the membership
 core is accepted. Its number does not require M3 to finish first.
+
+### Historical experiment and implementation sequence
+
+The sequence below retains earlier statuses and measurement limitations;
+the current status above governs work selection.
 
 N-FORMATION is accepted for source-built Linux: public introducer handoff,
 formation/recovery/pressure evidence, final process reruns and non-matrix gates
@@ -801,11 +816,16 @@ then completed all six windows, peaking at 94.28k/sec (32-client repeat
 Original routes are restored. The per-worker rate target, earlier error cause,
 paired overhead and M4 gates remain open.
 The [worker network-placement task](../tasks/implement-worker-network-placement.md)
-is prioritized PoC support: first resolve the ADR and enforce one selected
-interface per peer/client role, including outbound join and reply paths; later
-extend to bounded multi-interface lists and failover. Address selection already
-exists, but interface enforcement does not. Full multi-homing is not a new
-historical formation-acceptance requirement.
+has delivered that PoC support: [ADR 0026](../adr/0026-worker-network-interface-placement.md)
+records the contract, and `--interface.peers` / `--interface.clients` now bind
+every socket of their role, including the outbound join and client reply paths,
+rejecting invalid constraints rather than falling back. The
+[seven-case namespace wire proof](../measurements/worker-network-placement-2026-09-11.md)
+is verified, including fresh state propagation after link restoration and
+independent client authentication/TLS checks. Re-running the Pi profile with
+the flags remains outstanding, in place of the manual route
+correction. Bounded multi-interface lists and failover remain later work. Full
+multi-homing is not a new historical formation-acceptance requirement.
 This work can proceed without another
 local-host tuning attempt. It does not replace thirty-worker evidence with a
 three/five-worker claim or change the M4 noise gate implicitly.
@@ -815,10 +835,9 @@ formation acceptance does not close M4 without its monitoring/operator handoff.
 
 ### Focus areas
 
-The formation bullets below retain the accepted delivery scope, not a new
-implementation backlog. Remaining work is the companion observability/operator
-handoff; use the task's current evidence and remaining increments before
-selecting implementation.
+The bullets below retain the accepted delivery scope, not a new implementation
+backlog. Formation and its companion observability/operator handoff are accepted
+at the final checkpoint; select further work through the post-M4 register.
 
 - Preserve [N-FORMATION](../tasks/implement-cluster-formation-poc.md): its
   accepted scope covers
@@ -888,6 +907,39 @@ selecting implementation.
   features/exposure, credential separation, bounded scrape/export failures and
   supervision stalls are tested without changing domain outcomes.
 
+## Post-M4 operational follow-ups
+
+This register retains the follow-ups from the formation/physical experiments.
+It is a cross-milestone work list, **not an additional M4 gate or a new numbered
+milestone**. The operator accepts the measured results for the scoped PoC;
+final M4 validation/disposition is recorded in the
+[accepted checkpoint](../tasks/cluster-formation-final-validation-2026-09-11.md). Acceptance does not
+turn noisy measurements into passing thresholds, establish a CPU-noise cause,
+or grant an unlimited budget for subsequent experiments.
+
+Targets below schedule work, not promise that optional deployment profiles will
+be supported. Review this register during M4 closeout, M5 planning and M8
+release selection; move an item only with an explicit recorded disposition,
+owner and next review point. Completed experiments retain their evidence.
+
+| Follow-up and owner | Owning task | Target / prerequisite | Exit artifact |
+| --- | --- | --- | --- |
+| Executor sizing, scheduling and hot-path allocation — P-SCALE | [Executor review](../tasks/review-worker-executor-performance.md) | Early M5, after M4 closeout; does not block unrelated M5 work | Reproducible comparison and justified policy or explicit inconclusive result; operator guidance if configuration changes |
+| Physical placement recheck and focused capacity diagnostics — P-SCALE/N-FORMATION | [Physical experiment](../tasks/implement-physical-formation-experiment.md), using [placement](../tasks/implement-worker-network-placement.md) | Early M5; freeze binaries and approve each new bounded experiment | Real-hardware ingress/reply/recovery evidence, separate worker/generator cost and retained cleanup; not another M4 acceptance campaign |
+| Scientific capacity/scaling, storage and churn — P-SCALE | [Staged evidence](../tasks/implement-staged-runtime-scaling-evidence.md) | 1/3/5-worker scientific stages in M5; 12/32 and full release evidence in M8, after relevant services | Validated results, reproducible profiles and honest target/limitation report |
+| Multi-interface lists, failover and remote placement inspection — N-NETWORK-PLACEMENT | [Placement slices 3–4](../tasks/implement-worker-network-placement.md) | Design review in M5; production implementation/qualification target M8, gated on endpoint/failover decision | Accepted contract, bounded wire/lifecycle proof and updated operator stories/manuals; explicit disposition if deferred |
+| Selected deployment qualification — P-DEPLOY | [Deployment profiles](../tasks/qualify-worker-deployment-profiles.md) | Candidate matrix in M5; selected supported profiles qualified for M8 | Per-profile support matrix and tested recipes; optional Kubernetes/cloud candidates explicitly selected, deferred or unsupported |
+| Workload telemetry and operator handoff — P-OBSERVABILITY/P-OBS-DOCS | [Instrumentation slice 4](../tasks/implement-worker-observability.md#4-instrument-runtime-storage-and-observation-owners), [operator workflows](../tasks/document-worker-observability.md) | With runtime/distributed services in M3/M5 and storage/observation services as they land; release qualification in M8 | Bounded metrics/traces and overhead evidence, updated operator stories/manuals, tested dashboards, alerts and incident procedures for each delivered service |
+| Workload execution — O-WASM/O-RUNTIME/N-CLUSTER | [Sandbox host](../tasks/implement-wasm-component-graph-host.md), [single-node runtime](../tasks/implement-single-node-workload-runtime.md), [distributed execution](../tasks/implement-distributed-workload-execution.md) | Existing M2/M3 foundations, then M5 distributed proof; M4 does not imply M3 is done | Reference-validated single-node execution followed by distributed commit/recovery evidence |
+| Published packages/images/installers — P-INSTALL | [Installable artifacts](../tasks/publish-installable-artifacts.md) | M8 product/readiness gates; scaffolding may proceed earlier | Exact released artifacts with clean installation, upgrade/removal, security and first-run evidence |
+
+This register does not defer required release scaling/security evidence or
+choose a cloud provider, CNI, executor policy, failover algorithm or scientific
+profile. The task briefs retain those decision gates. P-DEPLOY owns deployment
+qualification, placement owns socket semantics, and P-OBS-DOCS owns monitoring
+recipes; shared tests should be reused rather than maintained as competing
+acceptance programmes.
+
 ## Milestone 5 — Distributed Orishu execution
 
 **Objective:** preserve the selected conformance profile's single-node
@@ -898,7 +950,11 @@ the candidate profile's own single-worker reference before partitioned tests.
 
 ### Focus areas
 
-- Add partition planning, halo exchange, step votes/commit, deterministic
+- Review the [post-M4 operational follow-ups](#post-m4-operational-follow-ups):
+  start the bounded executor/physical work, review multi-interface design and
+  select candidate deployment profiles without making them M5-wide blockers.
+- Implement [N-CLUSTER](../tasks/implement-distributed-workload-execution.md):
+  add partition planning, halo exchange, step votes/commit, deterministic
   reduction/ordering, cancellation, and epoch transitions around O-RUNTIME.
 - Generalize ownership to component-instance partitions and reliably transfer
   typed field/entity channels between differently placed producer and consumer
@@ -1130,7 +1186,12 @@ supported platforms.
 - Finish security review, fuzzing, resource-limit tests, numerical validation,
   performance/scaling evidence, platform smoke tests and operator/researcher/
   plugin-developer documentation.
-- Complete the staged 1/3/5/12/32-worker evidence defined by the Orishu
+- Close or explicitly disposition every [post-M4 follow-up](#post-m4-operational-follow-ups).
+  Execute [P-DEPLOY](../tasks/qualify-worker-deployment-profiles.md) for selected
+  supported profiles. Unqualified optional Kubernetes/cloud candidates remain
+  labelled deferred or unsupported; they do not become release claims.
+- Complete [P-SCALE](../tasks/implement-staged-runtime-scaling-evidence.md):
+  the staged 1/3/5/12/32-worker evidence defined by the Orishu
   scaling objectives, including compute, capacity, artifact, retrieval, and
   churn results. Keep small correctness stages in automated release tests;
   larger 12/32-worker runs may use a reproducible scheduled or laboratory

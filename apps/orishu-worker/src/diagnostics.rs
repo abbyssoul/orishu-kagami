@@ -1092,7 +1092,7 @@ mod tests {
                     vec![],
                 )
                 .unwrap()
-                .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+                .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
                 .unwrap()
                 .with_peer_admission(true)
                 .unwrap()

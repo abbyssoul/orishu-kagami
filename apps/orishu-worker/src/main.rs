@@ -19,6 +19,7 @@ use clap::Parser;
 use config::RuntimeConfig;
 use orishu_worker::{
     credentials::WorkerCredentials,
+    net_placement::InterfaceName,
     runtime::{RunningWorker, WorkerRuntime},
 };
 use salvo::conn::rustls::{Keycert, RustlsConfig};
@@ -781,6 +782,39 @@ impl std::str::FromStr for ListenAddress {
     }
 }
 
+/// Tokio's own listener backlog, reproduced here because binding by hand skips
+/// `TcpListener::bind`.
+const CLIENT_LISTEN_BACKLOG: i32 = 1024;
+
+/// A salvo listener over an already-bound, optionally device-constrained socket.
+///
+/// Salvo's `TcpListener` binds the address itself, leaving no seam for
+/// `SO_BINDTODEVICE`. Binding first and adapting the result keeps the existing
+/// acceptor and TLS composition unchanged while letting the socket carry a
+/// device constraint. Accepted connections inherit it, so replies leave through
+/// the selected interface.
+struct PlacedTcpListener(std::net::TcpListener);
+
+impl PlacedTcpListener {
+    /// Bind a client listener, applying the client role's placement.
+    fn bind(
+        address: SocketAddr,
+        interface: Option<&InterfaceName>,
+    ) -> Result<Self, orishu_worker::net_placement::PlacementError> {
+        orishu_worker::net_placement::placed_tcp_listener(address, interface, CLIENT_LISTEN_BACKLOG)
+            .map(Self)
+    }
+}
+
+impl salvo::conn::Listener for PlacedTcpListener {
+    type Acceptor = salvo::conn::tcp::TcpAcceptor;
+
+    async fn try_bind(self) -> salvo::Result<Self::Acceptor> {
+        let listener = tokio::net::TcpListener::from_std(self.0)?;
+        Ok(Self::Acceptor::try_from(listener)?)
+    }
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 /// orishu-worker: the orishu cluster worker daemon.
@@ -854,6 +888,16 @@ struct Cli {
     /// Reachable peer address; required for wildcard binds, never port zero.
     #[arg(long = "advertise.peers", env = "ORISHU_ADVERTISE_PEERS")]
     peer_advertise: Option<std::net::SocketAddr>,
+
+    /// Bind every peer socket, including outbound join dials, to this interface.
+    /// Requires a wildcard `--listen.peers`. Linux only.
+    #[arg(long = "interface.peers", env = "ORISHU_INTERFACE_PEERS")]
+    peer_interface: Option<InterfaceName>,
+
+    /// Bind TCP client listeners and their replies to this interface.
+    /// Requires wildcard `--listen.clients` TCP addresses. Linux only.
+    #[arg(long = "interface.clients", env = "ORISHU_INTERFACE_CLIENTS")]
+    client_interface: Option<InterfaceName>,
 
     /// Permit introduction when local formation credentials/state are ready.
     #[arg(long = "accepts.peers", env = "ORISHU_ACCEPTS_PEERS", action = clap::ArgAction::Set)]
@@ -957,7 +1001,7 @@ async fn main() {
     });
     let state = if let Some(bind) = runtime.peer_listen {
         state
-            .bind_peer(bind, runtime.peer_advertise)
+            .bind_peer(bind, runtime.peer_advertise, runtime.peer_interface.clone())
             .unwrap_or_else(|error| {
                 eprintln!("worker startup failed: {error}");
                 std::process::exit(2);
@@ -1156,9 +1200,16 @@ async fn main() {
         };
         match addr {
             ListenAddress::Tcp(socket_addr) => {
+                // Placement is applied to the socket itself, before it accepts,
+                // so ingress and replies both follow the selected interface.
+                let placed =
+                    PlacedTcpListener::bind(*socket_addr, runtime.client_interface.as_ref())
+                        .unwrap_or_else(|error| {
+                            eprintln!("cannot bind client listener {socket_addr}: {error}");
+                            std::process::exit(2);
+                        });
                 if let Some(ref tls) = tls_config {
-                    let acceptor = TcpListener::new(*socket_addr)
-                        .rustls(tls.clone())
+                    let acceptor = salvo::conn::rustls::RustlsListener::new(tls.clone(), placed)
                         .bind()
                         .await;
                     let server = client_server(acceptor);
@@ -1172,7 +1223,7 @@ async fn main() {
                         }
                     }));
                 } else {
-                    let acceptor = TcpListener::new(*socket_addr).bind().await;
+                    let acceptor = placed.bind().await;
                     let server = client_server(acceptor);
                     server_handles.push(server.handle());
                     let health_role = state.required_role();
@@ -1242,6 +1293,7 @@ async fn main() {
         }));
     }
     state.mark_initialized();
+    report_placement(&runtime);
     lifecycle(&log, orishu_worker::operational_log::Event::Ready);
     let supervised_servers = server_handles.clone();
     let supervisor_log = log.clone();
@@ -1353,6 +1405,55 @@ async fn listen_shutdown_signal(
     let _ = runtime.shutdown().await;
 }
 
+/// Report requested and resolved placement once, at startup, when any role is
+/// placed. An unplaced worker stays silent: a normally running worker writes
+/// nothing to stderr, and that contract is asserted by the logging tests.
+///
+/// Deliberately plain stderr rather than the operational log, whose records are
+/// a fixed 320-byte vocabulary that never carries operator-supplied text. It is
+/// diagnostic output, not a wire contract, and carries no credentials.
+///
+/// This is also how an operator confirms placement actually reached the worker.
+/// The configuration format accepts and discards unknown `spec` keys, so a
+/// misspelled outer key leaves the role unplaced; the absence of the expected
+/// line is the signal, which is why the manual tells operators to check for it.
+fn report_placement(runtime: &RuntimeConfig) {
+    if runtime.peer_interface.is_none() && runtime.client_interface.is_none() {
+        return;
+    }
+    let describe = |interface: Option<&InterfaceName>| match interface {
+        Some(name) => match name.resolve() {
+            Ok(index) => format!("{name}(index {index})"),
+            // Startup validation already rejected an unresolvable name; a race
+            // here is still reported rather than presented as enforced.
+            Err(error) => format!("{name}(unresolved: {error})"),
+        },
+        None => "unplaced".to_owned(),
+    };
+
+    if let Some(bind) = runtime.peer_listen {
+        let advertised = runtime
+            .peer_advertise
+            .map_or_else(|| "actual".to_owned(), |address| address.to_string());
+        eprintln!(
+            "placement peers={} bind={bind} advertise={advertised}",
+            describe(runtime.peer_interface.as_ref())
+        );
+    }
+    for address in &runtime.listen {
+        match address {
+            ListenAddress::Tcp(bind) => eprintln!(
+                "placement clients={} bind={bind}",
+                describe(runtime.client_interface.as_ref())
+            ),
+            // Unix sockets have no interface; say so rather than stay silent.
+            ListenAddress::Unix(path) => {
+                eprintln!("placement clients=unix bind={}", path.display())
+            }
+        }
+    }
+}
+
 fn resolve_runtime_config(cli: &Cli) -> Result<RuntimeConfig, String> {
     let mut runtime = match cli.config.as_deref() {
         Some(path) => RuntimeConfig::from_file(path)?,
@@ -1382,6 +1483,12 @@ fn resolve_runtime_config(cli: &Cli) -> Result<RuntimeConfig, String> {
     }
     if let Some(advertise) = cli.peer_advertise {
         runtime.peer_advertise = Some(advertise);
+    }
+    if let Some(interface) = &cli.peer_interface {
+        runtime.peer_interface = Some(interface.clone());
+    }
+    if let Some(interface) = &cli.client_interface {
+        runtime.client_interface = Some(interface.clone());
     }
     if let Some(path) = &cli.state_dir {
         runtime.state_dir = Some(path.clone());

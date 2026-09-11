@@ -1,6 +1,14 @@
 # Implement worker operational observability
 
-Status: **in progress — local probes and health/owner/lane/client metrics verified; full contract and acceptance pending**
+Status: **formation-stage slices 1–3 accepted for M4's documented source-built
+Linux scope; later workload telemetry and release qualification remain planned**.
+
+Current disposition: [final M4 checkpoint](cluster-formation-final-validation-2026-09-11.md).
+The operator accepts the measured PoC results with recorded limitations, and
+current four-feature tests, causal/log receipt and backend checks pass. Combined
+M4 is accepted at that checkpoint. Earlier
+increment narratives below retain their then-current gaps; they do not replace
+the final checkpoint or claim completion of later workload/release obligations.
 
 Decision: [ADR 0017](../adr/0017-worker-operational-observability.md)
 Design: [Operational observability](../orishu-observability.md)
@@ -341,6 +349,13 @@ separate trace, logging, overhead and operator handoff requirements below remain
   logging output and ADR 0025 have their own accepted decisions and evidence.
 
 ### 4. Instrument runtime, storage and observation owners
+
+Post-M4 tracking: [operational follow-up register](../roadmap/README.md#post-m4-operational-follow-ups).
+Deliver instruments alongside the owning services in M3/M5 and subsequent
+storage/observation milestones; qualify the release feature matrix in M8.
+Coordinate tested stories, manuals, dashboards and incident procedures through
+[P-OBS-DOCS](document-worker-observability.md), rather than treating metrics alone
+as the operator handoff.
 
 - With O-RUNTIME/O-WASM: admission, attempted/committed/failed steps, step and
   guest duration, cancellations, traps and limits. Distinguish wall-clock

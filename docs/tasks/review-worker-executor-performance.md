@@ -3,6 +3,12 @@
 Status: **planned, post-PoC performance review; no runtime policy selected**.
 Owner: P-SCALE, consuming N-FORMATION and the physical experiment evidence.
 
+Target: **early M5 after M4 closeout**, independently of distributed execution.
+Tracked in the [post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups)
+and consumed by [staged scaling evidence](implement-staged-runtime-scaling-evidence.md).
+An inconclusive review must retain its limiting factor and next review point;
+this task does not silently disappear when the PoC measurements are accepted.
+
 ## Outcome and current gap
 
 Choose and document an evidence-backed executor policy for a single worker and

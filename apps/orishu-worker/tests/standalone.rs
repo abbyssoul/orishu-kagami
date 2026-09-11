@@ -899,6 +899,145 @@ async fn occupied_diagnostics_port_fails_before_worker_identity_and_client_bind(
     .expect("occupied diagnostics bind deadline");
 }
 
+/// An unenforceable interface selection must stop the process before any
+/// credential or listener exists. Starting unplaced would hand the operator a
+/// healthy-looking worker sending traffic over an excluded interface, which is
+/// the failure ADR 0026 exists to remove.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unenforceable_placement_exits_before_credentials_and_listeners() {
+    use std::io::Read;
+    // Each case pairs worker arguments with the text that must identify it.
+    let cases: [(&[&str], &str); 4] = [
+        (
+            &["--interface.peers", "orishunodev0"],
+            "requires an explicit peer listener",
+        ),
+        (
+            &[
+                "--listen.peers",
+                "0.0.0.0:0",
+                "--advertise.peers",
+                "127.0.0.1:6655",
+                "--interface.peers",
+                "orishunodev0",
+            ],
+            "orishunodev0",
+        ),
+        (
+            &[
+                "--listen.peers",
+                "127.0.0.1:6655",
+                "--interface.peers",
+                "lo",
+            ],
+            "requires a wildcard peer bind",
+        ),
+        (
+            &["--interface.clients", "lo"],
+            "requires a TCP client listener",
+        ),
+    ];
+    for (arguments, expected) in cases {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            let root = tempfile::tempdir().unwrap();
+            let state = root.path().join("state");
+            let socket = root.path().join("api.sock");
+            let mut worker = Worker(
+                Command::new(env!("CARGO_BIN_EXE_orishu-worker"))
+                    .arg("--state-dir")
+                    .arg(&state)
+                    .arg("--listen.clients")
+                    .arg(&socket)
+                    .args(arguments)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap(),
+            );
+            let status = loop {
+                if let Some(status) = worker.0.try_wait().unwrap() {
+                    break status;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            };
+            let mut error = String::new();
+            worker
+                .0
+                .stderr
+                .take()
+                .unwrap()
+                .take(8192)
+                .read_to_string(&mut error)
+                .unwrap();
+            assert_eq!(status.code(), Some(2), "{arguments:?}: {error}");
+            assert!(error.contains(expected), "{arguments:?}: {error}");
+            assert!(!error.contains("panicked"), "{arguments:?}: {error}");
+            assert!(
+                !state.exists(),
+                "{arguments:?}: rejected placement created worker credentials"
+            );
+            assert!(
+                !socket.exists(),
+                "{arguments:?}: rejected placement created a client socket"
+            );
+        })
+        .await
+        .expect("rejected placement deadline");
+    }
+}
+
+/// A wildcard bind placed on an existing device starts, serves clients, and
+/// reports what it resolved. Loopback is the only interface guaranteed to exist
+/// everywhere this test runs; the veth harness proves the routing behaviour.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn placed_worker_starts_and_reports_its_resolved_placement() {
+    use std::os::unix::fs::PermissionsExt;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let state = root.path().join("state");
+        let socket = root.path().join("api.sock");
+        let report = root.path().join("placement.txt");
+        let mut worker = Worker(
+            Command::new(env!("CARGO_BIN_EXE_orishu-worker"))
+                .arg("--state-dir")
+                .arg(&state)
+                .arg("--listen.clients")
+                .arg(&socket)
+                .args([
+                    "--listen.peers",
+                    "0.0.0.0:0",
+                    "--advertise.peers",
+                    "127.0.0.1:6655",
+                    "--interface.peers",
+                    "lo",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::from(std::fs::File::create(&report).unwrap()))
+                .spawn()
+                .unwrap(),
+        );
+        // Serving a summary proves the placed peer socket did not block startup.
+        let summary = summary(&mut worker, &socket).await;
+        assert_eq!(summary.participation, Participation::Standalone);
+        let reported = std::fs::read_to_string(&report).unwrap();
+        assert!(
+            reported.contains("placement peers=lo(index "),
+            "placed worker must report its resolved device: {reported}"
+        );
+        assert!(
+            !reported.contains("unresolved"),
+            "an existing device must resolve: {reported}"
+        );
+        worker.0.kill().unwrap();
+        worker.0.wait().unwrap();
+    })
+    .await
+    .expect("placed worker deadline");
+}
+
 #[tokio::test]
 async fn malformed_diagnostics_configuration_exits_before_credentials() {
     use std::io::Read;

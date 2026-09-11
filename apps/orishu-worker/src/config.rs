@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::ListenAddress;
+use orishu_worker::net_placement::InterfaceName;
 mod tracing;
 pub use tracing::TracingConfig;
 mod logging;
@@ -19,6 +20,10 @@ pub struct RuntimeConfig {
     pub listen: Vec<ListenAddress>,
     pub peer_listen: Option<std::net::SocketAddr>,
     pub peer_advertise: Option<std::net::SocketAddr>,
+    /// Interface every peer socket is bound to, including outbound join dials.
+    pub peer_interface: Option<InterfaceName>,
+    /// Interface every TCP client listener and its replies are bound to.
+    pub client_interface: Option<InterfaceName>,
     pub accepts_peers: Option<bool>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
@@ -127,6 +132,8 @@ impl RuntimeConfig {
             return Err("TCP client listeners require a TLS certificate and key".to_owned());
         }
 
+        self.validate_placement()?;
+
         match (&self.tls_cert, &self.tls_key) {
             (None, None) | (Some(_), Some(_)) => Ok(self),
             (Some(_), None) => {
@@ -136,6 +143,65 @@ impl RuntimeConfig {
                 Err("TLS private key configured without a matching TLS certificate".to_string())
             }
         }
+    }
+
+    /// Reject every placement that cannot be enforced, before any listener is
+    /// bound. An unenforceable selection must fail startup rather than degrade
+    /// to an unconstrained socket, so there is no warning path here.
+    ///
+    /// Sharing one interface between both roles is deliberate and allowed;
+    /// only unenforceable combinations are refused. See
+    /// [ADR 0026](../../../docs/adr/0026-worker-network-interface-placement.md).
+    fn validate_placement(&self) -> Result<(), String> {
+        if let Some(interface) = &self.peer_interface {
+            let Some(bind) = self.peer_listen else {
+                return Err(
+                    "peer interface placement requires an explicit peer listener; \
+                     set --listen.peers or spec.listen.peers"
+                        .to_owned(),
+                );
+            };
+            if !bind.ip().is_unspecified() {
+                return Err(format!(
+                    "peer interface placement requires a wildcard peer bind; \
+                     replace {bind} with 0.0.0.0:{port} or [::]:{port} and keep \
+                     --advertise.peers for the reachable address",
+                    port = bind.port()
+                ));
+            }
+            interface
+                .resolve()
+                .map_err(|error| format!("peer interface placement is unavailable: {error}"))?;
+        }
+
+        if let Some(interface) = &self.client_interface {
+            let mut placed_any = false;
+            for address in &self.listen {
+                let ListenAddress::Tcp(bind) = address else {
+                    continue;
+                };
+                placed_any = true;
+                if !bind.ip().is_unspecified() {
+                    return Err(format!(
+                        "client interface placement requires wildcard TCP client binds; \
+                         replace {bind} with 0.0.0.0:{port} or [::]:{port}",
+                        port = bind.port()
+                    ));
+                }
+            }
+            if !placed_any {
+                return Err(
+                    "client interface placement requires a TCP client listener; \
+                     Unix client sockets have no interface to select"
+                        .to_owned(),
+                );
+            }
+            interface
+                .resolve()
+                .map_err(|error| format!("client interface placement is unavailable: {error}"))?;
+        }
+
+        Ok(())
     }
 }
 
@@ -170,7 +236,19 @@ struct WorkerSpec {
     #[serde(default)]
     advertise: WorkerAdvertise,
     #[serde(default)]
+    interface: WorkerInterface,
+    #[serde(default)]
     tls: WorkerTls,
+}
+
+/// Per-role interface placement. Strict about its own keys: a silently ignored
+/// typo here would leave traffic unplaced while the operator believed it was
+/// isolated, which is the failure mode ADR 0026 exists to remove.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerInterface {
+    peers: Option<InterfaceName>,
+    clients: Option<InterfaceName>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -226,6 +304,8 @@ fn parse_config_str(contents: &str, source: &Path) -> Result<RuntimeConfig, Stri
         listen,
         peer_listen: parsed.spec.listen.peers.first().copied(),
         peer_advertise: parsed.spec.advertise.peers.first().copied(),
+        peer_interface: parsed.spec.interface.peers,
+        client_interface: parsed.spec.interface.clients,
         accepts_peers: parsed.spec.accepts.peers,
         tls_cert: parsed.spec.tls.cert,
         tls_key: parsed.spec.tls.key,
@@ -347,6 +427,184 @@ mod tests {
         assert_eq!(config.finalize().unwrap().accepts_peers, Some(false));
         assert!(
             parse_config_str("spec:\n  accepts:\n    peers: invalid\n", Path::new("test")).is_err()
+        );
+    }
+
+    /// Every placement that cannot be enforced must be refused before a
+    /// listener exists. There is no warn-and-continue path: a worker that
+    /// starts unplaced while the operator believes otherwise is the exact
+    /// failure ADR 0026 exists to remove.
+    #[test]
+    fn unenforceable_interface_placement_is_rejected_before_binding() {
+        let interface = |name: &str| Some(name.parse().expect("valid interface name"));
+
+        // A peer interface with no peer listener has no socket to place.
+        assert!(
+            RuntimeConfig {
+                peer_interface: interface("lo"),
+                ..Default::default()
+            }
+            .finalize()
+            .is_err()
+        );
+
+        // A concrete peer bind cannot be reconciled with a device: the kernel
+        // accepts an address belonging to another interface and then matches
+        // no ingress at all.
+        assert!(
+            RuntimeConfig {
+                peer_listen: Some("127.0.0.1:6681".parse().unwrap()),
+                peer_advertise: Some("127.0.0.1:6681".parse().unwrap()),
+                peer_interface: interface("lo"),
+                ..Default::default()
+            }
+            .finalize()
+            .is_err()
+        );
+
+        // An interface that cannot be used is always rejected. Only Linux can
+        // say *why* by name; elsewhere the reason is the unsupported platform,
+        // so assert the naming only where resolution actually happens.
+        let error = RuntimeConfig {
+            peer_listen: Some("0.0.0.0:6681".parse().unwrap()),
+            peer_advertise: Some("127.0.0.1:6681".parse().unwrap()),
+            peer_interface: interface("orishunodev0"),
+            ..Default::default()
+        }
+        .finalize()
+        .expect_err("unusable interface must fail startup");
+        if cfg!(target_os = "linux") {
+            assert!(error.contains("orishunodev0"), "{error}");
+        } else {
+            assert!(error.contains("Linux"), "{error}");
+        }
+
+        // A client interface needs a TCP listener; Unix sockets have none.
+        assert!(
+            RuntimeConfig {
+                listen: vec![ListenAddress::Unix("/run/orishu/worker.sock".into())],
+                client_interface: interface("lo"),
+                ..Default::default()
+            }
+            .finalize()
+            .is_err()
+        );
+
+        // Concrete client binds are refused for the same reason as peers.
+        assert!(
+            RuntimeConfig {
+                listen: vec![ListenAddress::Tcp("127.0.0.1:6680".parse().unwrap())],
+                client_interface: interface("lo"),
+                tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+                tls_key: Some(PathBuf::from("/tmp/key.pem")),
+                ..Default::default()
+            }
+            .finalize()
+            .is_err()
+        );
+    }
+
+    /// Wildcard binds plus a device are the supported form, and naming one
+    /// interface for both roles is a deliberate operator choice, not a
+    /// fallback, so it must be accepted.
+    ///
+    /// Linux-only: every assertion here expects an interface to resolve, which
+    /// is exactly what other platforms cannot do.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn wildcard_placement_is_accepted_and_roles_may_share_one_interface() {
+        let config = RuntimeConfig {
+            listen: vec![ListenAddress::Tcp("0.0.0.0:6680".parse().unwrap())],
+            peer_listen: Some("0.0.0.0:6681".parse().unwrap()),
+            peer_advertise: Some("127.0.0.1:6681".parse().unwrap()),
+            peer_interface: Some("lo".parse().unwrap()),
+            client_interface: Some("lo".parse().unwrap()),
+            tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            ..Default::default()
+        }
+        .finalize()
+        .expect("wildcard placement on an existing interface is enforceable");
+        assert_eq!(config.peer_interface, config.client_interface);
+
+        // Independent selection remains possible; placement is per role.
+        let split = RuntimeConfig {
+            listen: vec![ListenAddress::Tcp("[::]:6680".parse().unwrap())],
+            peer_listen: Some("0.0.0.0:6681".parse().unwrap()),
+            peer_advertise: Some("127.0.0.1:6681".parse().unwrap()),
+            peer_interface: Some("lo".parse().unwrap()),
+            client_interface: None,
+            tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+            tls_key: Some(PathBuf::from("/tmp/key.pem")),
+            ..Default::default()
+        }
+        .finalize()
+        .expect("one placed role and one unplaced role is valid");
+        assert!(split.client_interface.is_none());
+    }
+
+    /// Where placement cannot be enforced it must be refused, never accepted
+    /// and quietly ignored. An unplaced worker that believes it is isolated is
+    /// worse than one that refuses to start.
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn placement_is_rejected_as_unsupported_off_linux() {
+        for (peer, client) in [(Some("lo"), None), (None, Some("lo"))] {
+            let error = RuntimeConfig {
+                listen: vec![ListenAddress::Tcp("0.0.0.0:6680".parse().unwrap())],
+                peer_listen: Some("0.0.0.0:6681".parse().unwrap()),
+                peer_advertise: Some("127.0.0.1:6681".parse().unwrap()),
+                peer_interface: peer.map(|name| name.parse().unwrap()),
+                client_interface: client.map(|name| name.parse().unwrap()),
+                tls_cert: Some(PathBuf::from("/tmp/cert.pem")),
+                tls_key: Some(PathBuf::from("/tmp/key.pem")),
+                ..Default::default()
+            }
+            .finalize()
+            .expect_err("placement is only enforceable on Linux");
+            assert!(error.contains("Linux"), "{error}");
+        }
+
+        // An unconfigured worker is unaffected on every platform.
+        assert!(
+            RuntimeConfig {
+                peer_listen: Some("127.0.0.1:6681".parse().unwrap()),
+                ..Default::default()
+            }
+            .finalize()
+            .is_ok()
+        );
+    }
+
+    /// The YAML block is strict about its own keys, and placement survives the
+    /// file/environment/command-line precedence chain unchanged.
+    #[test]
+    fn yaml_interface_placement_parses_and_rejects_unknown_keys() {
+        let config = parse(
+            "spec:\n  interface:\n    peers: eth0\n    clients: eth1\n  listen:\n    peers: ['0.0.0.0:6681']\n",
+        );
+        assert_eq!(config.peer_interface.unwrap().as_str(), "eth0");
+        assert_eq!(config.client_interface.unwrap().as_str(), "eth1");
+
+        assert!(
+            parse_config_str("spec:\n  interface:\n    peer: eth0\n", Path::new("test")).is_err(),
+            "a misspelled key inside the placement block must not be ignored"
+        );
+        assert!(
+            parse_config_str(
+                "spec:\n  interface:\n    peers: 'eth 0'\n",
+                Path::new("test")
+            )
+            .is_err(),
+            "interface names go through the same validation as the CLI"
+        );
+        assert!(
+            parse_config_str(
+                "spec:\n  interface:\n    peers: ethernet01234567\n",
+                Path::new("test")
+            )
+            .is_err(),
+            "names longer than IFNAMSIZ - 1 cannot reach a socket option"
         );
     }
 

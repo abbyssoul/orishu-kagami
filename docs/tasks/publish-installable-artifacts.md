@@ -5,6 +5,11 @@ exist, while supported publication is gated by Milestone 8 product readiness**
 
 Roadmap package: **P-INSTALL**
 
+Tracked in the [post-M4 register](../roadmap/README.md#post-m4-operational-follow-ups).
+M8 remains the publication gate. [P-DEPLOY](qualify-worker-deployment-profiles.md)
+provides the selected deployment support matrix; a built image or optional
+example alone cannot establish Kubernetes/cloud support.
+
 Decision: [ADR 0003](../adr/0003-single-binary-distribution.md)
 
 User contract: [Installing Orishu Kagami](../install.md)

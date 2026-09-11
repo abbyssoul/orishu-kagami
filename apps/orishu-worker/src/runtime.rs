@@ -23,6 +23,9 @@ pub enum StartupError {
     /// Peer listener could not be initialized.
     #[error("peer listener startup failed: {0}")]
     Peer(String),
+    /// The selected peer interface could not be applied to a peer socket.
+    #[error("peer network placement failed: {0}")]
+    Placement(#[from] crate::net_placement::PlacementError),
 }
 
 /// One worker's authoritative process-local state and exclusive credential lock.
@@ -33,6 +36,9 @@ pub struct WorkerRuntime {
     // No API access until admission and operator authorization are wired.
     _join_token: SecretToken,
     peer_endpoint: Option<quinn::Endpoint>,
+    /// Interface every peer socket is constrained to, including the outbound
+    /// join endpoint created before admission.
+    peer_interface: Option<crate::net_placement::InterfaceName>,
     peer_ingress: crate::peer::ingress::IngressMetrics,
     peer_exchanges: crate::peer::exchange_metrics::ExchangeMetrics,
     peer_traffic: crate::peer::traffic::Traffic,
@@ -99,6 +105,7 @@ impl WorkerRuntime {
             participation: Participation::Standalone,
             _join_token: SecretToken::generate()?,
             peer_endpoint: None,
+            peer_interface: None,
             peer_ingress: Default::default(),
             peer_exchanges: Default::default(),
             peer_traffic: Default::default(),
@@ -141,10 +148,15 @@ impl WorkerRuntime {
 
     /// Bind an explicitly configured peer endpoint before advertising it. The
     /// listener does not itself enable peer admission.
+    ///
+    /// `interface`, when present, constrains this socket and every later peer
+    /// socket to one device. It is retained so the outbound join endpoint
+    /// cannot be created unplaced.
     pub fn bind_peer(
         mut self,
         bind: std::net::SocketAddr,
         advertise: Option<std::net::SocketAddr>,
+        interface: Option<crate::net_placement::InterfaceName>,
     ) -> Result<Self, StartupError> {
         let advertised = advertise.unwrap_or(bind);
         if self.peer_endpoint.is_some()
@@ -161,8 +173,22 @@ impl WorkerRuntime {
             .identity
             .server_config()
             .map_err(|error| StartupError::Peer(error.to_string()))?;
-        let endpoint = quinn::Endpoint::server(config, bind)
-            .map_err(|error| StartupError::Peer(error.to_string()))?;
+        // Equivalent to `quinn::Endpoint::server` apart from the device
+        // binding: the same default endpoint config and async runtime.
+        let socket = crate::net_placement::placed_udp_socket(
+            bind,
+            interface.as_ref(),
+            crate::net_placement::DualStack::PlatformDefault,
+        )?;
+        let quic_runtime = quinn::default_runtime()
+            .ok_or_else(|| StartupError::Peer("no async runtime found".to_owned()))?;
+        let endpoint = quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            Some(config),
+            socket,
+            quic_runtime,
+        )
+        .map_err(|error| StartupError::Peer(error.to_string()))?;
         let actual = endpoint
             .local_addr()
             .map_err(|error| StartupError::Peer(error.to_string()))?;
@@ -181,6 +207,7 @@ impl WorkerRuntime {
             Limits::default(),
         )?;
         self.peer_endpoint = Some(endpoint);
+        self.peer_interface = interface;
         Ok(self)
     }
 
@@ -286,6 +313,7 @@ impl WorkerRuntime {
                 process_health: Default::default(),
                 stopping: std::sync::atomic::AtomicBool::new(false),
                 outbound_endpoint: std::sync::Mutex::new(outbound_endpoint),
+                peer_interface: self.peer_interface,
                 join_jobs: std::sync::Mutex::new(tokio::task::JoinSet::new()),
                 peer_maintenance: std::sync::Mutex::new(None),
                 catchup_maintenance: std::sync::Mutex::new(None),
@@ -356,6 +384,11 @@ pub struct RunningWorker {
     peer_maintenance: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     stopping: std::sync::atomic::AtomicBool,
     outbound_endpoint: std::sync::Mutex<Option<quinn::Endpoint>>,
+    /// Constrains the lazily created outbound join endpoint. Configuration
+    /// requires a peer listener whenever a peer interface is selected, so this
+    /// is normally carried by an already placed endpoint; it is retained so the
+    /// lazy path cannot create an unplaced socket if that rule ever changes.
+    peer_interface: Option<crate::net_placement::InterfaceName>,
     join_jobs: std::sync::Mutex<tokio::task::JoinSet<()>>,
     dialer: crate::peer::dial::Dialer,
     handle: crate::driver::Handle,
@@ -842,9 +875,26 @@ impl RunningWorker {
                                 } else {
                                     "[::]:0"
                                 };
-                                let Ok(endpoint) =
-                                    quinn::Endpoint::client(bind.parse().expect("static socket"))
-                                else {
+                                // Equivalent to `quinn::Endpoint::client`, plus
+                                // the peer role's device constraint: the first
+                                // join must not leave over an excluded
+                                // interface just because no listener exists.
+                                let Ok(socket) = crate::net_placement::placed_udp_socket(
+                                    bind.parse().expect("static socket"),
+                                    runtime.peer_interface.as_ref(),
+                                    crate::net_placement::DualStack::Request,
+                                ) else {
+                                    return;
+                                };
+                                let Some(quic_runtime) = quinn::default_runtime() else {
+                                    return;
+                                };
+                                let Ok(endpoint) = quinn::Endpoint::new(
+                                    quinn::EndpointConfig::default(),
+                                    None,
+                                    socket,
+                                    quic_runtime,
+                                ) else {
                                     return;
                                 };
                                 *slot = Some(endpoint);
@@ -1045,7 +1095,7 @@ mod tests {
                 vec![],
             )
             .unwrap()
-            .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+            .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
             .unwrap()
             .with_peer_admission(true)
             .unwrap()
@@ -1097,7 +1147,7 @@ mod tests {
                 vec![],
             )
             .unwrap()
-            .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+            .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
             .unwrap()
             .with_peer_admission(true)
             .unwrap()
@@ -1205,7 +1255,7 @@ mod tests {
         .unwrap();
         let start = |runtime: WorkerRuntime| {
             runtime
-                .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+                .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
                 .unwrap()
                 .with_peer_admission(true)
                 .unwrap()
@@ -1334,7 +1384,7 @@ mod tests {
                     vec![],
                 )
                 .unwrap()
-                .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+                .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
                 .unwrap();
                 let mut sinks = Vec::new();
                 // Arrange an already-admitted formation before starting the real
@@ -1604,7 +1654,7 @@ mod tests {
         assert!(create("invalid").with_peer_admission(true).is_err());
         let start = |name| {
             let runtime = create(name)
-                .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+                .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
                 .unwrap()
                 .with_peer_admission(true)
                 .unwrap();
@@ -2511,7 +2561,7 @@ mod tests {
                     .unwrap()
                 };
                 let (target, target_task) = create("target")
-                    .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+                    .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
                     .unwrap()
                     .with_peer_admission(true)
                     .unwrap()
@@ -2627,7 +2677,7 @@ mod tests {
             .unwrap()
         };
         let (target, target_task) = create("target")
-            .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+            .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
             .unwrap()
             .start();
         let (source, source_task) = create("source").start();
@@ -2730,7 +2780,7 @@ mod tests {
             vec![],
         )
         .unwrap()
-        .bind_peer("127.0.0.1:0".parse().unwrap(), None)
+        .bind_peer("127.0.0.1:0".parse().unwrap(), None, None)
         .unwrap();
         let address = runtime
             .peer_endpoint
