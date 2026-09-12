@@ -253,12 +253,23 @@ impl GossipQueue {
         }
 
         let mut candidates: Vec<(&GossipKey, &QueuedDelta)> = self.entries.iter().collect();
-        candidates.sort_by(|(left_key, left), (right_key, right)| {
+        let priority = |(left_key, left): &(&GossipKey, &QueuedDelta),
+                        (right_key, right): &(&GossipKey, &QueuedDelta)| {
             left.hops
                 .cmp(&right.hops)
                 .then_with(|| right.body.version().cmp(left.body.version()))
                 .then_with(|| left_key.cmp(right_key))
-        });
+        };
+        // Only the first `count` entries escape. Partition in O(queue depth),
+        // then sort that prefix in O(count log count). Keys make priority a
+        // total order, so unstable selection preserves the full-sort result.
+        if !candidates.is_sorted_by(|left, right| priority(left, right).is_le()) {
+            if count < candidates.len() {
+                candidates.select_nth_unstable_by(count, priority);
+                candidates.truncate(count);
+            }
+            candidates.sort_unstable_by(priority);
+        }
 
         let chosen: Vec<GossipKey> = candidates
             .into_iter()
@@ -307,6 +318,51 @@ mod tests {
             );
         }
         (queue, limits)
+    }
+
+    #[test]
+    fn selection_matches_full_sort_through_repeated_retirement() {
+        for depth in [0, 1, 16, 128, 512] {
+            for count in [0, 1, 10, 127, 513, usize::MAX] {
+                for maximum in [0, 1, 4, u32::MAX] {
+                    let (mut queue, _) = queue_with(depth);
+                    for (i, entry) in queue.entries.values_mut().enumerate() {
+                        entry.hops = (i % 5) as u32;
+                        if let DeltaBody::MembershipUpdate(member) = &mut entry.body {
+                            member.version.counter = (i * 17 % 23) as u64;
+                        }
+                    }
+                    let mut reference = queue.clone();
+                    for _ in 0..6 {
+                        let mut ordered: Vec<_> = reference
+                            .iter()
+                            .map(|(key, hops, body)| (key.clone(), hops, body.clone()))
+                            .collect();
+                        ordered.sort_by(|left, right| {
+                            left.1
+                                .cmp(&right.1)
+                                .then_with(|| right.2.version().cmp(left.2.version()))
+                                .then_with(|| left.0.cmp(&right.0))
+                        });
+                        let expected: Vec<_> = ordered
+                            .into_iter()
+                            .take(count)
+                            .map(|(key, hops, body)| {
+                                let hops = hops.saturating_add(1);
+                                if hops >= maximum {
+                                    reference.entries.remove(&key);
+                                } else {
+                                    reference.entries.get_mut(&key).unwrap().hops = hops;
+                                }
+                                GossipDelta { hops, body }
+                            })
+                            .collect();
+                        assert_eq!(queue.take(count, maximum), expected);
+                        assert_eq!(queue, reference);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

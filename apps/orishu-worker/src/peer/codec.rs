@@ -112,7 +112,7 @@ pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> Option<&str> {
 
 /// Encode a value with a hard output cap and check the same profile as receive.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, CodecError> {
-    let mut output = CappedWriter(Vec::new());
+    let mut output = CappedWriter(Vec::new(), MAX_FRAME_BYTES);
     ciborium::into_writer(value, &mut output).map_err(|_| CodecError::TooLarge)?;
     validate(&output.0)?;
     Ok(output.0)
@@ -133,18 +133,21 @@ pub fn decode_frame<T: DeserializeOwned>(frame: &[u8]) -> Result<T, CodecError> 
 
 /// Encode a bounded stream frame. Datagrams use [`encode`] without a prefix.
 pub fn encode_frame<T: Serialize>(value: &T) -> Result<Vec<u8>, CodecError> {
-    let payload = encode(value)?;
-    let mut frame = Vec::with_capacity(4 + payload.len());
-    frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-    frame.extend_from_slice(&payload);
-    Ok(frame)
+    // Reserve the prefix in the same allocation as the payload. The cap still
+    // applies to payload bytes; framing must not steal four bytes of that budget.
+    let mut output = CappedWriter(vec![0; 4], MAX_FRAME_BYTES + 4);
+    ciborium::into_writer(value, &mut output).map_err(|_| CodecError::TooLarge)?;
+    validate(&output.0[4..])?;
+    let length = (output.0.len() - 4) as u32;
+    output.0[..4].copy_from_slice(&length.to_be_bytes());
+    Ok(output.0)
 }
 
-struct CappedWriter(Vec<u8>);
+struct CappedWriter(Vec<u8>, usize);
 
 impl std::io::Write for CappedWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() > MAX_FRAME_BYTES.saturating_sub(self.0.len()) {
+        if bytes.len() > self.1.saturating_sub(self.0.len()) {
             return Err(std::io::ErrorKind::OutOfMemory.into());
         }
         self.0.extend_from_slice(bytes);
@@ -338,7 +341,7 @@ mod tests {
         );
         let oversized = vec![0x5a; MAX_FRAME_BYTES - 4];
         assert_eq!(encode(&Bytes(&oversized)), Err(CodecError::TooLarge));
-        let mut writer = CappedWriter(encoded);
+        let mut writer = CappedWriter(encoded, MAX_FRAME_BYTES);
         let capacity = writer.0.capacity();
         assert_eq!(
             writer.write(&[0]).unwrap_err().kind(),
@@ -362,6 +365,31 @@ mod tests {
         let mut extra = frame.clone();
         extra.push(0);
         assert_eq!(decode_frame::<Payload>(&extra), Err(CodecError::Trailing));
+    }
+
+    #[test]
+    fn stream_encoding_preserves_payload_bytes_and_exact_cap() {
+        struct Bytes(Vec<u8>);
+        impl Serialize for Bytes {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_bytes(&self.0)
+            }
+        }
+        for size in [0, 23, 24, 255, 256, MAX_FRAME_BYTES - 5] {
+            let value = Bytes(vec![0x5a; size]);
+            let payload = encode(&value).unwrap();
+            let frame = encode_frame(&value).unwrap();
+            assert_eq!(&frame[..4], &(payload.len() as u32).to_be_bytes());
+            assert_eq!(&frame[4..], payload);
+            assert_eq!(
+                frame_length(frame[..4].try_into().unwrap()).unwrap(),
+                payload.len()
+            );
+        }
+        assert_eq!(
+            encode_frame(&Bytes(vec![0; MAX_FRAME_BYTES - 4])),
+            Err(CodecError::TooLarge)
+        );
     }
 
     #[test]

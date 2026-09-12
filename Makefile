@@ -1,6 +1,9 @@
 SHELL := /bin/sh
 
 CARGO ?= cargo
+FUZZ_TOOLCHAIN ?= nightly
+FUZZ_SECONDS ?= 30
+FUZZ_FLAGS ?= -timeout=10 -rss_limit_mb=2048 -max_len=1048581
 DOCKER ?= podman
 ARGS ?=
 PROMTOOL ?= promtool
@@ -21,6 +24,21 @@ test-formation-release-guard:
 	python3 scripts/check-formation-release.py --cargo "$(CARGO)"
 
 .DEFAULT_GOAL := build
+
+.PHONY: fuzz-smoke bench-formation
+# Two passes per target. The first lets libFuzzer ramp input length; the second
+# pins length at -max_len, because the ramp alone stays far below the one-MiB
+# frame ceiling in a smoke-length campaign and never reaches the oversize paths.
+fuzz-smoke:
+	$(CARGO) run --locked --manifest-path fuzz/Cargo.toml --example seed_corpus
+	@set -e; for target in membership_messages worker_frames worker_peer worker_catchup; do \
+		$(CARGO) +$(FUZZ_TOOLCHAIN) fuzz run $$target -- -max_total_time=$(FUZZ_SECONDS) $(FUZZ_FLAGS); \
+		$(CARGO) +$(FUZZ_TOOLCHAIN) fuzz run $$target -- -max_total_time=$(FUZZ_SECONDS) $(FUZZ_FLAGS) -len_control=0; \
+	done
+
+bench-formation:
+	$(CARGO) bench --locked -p orishu-membership --bench membership -- $(ARGS)
+	$(CARGO) bench --locked -p orishu-worker --bench formation -- $(ARGS)
 
 .PHONY: build test test-docs test-formation test-formation-lost-ack test-formation-issuer-loss test-formation-source-loss test-formation-dead-assignment test-formation-removed-assignment test-formation-blocked-assignment test-formation-excluded-restart test-formation-peer-ejection test-formation-lost-departure test-formation-lost-leave-response check ci fmt fmt-check lint docs docs-check clean \
 	run-kagami run-worker run-ctl run-monitor smoke-kagami coverage deb \

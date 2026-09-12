@@ -1,0 +1,51 @@
+[package]
+name = "orishu-formation-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Isolated like avahi-tui/fuzz: libFuzzer never enters the product build graph.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+serde = "1"
+serde_json = "1"
+orishu-membership = { path = "../crates/orishu-membership" }
+orishu-worker = { path = "../apps/orishu-worker" }
+orishu = { path = "../crates/orishu" }
+
+[profile.release]
+debug = 1
+overflow-checks = true
+
+[[bin]]
+name = "membership_messages"
+path = "fuzz_targets/membership_messages.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "worker_frames"
+path = "fuzz_targets/worker_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "worker_peer"
+path = "fuzz_targets/worker_peer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "worker_catchup"
+path = "fuzz_targets/worker_catchup.rs"
+test = false
+doc = false
+bench = false

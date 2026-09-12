@@ -1,0 +1,33 @@
+name: Formation fuzz smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'fuzz/**'
+      - 'crates/orishu-membership/**'
+      - 'crates/orishu-identity/**'
+      - 'apps/orishu-worker/src/peer/**'
+      - '.github/workflows/formation-fuzz.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - run: make fuzz-smoke
+      - name: Retain failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: formation-fuzz-failure
+          path: fuzz/artifacts
+          if-no-files-found: ignore

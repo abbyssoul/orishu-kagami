@@ -191,3 +191,60 @@ fn a_fingerprint_of_the_wrong_length_is_rejected() {
     json["data"]["certFingerprint"] = serde_json::Value::String("abcd".into());
     assert!(serde_json::from_value::<GossipDelta>(json).is_err());
 }
+
+#[test]
+fn non_ascii_digest_text_is_rejected_at_every_byte_offset() {
+    use orishu_membership::antientropy::MerkleDigest;
+    // Fuzz discovery: a 64-byte string can contain a multi-byte character.
+    // Its byte length does not make slicing at every two bytes safe.
+    for character in ['é', '€', '💥'] {
+        for offset in 0..=64 - character.len_utf8() {
+            let hash = format!(
+                "{}{character}{}",
+                "0".repeat(offset),
+                "0".repeat(64 - offset - character.len_utf8())
+            );
+            assert_eq!(hash.len(), 64);
+            let message = serde_json::json!({"depth": 4, "root": hash, "buckets": []});
+            assert!(
+                serde_json::from_slice::<MerkleDigest>(&serde_json::to_vec(&message).unwrap())
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn digest_text_requires_hex_digits_at_every_byte_offset() {
+    use orishu_membership::antientropy::Hash256;
+
+    for character in ['+', '-', ' ', 'g', '\0'] {
+        for offset in 0..64 {
+            let hash = format!(
+                "{}{character}{}",
+                "0".repeat(offset),
+                "0".repeat(63 - offset)
+            );
+            assert!(
+                serde_json::from_value::<Hash256>(serde_json::json!(hash)).is_err(),
+                "accepted {character:?} at byte {offset}"
+            );
+        }
+    }
+}
+
+#[test]
+fn digest_text_accepts_hex_case_and_requires_exact_length() {
+    use orishu_membership::antientropy::Hash256;
+
+    let expected = Hash256::from_bytes(std::array::from_fn(|index| (index * 8) as u8));
+    for hash in [expected.to_hex(), expected.to_hex().to_uppercase()] {
+        assert_eq!(
+            serde_json::from_value::<Hash256>(serde_json::json!(hash)).unwrap(),
+            expected
+        );
+    }
+    for length in [0, 1, 32, 63, 65, 128] {
+        assert!(serde_json::from_value::<Hash256>(serde_json::json!("0".repeat(length))).is_err());
+    }
+}

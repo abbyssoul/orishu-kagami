@@ -38,8 +38,9 @@ use orishu_membership::{
     testing, update,
 };
 
-const DEFAULT_MEMBER_COUNTS: [usize; 4] = [10, 100, 1_000, 10_000];
-const DEFAULT_QUEUE_DEPTHS: [usize; 3] = [16, 128, 512];
+// Fixture count is remote peers; the model also contains one local member.
+const DEFAULT_MEMBER_COUNTS: [usize; 5] = [4, 19, 100, 1_000, 10_000];
+const DEFAULT_QUEUE_DEPTHS: [usize; 4] = [16, 128, 512, 4096];
 
 /// Parses a comma-separated list of `usize`s from `name`, falling back to
 /// `default` when the variable is unset and panicking on a malformed entry
@@ -62,16 +63,26 @@ fn env_list(name: &str, default: &[usize]) -> Vec<usize> {
 /// Formation sizes for the `merge`, `probe_cycle`, `digest`, and `admission`
 /// groups, overridable via `ORISHU_MEMBERSHIP_BENCH_MEMBERS`.
 fn member_counts() -> Vec<usize> {
-    env_list("ORISHU_MEMBERSHIP_BENCH_MEMBERS", &DEFAULT_MEMBER_COUNTS)
+    let counts = env_list("ORISHU_MEMBERSHIP_BENCH_MEMBERS", &DEFAULT_MEMBER_COUNTS);
+    assert!(
+        counts.iter().all(|count| (1..=100_000).contains(count)),
+        "member counts must be 1..=100000 remote peers"
+    );
+    counts
 }
 
 /// Queue depths for the `gossip_queue` group, overridable via
 /// `ORISHU_MEMBERSHIP_BENCH_QUEUE_DEPTHS`.
 fn queue_depths() -> Vec<usize> {
-    env_list(
+    let depths = env_list(
         "ORISHU_MEMBERSHIP_BENCH_QUEUE_DEPTHS",
         &DEFAULT_QUEUE_DEPTHS,
-    )
+    );
+    assert!(
+        depths.iter().all(|depth| *depth <= 8192),
+        "queue depths must fit the benchmark's 8192-entry limit"
+    );
+    depths
 }
 
 /// Limits large enough that a benchmark formation is not rejected for
@@ -156,6 +167,9 @@ fn bench_merge_batch(c: &mut Criterion) {
 fn bench_probe_cycle(c: &mut Criterion) {
     let mut group = c.benchmark_group("probe_cycle");
     for count in member_counts() {
+        if count < 2 {
+            continue;
+        }
         let model = formation(count);
         group.throughput(Throughput::Elements(1));
         group.bench_with_input(BenchmarkId::new("direct_ack", count), &count, |b, _| {
@@ -232,6 +246,15 @@ fn bench_anti_entropy_collect(c: &mut Criterion) {
         group.throughput(Throughput::Elements(max.min(model.members().len()) as u64));
         group.bench_with_input(BenchmarkId::new("one_batch", count), &count, |b, _| {
             b.iter(|| std::hint::black_box(tree.collect(&buckets, None, max)))
+        });
+        // A late continuation isolates cursor seeking from cloning a full
+        // reply. Tree construction and the prefix collection are setup only.
+        let prefix = tree.collect(&buckets, None, model.members().len().saturating_sub(1));
+        let cursor = prefix.cursor.expect("one member remains after the prefix");
+        assert_eq!(tree.collect(&buckets, Some(&cursor), 1).deltas.len(), 1);
+        group.throughput(Throughput::Elements(1));
+        group.bench_with_input(BenchmarkId::new("late_cursor", count), &count, |b, _| {
+            b.iter(|| std::hint::black_box(tree.collect(&buckets, Some(&cursor), 1)))
         });
     }
     group.finish();
@@ -318,13 +341,100 @@ fn bench_gossip_queue(c: &mut Criterion) {
             queue.enqueue(newer_member_delta(index), &limits);
         }
         let batch = limits.max_gossip_per_message();
-        group.throughput(Throughput::Elements(batch as u64));
+        group.throughput(Throughput::Elements(batch.min(depth) as u64));
         group.bench_with_input(BenchmarkId::new("take_batch", depth), &depth, |b, _| {
-            b.iter_batched(
+            b.iter_batched_ref(
                 || queue.clone(),
-                |mut queue| std::hint::black_box(queue.take(batch, 32)),
-                BatchSize::SmallInput,
+                |queue| std::hint::black_box(queue.take(batch, 32)),
+                BatchSize::LargeInput,
             )
+        });
+        // Different hop counts and versions prevent key-order fixtures from
+        // accidentally benchmarking an already sorted priority order only.
+        queue.take(depth / 2, 32);
+        for (name, maximum) in [("mixed", 32), ("retire", 1)] {
+            group.bench_function(BenchmarkId::new(name, depth), |b| {
+                b.iter_batched_ref(
+                    || queue.clone(),
+                    |queue| std::hint::black_box(queue.take(batch, maximum)),
+                    BatchSize::LargeInput,
+                );
+            });
+        }
+    }
+    group.finish();
+}
+
+fn bench_parsing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("membership_parse");
+    for (name, bytes) in [
+        (
+            "member",
+            include_bytes!("../tests/fixtures/gossip_membership_update.json").as_slice(),
+        ),
+        (
+            "foreign",
+            include_bytes!("../tests/fixtures/gossip_foreign.json").as_slice(),
+        ),
+        (
+            "tombstone",
+            include_bytes!("../tests/fixtures/gossip_tombstone_update.json").as_slice(),
+        ),
+        (
+            "malformed",
+            b"{\"hops\":4294967296,\"deltaType\":\"MembershipUpdate\"}".as_slice(),
+        ),
+    ] {
+        assert_eq!(
+            serde_json::from_slice::<GossipDelta>(bytes).is_ok(),
+            name != "malformed"
+        );
+        group.throughput(Throughput::Bytes(bytes.len() as u64));
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                std::hint::black_box(serde_json::from_slice::<GossipDelta>(std::hint::black_box(
+                    bytes,
+                )))
+            })
+        });
+    }
+    group.finish();
+}
+
+fn bench_rejection(c: &mut Criterion) {
+    let mut group = c.benchmark_group("membership_reject");
+    for count in member_counts() {
+        let model = formation(count);
+        let mut message = gossip_message(&model, 1, vec![]);
+        if let Message::Peer(input) = &mut message {
+            input.context.authenticated = false;
+        }
+        group.bench_function(BenchmarkId::new("unauthenticated", count), |b| {
+            b.iter_batched(
+                || (model.clone(), message.clone()),
+                |(model, message)| std::hint::black_box(update(model, message)),
+                BatchSize::LargeInput,
+            );
+        });
+    }
+    group.finish();
+}
+
+fn bench_steady_ping(c: &mut Criterion) {
+    let mut group = c.benchmark_group("membership_steady");
+    for count in member_counts() {
+        let initial = formation(count);
+        let mut model = Some(initial.clone());
+        let mut seq = 0_u64;
+        group.bench_function(BenchmarkId::new("ping", count), |b| {
+            b.iter(|| {
+                seq = seq.checked_add(1).unwrap();
+                let current = model.take().unwrap();
+                let message = gossip_message(&current, seq, vec![]);
+                let transition = update(current, message);
+                model = Some(transition.model);
+                std::hint::black_box(transition.effects)
+            });
         });
     }
     group.finish();
@@ -338,6 +448,9 @@ criterion_group!(
     bench_digest,
     bench_anti_entropy_collect,
     bench_admission,
-    bench_gossip_queue
+    bench_gossip_queue,
+    bench_parsing,
+    bench_rejection,
+    bench_steady_ping
 );
 criterion_main!(benches);

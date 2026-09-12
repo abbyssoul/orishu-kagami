@@ -584,40 +584,94 @@ fn encode_inner(
         gossip: message.gossip,
         _trace_parent: serde::de::IgnoredAny,
     };
-    let mut deferred_gossip = 0;
+    // Validate the complete supplied message first, including gossip that may
+    // be omitted. Trimming must never hide an invalid or over-limit record.
+    let mut bytes = codec::encode(&envelope)?;
     let mut deferred = Vec::new();
-    loop {
-        let bytes = codec::encode(&envelope)?;
-        if transport == Transport::Stream || bytes.len() <= MAX_DATAGRAM_BYTES {
-            if !deferred.is_empty() {
-                // A record unable to fit even by itself must not retain queue
-                // priority forever. Its authoritative value remains available
-                // through bounded reliable anti-entropy.
-                let included = std::mem::take(&mut envelope.gossip);
-                let base_len = codec::encode(&envelope)?.len();
-                envelope.gossip = included;
-                deferred.retain(|delta| {
-                    codec::encode(delta)
-                        .is_ok_and(|bytes| base_len + bytes.len() <= MAX_DATAGRAM_BYTES)
-                });
-            }
-            return Ok(Encoded {
-                bytes,
-                transport,
-                deferred_gossip,
-                deferred,
-            });
+    let mut deferred_gossip = 0;
+    if transport == Transport::Datagram && bytes.len() > MAX_DATAGRAM_BYTES {
+        let mut retained_bytes = bytes.len();
+        let mut omitted = Vec::new();
+        while retained_bytes > MAX_DATAGRAM_BYTES {
+            let delta = envelope.gossip.pop().ok_or(CodecError::TooLarge)?;
+            let length = codec::encode(&delta)?.len();
+            // Profile validation caps gossip at ten records. Its definite CBOR
+            // array header is therefore one byte at every retained length,
+            // including zero: removing a record subtracts exactly its encoding.
+            retained_bytes = retained_bytes
+                .checked_sub(length)
+                .ok_or(CodecError::Encoding)?;
+            omitted.push((delta, length));
         }
-        let delta = envelope.gossip.pop().ok_or(CodecError::TooLarge)?;
-        deferred.push(delta);
-        deferred_gossip += 1;
+        deferred_gossip = omitted.len();
+        bytes = codec::encode(&envelope)?;
+        debug_assert_eq!(bytes.len(), retained_bytes);
+        let included = std::mem::take(&mut envelope.gossip);
+        let base_len = codec::encode(&envelope)?.len();
+        envelope.gossip = included;
+        // Preserve reverse removal order and only restore records that could
+        // fit alone. Larger records remain available through anti-entropy.
+        deferred = omitted
+            .into_iter()
+            .filter(|(_, length)| base_len + length <= MAX_DATAGRAM_BYTES)
+            .map(|(delta, _)| delta)
+            .collect();
     }
+    Ok(Encoded {
+        bytes,
+        transport,
+        deferred_gossip,
+        deferred,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use orishu_membership::{SessionId, testing};
+
+    #[test]
+    fn malformed_text_digest_is_rejected_through_authenticated_wire_decode() {
+        let ctx = context();
+        let digest =
+            orishu_membership::antientropy::MembershipTree::build(&testing::model_with_members(1))
+                .digest();
+        for kind in ["PullReq", "PullReply"] {
+            let payload = if kind == "PullReq" {
+                serde_json::json!({"round": 1, "digest": digest, "buckets": [], "cursor": null})
+            } else {
+                serde_json::json!({"round": 1, "digest": digest, "deltas": [], "complete": true, "cursor": null})
+            };
+            let packet = serde_json::json!({
+                "proto": 1, "senderId": "n", "formationId": "f", "seq": 7,
+                "type": kind, "gossip": [], "payload": payload
+            });
+            // Begin with an accepted envelope so unrelated schema errors cannot
+            // mask a failure to reject the mutated root or bucket hash.
+            assert!(decode(&codec::encode(&packet).unwrap(), &ctx, Transport::Stream).is_ok());
+            for field in ["/payload/digest/root", "/payload/digest/buckets/0"] {
+                for character in ['é', '€', '💥', '+'] {
+                    for offset in 0..=64 - character.len_utf8() {
+                        let hash = format!(
+                            "{}{character}{}",
+                            "0".repeat(offset),
+                            "0".repeat(64 - offset - character.len_utf8())
+                        );
+                        let mut malformed = packet.clone();
+                        *malformed.pointer_mut(field).unwrap() = hash.into();
+                        let bytes = codec::encode(&malformed).unwrap();
+                        assert!(
+                            matches!(
+                                decode(&bytes, &ctx, Transport::Stream),
+                                Err(WireError::Codec(CodecError::Schema))
+                            ),
+                            "{kind} {field}: {character:?} at byte {offset}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn already_admitted_rejection_has_stable_cbor_and_round_trips() {
@@ -951,6 +1005,77 @@ mod tests {
                         .is_some(),
                     "anti-entropy still owns the oversized record"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn datagram_trimming_matches_repeated_encoding() {
+        let ctx = context();
+        for count in 0..=11 {
+            for padding in [0, 23, 24, 255, 700, 1100, 4097] {
+                let gossip: Vec<_> = (0..count)
+                    .map(|index| {
+                        let mut member = testing::member(&format!("node-{index}"), index as u64);
+                        // Mix individually unfit and small deltas, including a
+                        // malformed record that must fail even if it would be cut.
+                        if index % 2 == 0 {
+                            member.capabilities.architecture = "x".repeat(padding);
+                        }
+                        GossipDelta {
+                            hops: index,
+                            body: orishu_membership::DeltaBody::MembershipUpdate(member),
+                        }
+                    })
+                    .collect();
+                let mut envelope = Envelope {
+                    proto: ProtocolVersion::CURRENT,
+                    sender_id: "n".into(),
+                    formation_id: ctx.formation.clone(),
+                    seq: 7,
+                    body: Body::Ping(Probe {
+                        probe: ProbeId(3),
+                        incarnation: Incarnation::INITIAL,
+                    }),
+                    gossip: gossip.clone(),
+                    _trace_parent: serde::de::IgnoredAny,
+                };
+                let reference = (|| -> Result<_, WireError> {
+                    let mut deferred = Vec::new();
+                    loop {
+                        let bytes = codec::encode(&envelope)?;
+                        if bytes.len() <= MAX_DATAGRAM_BYTES {
+                            let omitted = deferred.len();
+                            envelope.gossip.clear();
+                            let base = codec::encode(&envelope)?.len();
+                            deferred.retain(|delta| {
+                                codec::encode(delta)
+                                    .is_ok_and(|bytes| base + bytes.len() <= MAX_DATAGRAM_BYTES)
+                            });
+                            return Ok((bytes, omitted, deferred));
+                        }
+                        deferred.push(envelope.gossip.pop().ok_or(CodecError::TooLarge)?);
+                    }
+                })();
+                let actual = encode(
+                    OutboundMessage {
+                        body: OutboundBody::Ping {
+                            probe: ProbeId(3),
+                            incarnation: Incarnation::INITIAL,
+                        },
+                        seq: 7,
+                        gossip,
+                    },
+                    ctx.formation.clone(),
+                    ctx.sender.clone(),
+                    None,
+                )
+                .map(|packet| {
+                    assert_eq!(packet.transport, Transport::Datagram);
+                    assert!(decode(&packet.bytes, &ctx, packet.transport).is_ok());
+                    (packet.bytes, packet.deferred_gossip, packet.deferred)
+                });
+                assert_eq!(actual, reference, "count={count}, padding={padding}");
             }
         }
     }

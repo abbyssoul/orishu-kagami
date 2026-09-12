@@ -136,6 +136,12 @@ impl<'de> Deserialize<'de> for Hash256 {
                         value.len()
                     )));
                 }
+                // Byte length alone does not make UTF-8 pair slicing safe.
+                // Require hex digits before slicing; radix parsing also accepts
+                // a leading `+`, which is not part of a digest's hex encoding.
+                if !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Err(E::custom("invalid hex digest"));
+                }
                 let mut bytes = [0u8; 32];
                 for (index, byte) in bytes.iter_mut().enumerate() {
                     let pair = &value[index * 2..index * 2 + 2];
@@ -562,7 +568,7 @@ impl MembershipTree {
         max: usize,
     ) -> AntiEntropyBatch {
         let mut deltas = Vec::new();
-        let mut last: Option<(u16, Vec<u8>)> = None;
+        let mut last: Option<(u16, &[u8])> = None;
 
         for &bucket in buckets {
             if let Some(cursor) = cursor
@@ -573,26 +579,30 @@ impl MembershipTree {
             let Some(leaves) = self.buckets.get(&bucket) else {
                 continue;
             };
-            for leaf in leaves {
-                if let Some(cursor) = cursor
-                    && bucket == cursor.bucket
-                    && leaf.key <= cursor.after_key
-                {
-                    continue;
-                }
+            // Keys are sorted at construction. Seek a continuation in
+            // O(log leaves in bucket), instead of rescanning its entire prefix.
+            let start = cursor
+                .filter(|cursor| bucket == cursor.bucket)
+                .map_or(0, |cursor| {
+                    leaves.partition_point(|leaf| leaf.key <= cursor.after_key)
+                });
+            for leaf in &leaves[start..] {
                 if deltas.len() == max {
                     return AntiEntropyBatch {
                         deltas,
                         complete: false,
-                        cursor: last
-                            .map(|(bucket, after_key)| AntiEntropyCursor { bucket, after_key }),
+                        cursor: last.map(|(bucket, after_key)| AntiEntropyCursor {
+                            bucket,
+                            after_key: after_key.to_vec(),
+                        }),
                     };
                 }
                 deltas.push(GossipDelta {
                     hops: 0,
                     body: leaf.body.clone(),
                 });
-                last = Some((bucket, leaf.key.clone()));
+                // Only a truncated reply needs an owned cursor key.
+                last = Some((bucket, &leaf.key));
             }
         }
 
@@ -743,6 +753,28 @@ mod tests {
     }
 
     #[test]
+    fn every_peer_declared_depth_is_refused_without_shifting_by_it() {
+        // Promoted from the `membership_messages` fuzz target, which parses this
+        // type straight from peer JSON. `depth` is attacker-chosen, so the range
+        // check must run before `1 << depth`: any depth at or above the usize
+        // width would otherwise overflow the shift rather than return false.
+        // Bucket counts are varied so a matching length cannot mask the check.
+        for depth in (0..=u8::MAX).filter(|depth| *depth == 0 || *depth > 8) {
+            for buckets in [0, 1, 16, 256] {
+                let digest = MerkleDigest {
+                    depth,
+                    root: Hash256::default(),
+                    buckets: vec![Hash256::default(); buckets],
+                };
+                assert!(
+                    !digest.is_well_formed(),
+                    "depth {depth} with {buckets} buckets must be refused, not folded"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn depth_mismatch_is_reported_rather_than_compared() {
         let ours = MembershipTree::build(&testing::model_with_members(4));
         let mut theirs = ours.digest();
@@ -780,6 +812,75 @@ mod tests {
         entities.sort();
         entities.dedup();
         assert_eq!(entities.len(), 41, "resumption must not repeat or skip");
+    }
+
+    #[test]
+    fn cursor_seeking_matches_linear_collection_at_boundaries() {
+        let tree = MembershipTree::build(&testing::model_with_members(128));
+        let mut cursors = vec![None];
+        for bucket in [0, 7, 15, 16, u16::MAX] {
+            for key in [vec![], vec![0xff]] {
+                cursors.push(Some(AntiEntropyCursor {
+                    bucket,
+                    after_key: key,
+                }));
+            }
+        }
+        for (&bucket, leaves) in &tree.buckets {
+            for leaf in leaves {
+                for after_key in [leaf.key.clone(), [leaf.key.as_slice(), &[0]].concat()] {
+                    cursors.push(Some(AntiEntropyCursor { bucket, after_key }));
+                }
+            }
+        }
+        // Preserve the public helper's behavior even for repeated, out-of-order
+        // and nonexistent requested buckets; wire validation is a separate layer.
+        for buckets in [(0..16).collect::<Vec<_>>(), vec![15, 0, 7, 7, 16]] {
+            for cursor in &cursors {
+                let remaining: Vec<_> = buckets
+                    .iter()
+                    .flat_map(|&bucket| {
+                        tree.buckets
+                            .get(&bucket)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(move |leaf| {
+                                if cursor.as_ref().is_some_and(|cursor| {
+                                    bucket < cursor.bucket
+                                        || (bucket == cursor.bucket && leaf.key <= cursor.after_key)
+                                }) {
+                                    None
+                                } else {
+                                    Some((bucket, leaf))
+                                }
+                            })
+                    })
+                    .collect();
+                for max in [0, 1, 7, 129, usize::MAX] {
+                    let taken: Vec<_> = remaining.iter().take(max).collect();
+                    let complete = remaining.len() <= max;
+                    let expected = AntiEntropyBatch {
+                        deltas: taken
+                            .iter()
+                            .map(|(_, leaf)| GossipDelta {
+                                hops: 0,
+                                body: leaf.body.clone(),
+                            })
+                            .collect(),
+                        complete,
+                        cursor: if complete {
+                            None
+                        } else {
+                            taken.last().map(|(bucket, leaf)| AntiEntropyCursor {
+                                bucket: *bucket,
+                                after_key: leaf.key.clone(),
+                            })
+                        },
+                    };
+                    assert_eq!(tree.collect(&buckets, cursor.as_ref(), max), expected);
+                }
+            }
+        }
     }
 
     #[test]

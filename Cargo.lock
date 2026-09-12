@@ -4011,6 +4011,8 @@ version = "0.1.0"
 dependencies = [
  "ciborium",
  "clap",
+ "criterion",
+ "dhat",
  "opentelemetry-proto",
  "orishu",
  "orishu-membership",
