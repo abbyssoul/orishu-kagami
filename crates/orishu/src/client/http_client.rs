@@ -178,33 +178,59 @@ fn build_client(options: HttClientOptions) -> Result<ClientWithMiddleware> {
     Ok(middleware_cb.build())
 }
 
+/// Build the transport for a [`ClusterAddress::UnixSocket`] address.
+///
+/// Unix domain sockets carry the Tier 1 (same OS user, unauthenticated) access path,
+/// so the URL authority is a placeholder: the socket path selects the peer, not DNS.
+#[cfg(unix)]
+fn build_unix_socket_client(
+    path: PathBuf,
+    options: HttClientOptions,
+) -> Result<(ClientWithMiddleware, Url)> {
+    // Create a client configured to use the Unix socket
+    let mut builder = ClientBuilder::new()
+        .unix_socket(path)
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(timeout) = options.timeout {
+        builder = builder.timeout(timeout);
+    }
+    let client = builder.build()?;
+    let mut builder = MiddlewareClientBuilder::new(client).with(CborContentMiddleware::default());
+
+    if let Some(auth) = options.credentials
+        && let Credentials::Token(token) = auth
+    {
+        builder = builder.with(BearerMiddleware::with_token(token.as_str()));
+    }
+
+    Ok((
+        builder.build(),
+        reqwest::Url::parse("http://localhost/api/v1/")?,
+    ))
+}
+
+/// Reject a [`ClusterAddress::UnixSocket`] address on platforms without Unix
+/// domain sockets (Windows), where the client plane is only reachable over TCP.
+#[cfg(not(unix))]
+fn build_unix_socket_client(
+    path: PathBuf,
+    _options: HttClientOptions,
+) -> Result<(ClientWithMiddleware, Url)> {
+    anyhow::bail!(
+        "cannot connect to Unix socket {}: Unix domain sockets are not supported on this platform; \
+         address the node over TCP as IP:port or hostname[:port] instead",
+        path.display()
+    )
+}
+
 impl HttpClusterClient {
     /// Create a client for the given address and credentials.
+    ///
+    /// Returns an error for a [`ClusterAddress::UnixSocket`] address on platforms
+    /// without Unix domain socket support (Windows).
     pub fn new(address: ClusterAddress, options: HttClientOptions) -> Result<Self> {
         let (client, base_url) = match address {
-            ClusterAddress::UnixSocket(path) => {
-                // Create a client configured to use the Unix socket
-                let mut builder = ClientBuilder::new()
-                    .unix_socket(path)
-                    .redirect(reqwest::redirect::Policy::none());
-                if let Some(timeout) = options.timeout {
-                    builder = builder.timeout(timeout);
-                }
-                let client = builder.build()?;
-                let mut builder =
-                    MiddlewareClientBuilder::new(client).with(CborContentMiddleware::default());
-
-                if let Some(auth) = options.credentials
-                    && let Credentials::Token(token) = auth
-                {
-                    builder = builder.with(BearerMiddleware::with_token(token.as_str()));
-                }
-
-                (
-                    builder.build(),
-                    reqwest::Url::parse("http://localhost/api/v1/")?,
-                )
-            }
+            ClusterAddress::UnixSocket(path) => build_unix_socket_client(path, options)?,
             ClusterAddress::Ip(ref socket_addr) => (
                 build_client(options)?,
                 reqwest::Url::parse(format!("https://{}/api/v1/", socket_addr).as_str())?,

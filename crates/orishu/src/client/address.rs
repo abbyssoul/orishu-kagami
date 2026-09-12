@@ -23,6 +23,14 @@ pub fn default_socket_path() -> PathBuf {
     }
 }
 
+/// The default TCP endpoint of the local orishu worker.
+///
+/// Used as the default address on platforms without Unix domain socket support
+/// (Windows), where the client plane is only reachable over TCP.
+pub fn default_local_endpoint() -> std::net::SocketAddr {
+    std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, DEFAULT_PORT))
+}
+
 /// Where to connect when constructing a
 /// [`HttpClusterClient`](super::http_client::HttpClusterClient).
 ///
@@ -48,6 +56,12 @@ pub fn default_socket_path() -> PathBuf {
 pub enum ClusterAddress {
     /// Local Unix domain socket. Qualifies for Tier 1 (unauthenticated, read-only) access
     /// when the node runs under the same OS user as the client.
+    ///
+    /// The variant exists on every platform so that addresses stay parseable and
+    /// serialisable everywhere, but connecting to one requires Unix domain socket
+    /// support: on Windows,
+    /// [`HttpClusterClient::new`](super::http_client::HttpClusterClient::new)
+    /// rejects this variant.
     UnixSocket(PathBuf),
 
     /// A single, already-resolved IP address + port. Connects directly — no DNS lookup.
@@ -69,8 +83,18 @@ impl ClusterAddress {
 impl Default for ClusterAddress {
     /// The default address is the local node's Unix domain socket.
     /// Matches the behavior of running `orishu-ctl` or `orishu-monitor` without `--host`.
+    ///
+    /// On platforms without Unix domain sockets (Windows) the default is the
+    /// local node's TCP endpoint, [`default_local_endpoint`], instead.
     fn default() -> Self {
-        Self::UnixSocket(default_socket_path())
+        #[cfg(unix)]
+        {
+            Self::UnixSocket(default_socket_path())
+        }
+        #[cfg(not(unix))]
+        {
+            Self::Ip(default_local_endpoint())
+        }
     }
 }
 
@@ -223,6 +247,30 @@ mod tests {
     #[test]
     fn empty_string_is_error() {
         assert!("".parse::<ClusterAddress>().is_err());
+    }
+
+    /// The default address has to be one this platform can actually dial:
+    /// a Unix socket where those exist, the local TCP endpoint where they do not.
+    #[test]
+    fn default_address_is_reachable_on_this_platform() {
+        if cfg!(unix) {
+            assert_eq!(
+                ClusterAddress::default(),
+                ClusterAddress::UnixSocket(default_socket_path()),
+            );
+        } else {
+            assert_eq!(
+                ClusterAddress::default(),
+                ClusterAddress::Ip(default_local_endpoint()),
+            );
+        }
+    }
+
+    #[test]
+    fn default_local_endpoint_is_loopback_on_the_default_port() {
+        let endpoint = default_local_endpoint();
+        assert!(endpoint.ip().is_loopback());
+        assert_eq!(endpoint.port(), DEFAULT_PORT);
     }
 
     #[test]

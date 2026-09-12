@@ -23,7 +23,8 @@ ENVIRONMENT:
 )]
 struct Cli {
     /// Orishu cluster address: a Unix socket path, IP:port, or hostname with optional port.
-    /// Defaults to the local per-user Orishu worker socket.
+    /// Defaults to the local per-user Orishu worker socket, or — on platforms without
+    /// Unix domain sockets — to the local worker's TCP endpoint on 127.0.0.1:6680.
     #[arg(
         short = 'H',
         long,

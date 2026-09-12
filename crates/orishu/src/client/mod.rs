@@ -6,7 +6,10 @@ mod bearer_auth;
 mod cbor_middleware;
 mod netrc_auth;
 
-pub use address::{ClusterAddress, ClusterAddressParseError, DEFAULT_PORT, default_socket_path};
+pub use address::{
+    ClusterAddress, ClusterAddressParseError, DEFAULT_PORT, default_local_endpoint,
+    default_socket_path,
+};
 use async_trait::async_trait;
 
 use crate::model::{
