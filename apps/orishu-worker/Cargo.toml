@@ -49,7 +49,7 @@ formation-fault-test = []
 [dependencies]
 # Maintained OTLP messages only: no gRPC transport, ambient SDK exporter or logs.
 opentelemetry-proto = { version = "=0.32.0", default-features = false, features = ["gen-tonic-messages", "trace"], optional = true }
-prost = { version = "=0.14.3", optional = true }
+prost = { version = "=0.14.4", optional = true }
 # Explicit collector-only HTTP client; TLS configuration is supplied by the worker.
 reqwest = { version = "=0.13.4", default-features = false, features = ["rustls-no-provider"], optional = true }
 ciborium = "=0.2.2"
