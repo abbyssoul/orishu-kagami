@@ -100,7 +100,13 @@ impl FileStore for RealFileStore {
     }
 
     fn sync_file(&self, path: &Path) -> io::Result<()> {
-        std::fs::File::open(path)?.sync_all()
+        // Windows' FlushFileBuffers requires a handle with write access; a
+        // read-only handle returns ERROR_ACCESS_DENIED. Unix fsync accepts
+        // either, so opening for write is the portable choice.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)?
+            .sync_all()
     }
 
     fn sync_dir(&self, path: &Path) -> io::Result<()> {

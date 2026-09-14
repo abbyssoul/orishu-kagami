@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use kagami_document::{Experiment, Limits};
 use kagami_session::{
     AuthoringView, DocumentMetadata, DocumentTarget, ExperimentDocument, FileStore, LoadedFrom,
-    load, save,
+    RealFileStore, load, save,
 };
 use support::schemas;
 
@@ -471,4 +471,31 @@ fn a_readable_backup_still_wins_over_explaining_the_primary() {
     assert_eq!(loaded.from, LoadedFrom::Backup);
     assert!(loaded.from.is_recovery());
     assert_eq!(loaded.document.metadata.saved, "recoverable");
+}
+
+#[test]
+fn a_real_save_flushes_and_round_trips_on_this_platform() {
+    // Every test above drives the in-memory fake, so the real flush step — the
+    // one that opens the temporary and syncs it — is never exercised here. It
+    // has a platform-specific failure: on Windows `FlushFileBuffers` refuses a
+    // read-only handle with ERROR_ACCESS_DENIED, so a save that opened the
+    // temporary read-only never completed. This drives `RealFileStore` against
+    // a real directory to keep that regression out of the unit tests, not only
+    // Windows CI.
+    let directory =
+        std::env::temp_dir().join(format!("kagami-session-real-save-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).expect("a temporary directory");
+    let path = directory.join("orbit.kagami");
+    let target = DocumentTarget::new(path.clone()).expect("valid target");
+
+    let store = RealFileStore;
+    save(&store, &target, &document("real")).expect("the real save flushes and completes");
+    assert!(path.exists(), "the primary is on disk");
+
+    let loaded = load(&store, &target).expect("readable");
+    assert_eq!(loaded.from, LoadedFrom::Primary);
+    assert_eq!(loaded.document.metadata.saved, "real");
+
+    let _ = std::fs::remove_dir_all(&directory);
 }
