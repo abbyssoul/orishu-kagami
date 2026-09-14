@@ -158,6 +158,15 @@ and the [resumable observation-streaming task](./tasks/implement-resumable-obser
 
 ### Scientific capability is extended through simulation plugins
 
+Canonical execution terminology is **kernel** (one independently compiled
+implementation of one Orishu-owned execution contract) and **kernel instance**
+(its configured workload use). **WebAssembly Component** names the binary
+technology. Older component graph/instance terminology below and in current
+code/wire formats maps to those concepts, not a second execution layer. See
+[ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md). Field-update
+and dynamics-integrator contracts are platform-owned; gravity vocabulary and
+particular solver implementations are plugin contributions.
+
 Orishu provides the compute platform while researchers choose the physical
 models that define an experiment. Kagami ships with an initial model vocabulary
 and lets advanced users install simulation plugins developed with ordinary
@@ -174,8 +183,16 @@ authoring schemas                    |                 pinned closure
 workload component                   +-------------> Orishu cluster
 ```
 
-A simulation plugin combines declarative authoring schemas with digest-pinned
-sandboxed workload code. Schemas describe fields, parameters, dimensions,
+A simulation plugin bundles declarative vocabulary and/or computational model
+contributions. Vocabulary and model providers can be independently developed;
+exact scientific contracts connect them, and availability is contribution-level.
+The planned pure `orishu-plugin` contract is shared by Kagami and Orishu, with
+IO in adapters and only selected transitive contributions exported in workloads.
+See [ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md) for immutable
+releases, identities, enablement, options considered and remaining design gates.
+
+Computational contributions use digest-pinned sandboxed workload code.
+Schemas describe fields, parameters, dimensions,
 constraints, initial conditions, and observations; they allow Kagami to expose
 generic, validated authoring controls without loading arbitrary extension code
 into its process. That code implements the executable state transition

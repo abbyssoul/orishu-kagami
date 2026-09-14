@@ -1,6 +1,11 @@
 # Simulation plugins
 
-Orishu Kagami is extensible at the level of scientific models. Kagami ships
+This document describes the planned contract, not delivered plugin management.
+[ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md) records accepted
+decisions and alternatives; [X-PLUGIN](tasks/define-and-implement-plugin-contract.md)
+tracks remaining design gates and implementation slices.
+
+Orishu Kagami is extensible at the level of scientific models. Kagami will ship
 with a useful initial set of simulation plugins, including gravity and
 electrodynamics, while advanced users can develop, install, inspect, update,
 and remove additional plugins for other fields and numerical methods.
@@ -33,7 +38,7 @@ not native host extensions:
   dimensions, constraints, initial conditions, object components, their state
   ownership and composition constraints, phase/channel contracts, placement
   compatibility, and observations Kagami can offer;
-- digest-pinned WebAssembly workload component code implementing Orishu's
+- where computation is contributed, digest-pinned WebAssembly workload component code implementing Orishu's
   versioned, capability-limited component lifecycle;
 - any other digest-addressed schemas or runtime inputs required by that
   component; and
@@ -46,11 +51,45 @@ different concepts:
 | Term | Meaning |
 | --- | --- |
 | Simulation plugin | Installable product capability presented to a researcher. |
-| Workload component | Sandboxed executable artifact Orishu validates and invokes. |
-| Numerical kernel | Internal reusable algorithm or library used to implement a workload component. |
+| Kernel | Independently compiled scientific executable implementing one Orishu-owned execution contract. |
+| Kernel instance | One configured use of a kernel in the workload graph. |
+| WebAssembly Component | Binary technology used to deliver and sandbox a kernel. |
 
-A component may compose several numerical kernels. Conversely, installing a
+A kernel may use shared algorithms and libraries internally. Each compiled
+kernel remains independent; a plugin may bundle multiple kernels. Installing a
 plugin does not grant its code ambient access to Kagami or a worker process.
+
+Orishu owns execution contracts such as field update and dynamics integration.
+These are distinct from plugin-owned scientific contracts such as the gravity
+field's vocabulary. A gravity plugin may contribute that vocabulary and two
+separate kernels implementing the field-update contract for gravity: classical
+and GEM. Selecting one includes only its executable and required dependencies.
+This is our execution/packaging rule, not a limitation of Wasm itself. Common
+lifecycle functions and multiple phases do not constitute multiple scientific
+implementations. Concrete role interfaces remain X-PLUGIN/O-WASM design work.
+
+Older prose and current code/wire formats call a kernel a `workload component`
+and a kernel instance a `component instance`. Those names remain compatibility
+references until an explicit API/format migration; they do not define another
+layer of scientific executables.
+
+A vocabulary-only plugin need not contain executable code. Another independently
+developed plugin may supply a model implementing that exact scientific contract.
+The manifest bundles contributions, not a mandatory schema-and-kernel pair.
+
+## Shared contract ownership
+
+The MVP will introduce a dependency-light `orishu-plugin` crate for shared
+identities, contribution envelopes and typed payloads, canonical codecs and pure
+bounded validation/resolution. Archive, filesystem, network and CLI operations
+remain in Kagami's shell. Workers consume selected scientific contracts through
+workloads; they do not install plugin bundles.
+
+Variables, catalog, workload and plugins are coupled parts of one Orishu–Kagami
+contract. Audit existing type ownership and preserve an acyclic dependency graph
+before implementation; the crate names do not settle every type's placement.
+Revisit this layout after MVP if actual consumers justify it. Concrete wire
+schemas, codecs and migration policy remain X-PLUGIN design gates.
 
 ## Extension points and contributions
 
@@ -70,6 +109,16 @@ one compatible computational model for each active field family.
 Contribution identity is provider-qualified by plugin release, extension
 point, and plugin-local contribution identity. Display and scientific names may
 collide; Kagami shows the provider and never lets installation order select one.
+For a required exact contract, reuse an existing experiment provider pin. An
+unbound dependency with one eligible provider resolves automatically; several
+eligible providers require an interactive choice. Persist the resulting selection.
+Headless authoring returns that ambiguity as a structured protocol outcome with
+eligible choices. The caller submits an explicit selection and retries; it does
+not need a terminal prompt. Interactive Kagami renders the same outcome as a
+choice. Returned options are bounded and retry validation uses current state.
+Export requires resolution to be complete: Orishu verifies the pinned closure,
+never asks for or chooses a provider. Fetching missing bytes by exact digest is
+artifact delivery, not dependency-provider selection.
 Independently developed plugins cooperate through exact **scientific contract
 identities** consisting of a stable name, version, and canonical contract
 digest. A model may be installed before the field-family contract it implements;
@@ -92,6 +141,111 @@ generic editor or visualizer. Kagami owns every menu, window, widget, renderer,
 command binding, and presentation lifecycle. Plugin-contributed views, windows,
 renderers, widgets, and executable UI are outside this contract and require a
 separate architecture and security decision if later evidence justifies them.
+
+## Field-to-entity execution
+
+The Field CAD target flow clarified on 2026-09-13 uses entity/component
+composition: an entity has identity and attached data components; systems/kernels
+operate on matching entities. Attaching components in authoring selects behavior,
+not arbitrary executable systems or live edits to an accepted run. This is an ECS
+domain model, not a mandate for an ECS library or persisted memory layout.
+
+A field is plugin-defined scalar/vector/multi-channel state over the authored
+domain, with an admitted bounded numerical representation. The author selects
+the field and its kernel. A field-coupling component makes an entity participate
+in that field's computation; for Newtonian gravity, gravitational mass can
+describe both its source strength and response coupling. It remains distinct
+from Dynamics' inertial mass.
+
+For the initial independent-field flow, Orishu supplies each field kernel with
+its own previous state and a read-only projection of the matching entities:
+stable identity, required kinematics and declared coupling properties. The same
+entity may appear in several projections. Kernels do not read other fields or
+observe one another's partial entity updates. The field kernel both computes its
+candidate field state and emits per-entity force contributions. This does not
+require a separately packaged coupling kernel in this initial profile.
+
+The dynamics-integrator kernel receives the entity state and the admitted force
+contributions, reduces them in the declared deterministic order and integrates
+entities with Dynamics. Field kernels never write authoritative entity position
+or velocity. Entities coupled to a field but lacking Dynamics remain fixed, as
+already required by ADR 0020. Orishu commits field and entity candidate state
+together only after all required work and validation succeed.
+
+The first pass uses a fixed two-stage pipeline, not a configurable execution
+schedule: (1) compute all fields and accumulate force contributions using the
+same committed entity boundary, then (2) reduce the complete contributions and
+integrate dynamic entities once. No field sees positions partly updated by
+another field. Independent field work may execute concurrently; completion order
+does not determine floating-point reduction order. Validation and atomic commit
+follow the two scientific stages. An empty force set still permits inertial motion.
+
+Conceptual signatures, **not frozen ABI**:
+
+```text
+field.update(previous_field, coupled_entities, step_context)
+    -> (candidate_field, entity_force_contributions)
+dynamics.update(dynamic_entities, force_contributions, step_context)
+    -> candidate_dynamic_entities
+```
+
+These are bounded bulk inputs/outputs, not per-entity host callbacks. Partition
+context and required source/halo data must preserve the same scientific contract
+when distributed; matching entities need not mean replicating the entire scene
+on every worker.
+
+Field `init` constructs the kernel-defined natural default state for the domain
+and performs the kernel's bounded setup for upcoming computation. A zero-filled
+matrix is one possible default, not a host requirement. It does not take coupled
+entities, inspect the rest of the scene, advance time or move objects. Given the
+same final authored values, creating a field before or after the entities must
+not change the experiment's initial conditions. The completed collection of
+authored fields and entities is the initial setup; the first update receives the
+coupled entities and computes the field and forces.
+
+Validation of that completed setup is separate. A kernel's construction default
+is not a promise of scientific admissibility with every later source/configuration;
+incompatible initial conditions produce diagnostics rather than silent repair.
+`init` is not a source-consistency solve. Kernel setup remains sandboxed, bounded
+and restricted to declared capabilities; “setup” grants no ambient host access.
+State needed for reproducible execution or checkpoint restoration cannot hide in
+untracked setup side effects. Existing lifecycle initialization/load/restore calls
+must be mapped explicitly to these semantics, not renamed by implication.
+
+Still to specify: the model's precise force evaluation time versus returned field
+state and its compatibility with the selected integration method. The two-stage
+orchestration does not itself choose an Euler variant or temporal staggering.
+Default construction executes in the local sandbox when Kagami creates a field.
+Its scientific output is captured in the experiment as authored initial state.
+Reopening and workload submission load/export that captured state; they do not
+regenerate it by running default construction again. Runtime-only setup is
+reconstructed separately without changing captured scientific values. State
+needed scientifically for restart belongs in the explicit state/checkpoint
+contract, not an assumed disposable cache.
+
+Still specify exact domain/configuration inputs, serialization/storage of the
+captured field state, and concrete exports for default construction versus
+runtime setup/load/restore. These are not permission to add coupled entities
+back to `init`. Field creation uses the document authority: sandbox failures or
+invalid output cannot publish a partially created field. Packaging/inspection
+commands remain non-executing; explicit field creation is a different operation.
+
+Reinitialization is a normal authoring operation, not exceptional repair. The
+scene inspector offers **Reinitialize field** for the selected field, invoking
+its pinned kernel's default construction with current domain/configuration.
+Changes to a field's domain or compute parameters also reinitialize its captured
+state as part of that edit. Presentation-only edits do not. The UI makes this
+effect clear; there is no silent resampling or reset on reopen/submission.
+
+The document authority atomically accepts the edited settings and all affected
+new field states as one undoable revision, or rejects the whole operation if
+construction/validation fails. Shared-domain edits cover every affected field.
+Undo/redo restore the captured before/after states rather than rerunning kernels.
+UI and MCP use the same commands and outcomes. These are authoring actions,
+never mutations of an active run or replay stream.
+ADR 0024's graph remains a representation for the fixed pipeline; configurable
+pipelines and coupled/multi-stage schedules are future extensions, not first-pass
+requirements. Their eventual admission requires an explicit versioned profile.
 
 ## Packaging and release identity
 
@@ -195,11 +349,11 @@ contributions and what they require; an unselected kernel shipped by A is
 neither needed nor authorized to enter the workload. Documentation, examples,
 icons, and unrelated authoring contributions likewise stay in Kagami.
 
-Compilation creates configured component instances and a bounded deterministic
+Compilation creates configured kernel instances and a bounded deterministic
 step plan. Orishu hosts those instances, mediates their typed channels and may
 place independently partitionable work on different eligible nodes. Plugins do
-not call one another or share ambient memory. A plugin may package tightly
-coupled numerical kernels inside one component, but cross-plugin composition
+not call one another or share ambient memory. A kernel may internally reuse
+algorithms and libraries, but composition between independent kernels
 follows [ADR 0024](./adr/0024-orishu-orchestrates-a-workload-component-graph.md).
 
 ## Field families and computational models
@@ -229,7 +383,15 @@ parameter identities needed to diagnose compatibility and compile the same
 intent. If the required plugin is absent, Kagami preserves the authored data
 but marks the affected model unavailable; it does not substitute another model
 or fabricated defaults. Editing or submitting that part of the experiment
-requires resolving a compatible plugin version or explicitly migrating it.
+requires restoring its exact pinned release/contributions or explicitly migrating
+it; a similarly named compatible-looking release is not an automatic replacement.
+
+Releases coexist immutably. Updating changes the default for new authoring but
+does not rewrite existing pins or delete old releases. Persistent enablement is
+per logical plugin and suppresses every release when disabled; startup overrides
+affect only that process. Default selection, enablement, experiment selection and
+removal are separate operations. Removal warnings cover known open documents,
+not an assumed inventory of every experiment file on disk.
 
 Plugin source locations, installation directories, registries, and archive
 encodings are distribution details rather than scientific or workload
@@ -248,7 +410,7 @@ Simulation plugins and object catalogs solve different reuse problems:
 
 ```text
 object template     = reusable authored component/property data
-simulation plugin   = model vocabulary + executable state transition
+simulation plugin   = contributions: vocabulary and/or computational models
 ```
 
 An object-template name never selects executable physics. A researcher first

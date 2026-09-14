@@ -26,9 +26,12 @@ integration need not have identical partitioning or placement. Treating their
 code as one opaque executable would unnecessarily prevent Orishu from placing
 component partitions independently when the workload contract permits it.
 
-In this record, **workload component** means a sandboxed executable artifact or
-instance. A **numerical kernel** remains an implementation detail inside one of
-those components; the runtime does not load an uncontracted native kernel.
+Terminology refinement in [ADR 0027](0027-plugin-contributions-and-immutable-releases.md):
+the scientific executable is a **kernel**, and its configured use is a **kernel
+instance**. **WebAssembly Component** names the binary technology. This record's
+older component terminology maps to those concepts; it does not add another
+executable layer. The earlier use of “numerical kernel” solely for internal
+algorithms is superseded; those are algorithms/libraries.
 
 ## Options considered
 
@@ -43,9 +46,11 @@ Kagami an executable build/link service, produces a new opaque assembly for
 every combination, weakens per-plugin isolation and accounting, and removes
 Orishu's ability to place independently partitionable models separately.
 
-A plugin may still internally package tightly coupled numerical kernels into
-one component. That is implementation encapsulation, not cross-plugin
-composition.
+A kernel may internally reuse tightly coupled algorithms/libraries. ADR 0027
+refines the original encapsulation allowance: each independently compiled kernel
+implements one Orishu execution contract, and alternative solvers are separate
+artifacts even when shipped in one plugin. This does not merge independent
+kernels into one guest.
 
 ### Generate a thin orchestration component
 
@@ -170,7 +175,7 @@ and the same ownership, bounds and isolation remain enforceable.
   integration method. The admitted step plan records the required schedule.
 - Allowing observers, presentation subscriptions or diagnostics into the
   scientific dependency graph.
-- Requiring each numerical kernel or source file to become a separate guest.
+- Requiring each internal algorithm, library or source file to become a separate guest.
 - Choosing a final buffer representation, Wasm shared-memory feature, placement
   heuristic or distributed load-balancing algorithm in this ADR.
 

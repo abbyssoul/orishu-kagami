@@ -19,6 +19,15 @@ components.
 
 ## Slices
 
+Before freezing the ABI below, apply
+[ADR 0027](../adr/0027-plugin-contributions-and-immutable-releases.md): each
+independently compiled kernel implements one Orishu-owned execution contract.
+Specify field-update and dynamics-integrator role interfaces with X-PLUGIN,
+including how common lifecycle operations and multiple phases fit one contract.
+Map existing component/role names to kernel/kernel-instance semantics without
+silently changing WIT identifiers or persisted workload bytes. ABI/contract
+conformance is not proof of a guest's scientific correctness.
+
 1. Freeze `orishu:simulation/component@1` WIT from the domain interface in the
    workload protocol. Generate bindings and golden component fixtures for
    initialization, load/restore, phase execution, checkpoint, observation and

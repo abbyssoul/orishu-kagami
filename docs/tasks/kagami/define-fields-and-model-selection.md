@@ -13,6 +13,12 @@ provides its own field update code, numerical representation and constraints.
 
 ## Slices
 
+Consume [ADR 0027](../../adr/0027-plugin-contributions-and-immutable-releases.md)
+and [X-PLUGIN slice 0](../define-and-implement-plugin-contract.md#slice-0--finish-the-contract)
+for shared identities/payloads: vocabulary and computational-model providers may
+be separate plugins. Do not introduce competing family/contract identity types
+or assume every vocabulary bundle has executable code.
+
 1. Define stable `FieldFamilyId` and `ComputationalModelId` types and plugin
    schemas for compatible source/coupling components, dimensions, domain and
    discretization requirements, initial/boundary conditions, observation
@@ -47,6 +53,16 @@ provides its own field update code, numerical representation and constraints.
   block compilation without corrupting unrelated intent.
 - `make fmt-check`, `make lint`, `make test`, `make docs`, and
   `make docs-check` pass.
+
+## Field reinitialization acceptance increment
+
+The following authoring acceptance increment remains required: provide a scene-
+inspector **Reinitialize field** action and matching typed command for MCP.
+Domain/compute-parameter edits reinitialize affected fields atomically with the
+settings change, with a visible reset effect. A failed kernel or invalid output
+leaves the old revision intact, including for multi-field shared-domain edits.
+Undo/redo restore captured before/after states without rerunning kernels.
+Presentation-only edits, reopen, submission and replay do not reset field state.
 
 ## Non-goals
 

@@ -1,5 +1,19 @@
 # Workload contract
 
+Terminology refinement: [ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md)
+names the scientific executable a **kernel** and its configured use a **kernel
+instance**. Each independently compiled kernel implements one Orishu-owned
+execution contract (for example field update or dynamics integration) and is
+delivered as a **WebAssembly Component**. Those role-specific contracts still
+require concrete specification alongside the common lifecycle below. They are
+distinct from plugin-owned scientific vocabulary such as gravity.
+
+The legacy component terminology and literal WIT/wire identifiers below are
+retained for compatibility, not a second scientific abstraction. X-PLUGIN and
+O-WASM must reconcile roles/phases, execution-contract identity and versioning
+before implementation; this documentation change does not alter serialized
+workloads or establish that current structural validation enforces this rule.
+
 The workload contract defines the boundary between the worker runtime and
 client-supplied executable simulation code. A workload component is an untrusted,
 machine-independent guest program, not a trusted native plugin. One workload
@@ -18,8 +32,8 @@ Executable composition and host orchestration are decided by
 The authoring-facing package is described in
 [Simulation plugins](./simulation-plugins.md).
 
-This contract calls each executable artifact a **workload component** and each
-configured use of one a **component instance**. Older code and documents use
+This contract retains **workload component** and **component instance** as legacy
+spellings of kernel and kernel instance. Older code and documents also use
 **workload package** for a single executable artifact. None of these terms
 means the portable workload bundle used as a distribution format. The workload
 has one root manifest, not necessarily one root executable. ADR 0024 makes
@@ -109,6 +123,14 @@ the assembled boundary without implementing model-specific equations.
 
 
 ## Execution model
+
+Initial supported scientific profile (ADR 0027): all field kernels compute
+candidate field state and force contributions from the same committed entity
+boundary, then Dynamics deterministically reduces contributions and integrates
+motion once. Validation and atomic commit follow. The general graph machinery
+below represents this fixed pipeline; configurable or multi-stage schedules are
+future profiles, not initial client capabilities. Concrete force-time conventions
+and integration formulas remain to be specified for the numerical profile.
 
 The simulation advances through discrete committed boundaries. For boundary
 `N → N+1`, the runtime executes the manifest's admitted step plan over
@@ -245,6 +267,16 @@ The runtime calls these exports; guests never call them on themselves or on
 another guest.
 
 #### `component_init`
+
+Design clarification: field default construction (`init` in the scientific
+discussion) supplies the kernel-defined natural state and bounded setup without
+coupled entities. It is not a source-consistency solve or a demand for all-zero
+field values. Completed-experiment validation is separate. Its exact mapping to
+this lifecycle call, load and restore remains X-PLUGIN/O-WASM specification work.
+Kagami runs scientific default construction in its local sandbox on field creation
+and captures the output in the experiment. Reopen/submission preserve that state;
+runtime-only setup is reconstructed separately. Do not overwrite loaded authored/
+checkpoint state with freshly constructed defaults implicitly.
 
 ```
 component_init(instance_context, frozen_params, owned_state_schema) -> status

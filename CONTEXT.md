@@ -4,7 +4,43 @@ Orishu Kagami provides one product for authoring, executing, and observing
 scientific simulations. Orishu and Kagami are roles within that product, not
 independent platforms.
 
+The accepted MVP plugin boundary is a planned dependency-light `orishu-plugin`
+crate shared by Kagami and Orishu, alongside variables, catalog and workload
+contracts. These form one coupled product seam; keep dependency ownership
+acyclic and IO in adapters. The crate layout may be reconsidered after MVP.
+See [ADR 0027](docs/adr/0027-plugin-contributions-and-immutable-releases.md)
+and [X-PLUGIN's design gates](docs/tasks/define-and-implement-plugin-contract.md).
+
 ## Product language
+
+In the initial independent-field execution flow, a field-coupling component
+selects an entity's participation in that field kernel. The kernel reads entity
+state and produces field state plus force contributions; Dynamics alone reduces
+those contributions and integrates motion. Coupling/projection is part of the
+field kernel in this profile, not a required separate executable.
+The initial pipeline is fixed: compute all field/force contributions from one
+committed entity boundary, then reduce and integrate Dynamics once, followed by
+validation and atomic commit. Configurable pipelines are future work, not an
+initial authoring capability.
+Field initialization constructs the kernel's natural default state, which need
+not be zero-filled, independently of scene entities. It may perform bounded
+kernel setup. Completed-experiment validation is separate; field/object creation
+order must not change initial conditions given the same final authored values.
+Kagami constructs field defaults in its local sandbox on field creation and
+captures the scientific output in the experiment. Reopening and submission
+preserve that state; runtime-only setup is reconstructed separately, without
+regenerating or replacing authored initial conditions.
+Manual field reinitialization and domain/compute-parameter edits are normal
+authoring operations: the authority captures newly initialized state atomically
+with the edit, and undo/redo restore captured states without rerunning kernels.
+
+Provider resolution is authoring-time: reuse exact experiment pins; for unbound
+exact-contract dependencies, select the sole eligible provider or ask the user
+when ambiguous, then persist the choice. Workloads carry resolved selections;
+Orishu validates them without choosing providers or substituting scientific code.
+Headless authoring returns a structured ambiguity outcome with eligible provider
+choices; the caller submits an explicit selection through the same authority.
+It does not wait for an interactive prompt or guess a provider.
 
 | Term | Meaning |
 | --- | --- |
@@ -23,7 +59,7 @@ independent platforms.
 | **Resource envelope** | The structural `apiVersion`/`kind`/`metadata`/`spec`/optional-`status` shape shared by Orishu resources and Kagami object templates. It carries no authority, lifecycle, identity, or metadata schema; each resource domain keeps its own. |
 | **Object catalog** | Kagami's client-owned, editable collection of versioned object-template files. It is authoring vocabulary, not experiment or workload state. |
 | **Object template** | A named, reusable composition of components, parameters, and authored properties that can be instantiated as a self-contained experiment object. |
-| **Simulation plugin** | An installable, versioned capability containing declarative Kagami authoring schemas and digest-pinned sandboxed workload code for one or more physical models. The initial contract permits presentation annotations consumed by host-owned generic UI, but no contributed views, windows, renderers, widgets, or executable UI. It is not a native host plugin. |
+| **Simulation plugin** | An installable, versioned bundle of contributions: scientific vocabulary, computational models, or both. Vocabulary-only bundles need no executable artifact; computational contributions use digest-pinned sandboxed workload code. The initial contract permits presentation annotations consumed by host-owned generic UI, but no contributed views, windows, renderers, widgets, or executable UI. It is not a native host plugin. |
 | **Plugin extension point** | A stable, versioned slot in the shared Orishu–Kagami plugin contract that names one kind of contribution, such as entity-component schemas, field-family declarations, computational models, or observation channels. Orishu Kagami owns extension-point identities and semantics; an external plugin names them in metadata and need not link host code. Contributions use one common envelope, while each recognized extension point owns an independently versioned, strongly typed payload and validator. An unknown point leaves that contribution and its declared dependents unavailable without suppressing understood independent contributions from the same valid release. |
 | **Plugin contribution** | One declaration a particular plugin release registers at an extension point. Its canonical identity is provider-qualified: the plugin release, extension point, and plugin-local contribution identity together select it. The extension point decides whether contributions accumulate or require an explicit selection. Display and scientific names are non-authoritative and may collide, so Kagami disambiguates providers and an experiment and workload retain the selected provider and exact contract rather than relying on installation order. A contribution may depend on exact scientific contract identities supplied independently by other plugins; installing it before those dependencies exist is valid, but does not make that contribution available. |
 | **Scientific contract identity** | The stable name, version, and canonical digest of a scientific interface contributed through a plugin extension point. It identifies exact semantics independently of which plugin release supplies them. Models declare the exact scientific contract identities they implement; matching names or structural shapes alone never establish compatibility. |
@@ -31,12 +67,14 @@ independent platforms.
 | **Plugin bundle** | The isolated, manifest-driven distribution of one plugin release. It may contain schemas, workload components, documentation, examples, and assets, but files register nothing merely by occupying a path: the manifest explicitly declares every contribution. Kagami validates paths, bounds, schemas, and digests before atomically installing content-addressed artifacts. Archive layout and compression are distribution details and do not determine the plugin release identity; releases never overlay a shared union filesystem. |
 | **Plugin enablement** | A persistent Kagami user preference on a logical plugin, with an optional process-local command-line override. An enabled plugin's default release contributes choices for new authoring, while an existing experiment may resolve any exact installed release it pins. Disabling suppresses every release without uninstalling it or editing experiments; experiment selection is a separate authored decision. |
 | **Contribution availability** | The derived state of one installed plugin contribution against plugin enablement, supported extension points, and its bounded transitive scientific-contract dependencies. A structurally valid plugin release may contain both available and dormant contributions. Missing, incompatible, conflicting, disabled, or unsupported contributions are diagnosed independently and become available when their dependencies do, without reinstalling the release or editing an experiment. A malformed manifest, corrupt artifact, or false release identity instead rejects the whole release. |
-| **Numerical kernel** | A reusable computational algorithm or library used inside a workload component; it is implementation, not the installed product package or workload identity. |
+| **Kernel** | An independently compiled, content-addressed scientific executable implementing one Orishu-owned execution contract, delivered as an untrusted WebAssembly Component. |
+| **Execution contract** | An Orishu-owned versioned interface for a scientific execution role, such as field update or dynamics integration, implemented by a kernel; distinct from the plugin-owned scientific field contract. |
 | **World** | The objects and physical properties authored as part of an experiment. |
 | **Workload** | The immutable logical bundle required to execute one simulation: a root manifest and the complete closure of digest-addressed compute code, initial conditions, and other required inputs. It is independent of distribution format. A cluster runs at most one workload at a time. |
 | **Workload manifest** | The immutable root definition of a workload, including its compute definition, execution requirements, and digest-pinned references to required artifacts. |
-| **Workload component** | A content-addressed, machine-independent WebAssembly Component containing untrusted executable physics behind Orishu's versioned, capability-limited workload lifecycle. Historically called the workload package; it is not a distribution bundle. |
-| **Component instance** | One configured use of a workload component in an immutable workload graph, with stable instance/model/schema identity, declared state ownership, phases, channels and limits. |
+| **WebAssembly Component** | The binary technology used to package and sandbox a kernel; not a second scientific entity or a plugin bundle. |
+| **Kernel instance** | One configured use of a kernel in an immutable workload graph, with stable instance/model/schema identity, declared state ownership, phases, channels and limits. |
+| **Workload component / component instance** | Legacy design and current code/wire names for kernel / kernel instance; renaming prose does not migrate serialized types or versions. |
 | **Workload component graph** | The identity-bearing component instances, typed channels, deterministic step plan and scientific placement constraints compiled into a workload. Orishu chooses a legal runtime placement. |
 | **Step plan** | The bounded, versioned dependency schedule by which Orishu invokes component-instance phases to propose one candidate simulation boundary. |
 | **Workload closure** | The root manifest plus every content-addressed component, initial condition, geometry, and other artifact reachable from it and required to execute the workload. |

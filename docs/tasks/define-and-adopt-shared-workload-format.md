@@ -23,6 +23,19 @@ plugins or a user-installed simulation plugin does not change this boundary.
 The plugin is authoring input; its exact model/schema identities and workload
 component artifacts become ordinary pinned workload content.
 
+[ADR 0027](../adr/0027-plugin-contributions-and-immutable-releases.md) refines
+remaining plugin integration: capture only the selected transitive contribution
+closure, potentially from independent vocabulary and model providers, not whole
+installed bundles. Coordinate provenance, artifact granularity and identity/type
+ownership through [X-PLUGIN slice 0](define-and-implement-plugin-contract.md#slice-0--finish-the-contract).
+This is follow-up integration, not grounds to reinterpret accepted canonical
+bytes or claim the existing structural validator implements scientific policy.
+Use kernel/kernel instance in scientific design prose; retain and explicitly map
+existing component API/wire identifiers until versioned migration. With X-PLUGIN
+and O-WASM, define how one execution-contract implementation per kernel is
+declared and validated without confusing graph roles or phases with independent
+kernel implementations.
+
 The shared model distinguishes:
 
 - the **workload**, which is the logical manifest and complete required

@@ -163,7 +163,7 @@ slices and acceptance criteria before implementation begins.
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
 | K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1, K3, the boundary follow-up, and K4 in full implemented — the `default_view` section landed with K11 slice 2 as format version 2; K2's core graph, K5's command/bridge, and K6's non-gesture app adoption landed; K7 core stories captured; remaining slices are explicitly gated | K2/K5 live symbol sources and K6's real registry wait on X-PLUGIN; K6's gesture bracket is unblocked but unimplemented; K8 needs X-PLUGIN observation identities |
-| X-PLUGIN | Simulation-plugin manifest, declarative schemas, inventory and safe management | X/K | **Task specification required** | S-WORKLOAD identity model; S-VARIABLES dimensions |
+| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Design in progress; ADR 0027 accepted, slice 0 gates concrete formats/resolution; implementation not delivered | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination |
 | X-COMPOSITION | [Composed object execution](../tasks/kagami/define-composed-object-execution.md) | X/S/O | Specified; host-orchestrated component graph accepted | X-PLUGIN; S-WORKLOAD; O-WASM; X-FIELDS |
 | X-FIELDS | [Field families and computational-model selection](../tasks/kagami/define-fields-and-model-selection.md) | X/K/S/V | Specified; required before executable model composition | K-DOCUMENT; X-PLUGIN; S-WORKLOAD; S-OBSERVE |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | **Task specification required** | X-COMPOSITION; O-WASM host contract |
@@ -488,8 +488,17 @@ to build independently.
   and projection have landed. Remaining slices consume X-PLUGIN's
   symbol/schema inventory and a run authority; do not describe those gated
   slices as implemented.
-- Specify X-PLUGIN's manifest and declarative authoring-schema boundary, with
-  one gravity fixture and one deliberately incompatible fixture.
+- Complete [X-PLUGIN slice 0](../tasks/define-and-implement-plugin-contract.md#slice-0--finish-the-contract)
+  from accepted ADR 0027: concrete payloads, provider resolution, canonical identity,
+  local inventory/profile and migration rules. Include independent gravity
+  vocabulary/model providers, alternatives, incompatible and dormant fixtures.
+  Kernel terminology and independent executable boundaries are accepted: one
+  Orishu execution-contract implementation per compiled kernel. Specify the
+  field-update/dynamics-integrator contracts with O-WASM and map legacy component
+  API/wire names explicitly; this is not an implemented format migration.
+  The first-pass scientific pipeline is fixed field/force computation followed
+  by Dynamics reduction/integration. Configurable pipelines remain future work;
+  the existing graph foundation does not imply their initial product support.
 
 ### Parallel execution
 
@@ -555,8 +564,11 @@ workload it would submit, before attempting distributed execution.
   boundary.
 - Complete S-VARIABLES workload-resource validation; its experiment
   integration and shared-engine limit hardening have landed.
-- Implement X-PLUGIN inventory/install/remove/compatibility behavior and expose
-  the same public path for bundled and third-party plugins.
+- After X-PLUGIN's relevant slice-0 gates, implement the shared pure contract,
+  contribution availability, immutable local inventory/management and exact-pinned
+  authoring/selected-workload integration. Use the same public path for built-ins
+  and third parties; remote distribution and executable simulation retain their
+  separate gates. See the [bounded slices](../tasks/define-and-implement-plugin-contract.md).
 - Stabilize X-COMPOSITION's schema/workload/lifecycle contract: intrinsic pose
   and velocity, Dynamics-presence integration, and typed field-force
   contributions through ADR 0024's host-orchestrated component graph.

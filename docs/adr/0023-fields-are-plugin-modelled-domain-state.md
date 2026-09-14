@@ -32,13 +32,18 @@ its admitted numerical representation—grid, basis, particles, adaptive cells,
 or another bounded discretization—is declared by the selected computational
 model and workload profile.
 
-A simulation plugin contributes one or more **computational models** for a
+A computational-model contribution supplies a **computational model** for a
 field family: declarative authoring and observation schemas, compatible source
 and coupling component identities, initial/boundary-condition schemas,
 dimensions and limits, plus the pinned workload code that updates the field.
 The plugin/model owns the field's schema and state-transition semantics. Orishu
 owns partitioning, accepted steps and the committed run boundary; it does not
 reinterpret field values or choose a solver.
+
+[ADR 0027](0027-plugin-contributions-and-immutable-releases.md) refines packaging:
+field-family and coupling vocabulary may come from a different plugin than the
+chosen computational model. Exact scientific contracts connect those independent
+contributions; a vocabulary-only bundle need not contain a model or executable.
 
 Exactly one computational model governs a field family in an experiment. Thus
 Coulomb and Maxwell/Yee are mutually exclusive electromagnetic models, while

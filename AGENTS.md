@@ -146,11 +146,15 @@ caller until a second consumer or a deep interface justifies extraction.
 - Workload components are untrusted WebAssembly Component guests behind the
   versioned, capability-limited lifecycle. The runtime owns partitioning,
   networking, time, barriers, storage, provenance, and commit.
-- A **simulation plugin** is an authoring-time package: declarative Kagami
-  schemas plus a pinned workload component. It is not a native library loaded
+- A **simulation plugin** is an authoring-time bundle of vocabulary and/or
+  computational contributions with independently compiled kernels. It is not a native library loaded
   into Kagami or `orishu-worker`. Built-in and third-party plugins use the same
   public validation, compilation, sandbox, and workload contracts.
-- A **numerical kernel** is implementation used inside a workload component.
+- A **kernel** is an independently compiled scientific executable implementing
+  one Orishu-owned execution contract, delivered as a WebAssembly Component.
+  A **kernel instance** is its configured use in a workload graph. Existing
+  `workload component`/`component instance` code and wire names are legacy
+  terminology, not another execution layer; migrate them only explicitly.
   An **object template** is reusable authored data. Neither a template name,
   filename, plugin installation path, URL, nor mutable tag may secretly select
   executable physics.

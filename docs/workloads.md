@@ -24,7 +24,7 @@ is not the results produced by that run.
 | Part | Meaning |
 | --- | --- |
 | Manifest | The root definition: identity and metadata, domain and discretization, parameters, requested model, inputs, execution profile, and references to every required artifact. |
-| Component graph | Bounded instances of digest-addressed WebAssembly Components plus their typed channels, deterministic step plan, ownership and placement constraints. Numerical kernels are implementation inside those components. |
+| Kernel graph (legacy: component graph) | Bounded kernel instances plus their typed channels, deterministic step plan, ownership and placement constraints. Each kernel is an independent WebAssembly Component implementing one Orishu execution contract. |
 | Initial conditions | The state at the initial simulation boundary: for example fields, composed particles and sources, geometry state, or a compatible checkpoint used to resume. |
 | Other inputs | Immutable emitter spawn blueprints, geometry, meshes, material tables, accelerator data, schemas, or other artifacts required by this workload profile. |
 | Requirements | The runtime lifecycle, numerical/determinism profile, hardware needs, resource limits, and compatibility rules workers must satisfy. |
@@ -78,8 +78,8 @@ scientific ordering.
 
 ## From simulation plugin to workload
 
-A simulation plugin is an authoring-time package that combines declarative
-Kagami schemas with digest-pinned workload component code. It makes a model available for
+A simulation plugin is an authoring-time bundle of vocabulary and/or computational
+contributions with independently compiled, digest-pinned kernels. It makes capabilities available for
 researchers to select and configure; it is not itself a running workload and
 its installation location is not workload identity.
 
@@ -90,8 +90,9 @@ digest-addressed closure. Orishu sees only that immutable workload. It neither
 consults Kagami's installed-plugin inventory nor resolves a mutable plugin name.
 
 Gravity and electrodynamics shipped with Kagami follow this same path as
-third-party plugins. Numerical kernels are implementation details used inside
-workload components; object-catalog templates are reusable authored data and
+third-party plugins. Kernels implement Orishu-owned execution contracts; their
+shared internal algorithms/libraries are not separate loaded entities.
+Object-catalog templates are reusable authored data and
 cannot choose executable instances. See [Simulation plugins](./simulation-plugins.md).
 
 Object behaviour remains explicit in the compiled component composition:

@@ -7,10 +7,32 @@ Decisions: [ADR 0020](../../adr/0020-compose-object-behaviour-through-plugin-com
 
 ## Outcome
 
+Shared plugin identities, typed payloads and selected-closure resolution follow
+[ADR 0027](../../adr/0027-plugin-contributions-and-immutable-releases.md) and
+[X-PLUGIN's design gates](../define-and-implement-plugin-contract.md).
+Coordinate their ownership with S-WORKLOAD; do not duplicate contracts or export
+an entire plugin bundle when only some contributions are selected.
+
 Plugin schemas, workload compilation and the sandbox lifecycle share one
 versioned contract for composed modeled objects. Dynamics integrates intrinsic
 pose/velocity exactly once, while field plugins contribute typed forces through
 explicit couplings.
+
+The initial [field-to-entity profile](../../simulation-plugins.md#field-to-entity-execution)
+places field evolution and entity-force production in the same field kernel;
+it does not require a separate coupling executable. Each field sees its own
+previous state and read-only matching entity data, not other fields' partial
+outputs. The first pass fixes the pipeline to all field/force computation followed
+by Dynamics reduction/integration; configurable pipelines are future work.
+The existing graph represents this fixed profile, not arbitrary initial scheduling.
+Dynamics reduces contributions and integrates motion. Force evaluation
+stage remains a contract gate, not an implied choice of numerical method.
+Field initialization constructs kernel-defined natural defaults and bounded
+setup without coupled entities; completed-experiment validation is separate.
+Default construction runs in Kagami's local sandbox on field creation; its
+scientific output is captured in the experiment and preserved on reopen/export.
+Runtime-only setup is reconstructed separately. Exact exports and state storage
+remain gated with X-PLUGIN/O-WASM.
 
 Orishu hosts the selected component instances. The shared workload graph and
 step plan define isolation, typed state exchange, deterministic dependencies,

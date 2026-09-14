@@ -26,6 +26,7 @@ and viewport/app adoption.
 
 | Task | Status |
 | --- | --- |
+| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Design in progress: ADR 0027 architecture accepted; slice 0 gates concrete formats/resolution and subsequent implementation |
 | [Harden formation parsing and local performance](harden-formation-fuzz-performance.md) | Post-M4 local fuzz and benchmark infrastructure; Raspberry Pi validation follows local review |
 | [Implement staged runtime scaling evidence](implement-staged-runtime-scaling-evidence.md) | Specified: early-M5 lab follow-ups, M5 scientific 1/3/5-worker stages, M8 complete 1/3/5/12/32-worker evidence; services and experiment plans gate execution |
 | [Qualify selected worker deployment profiles](qualify-worker-deployment-profiles.md) | Specified: M5 candidate selection, M8 selected supported-profile qualification; optional Kubernetes/cloud environments not yet selected |

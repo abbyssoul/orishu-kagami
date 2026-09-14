@@ -32,7 +32,7 @@ timeline
                                     : S-OBSERVE, S-PROVENANCE, O-API-SHAPE
                                     : N-MEMBERSHIP accepted
     section Author and execute locally
-      M2 — Authoring and admission : K-DOCUMENT, X-PLUGIN, K-CATALOG core implemented
+      M2 — Authoring and admission : K-DOCUMENT partial, X-PLUGIN design in progress
                                     : K-CATALOG core accepted
                                     : X-FIELDS and emitter blueprint capture
                                     : X-COMPOSITION component-graph contract
@@ -102,7 +102,7 @@ States mirror the authoritative roadmap as of the snapshot date:
 | S-OBSERVE | M1 | Ready | Implement shared run and observation frame types |
 | S-PROVENANCE | M1 | Planned | Write the bounded task after identity, workload, observation, and plugin identities stabilize |
 | K-DOCUMENT | M1–M2 | Partial | K1, K3, the boundary follow-up, and K4 experiment persistence are implemented; K2's core graph, K5 instantiation, and K6 non-gesture app adoption have landed, with remaining slices gated on X-PLUGIN/K5 symbol sources and K11 view/gesture work |
-| X-PLUGIN | M1–M2 | Planned | Specify manifest, declarative schema, inventory, and management contracts |
+| X-PLUGIN | M1–M2 | Design in progress | [ADR 0027](../adr/0027-plugin-contributions-and-immutable-releases.md) architecture accepted; [task slice 0](../tasks/define-and-implement-plugin-contract.md#slice-0--finish-the-contract) gates concrete formats, provider resolution and migration. No plugin-contract implementation claimed |
 | X-COMPOSITION | M2–M3 | Ready after gates | Host-orchestrated component graph accepted; define shared graph/phase/channel types and implement the multi-component host |
 | X-FIELDS | M2–M3 | Ready after gates | Define field families, mutually exclusive model selection, stable couplings, workload state and observation projections |
 | X-BUILTINS | M3–M7 | Planned | Implement gravity and electrodynamics through the public plugin/Wasm path |

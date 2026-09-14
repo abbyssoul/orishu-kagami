@@ -22,9 +22,9 @@ Stories in this directory are written from the perspective of a cluster user or 
 - **Pain points and frustrations:** Existing distributed systems can be overly complex to bootstrap, opaque when something goes wrong, risky to change during live operation, and burdensome to secure in adversarial network conditions.
 - **Key tasks/usage scenarios:** Start and configure `orishu-worker`, inspect nodes and cluster status, control cluster admission, configure node participation at startup, add or remove nodes, lock or unlock membership, diagnose health and connectivity, and maintain safe day-2 operations.
 
-Workload components containing plugin model implementations are authored
-outside the cluster using external tooling. Numerical kernels are internal
-algorithms/libraries used to build those components; see the
+Kernels implementing Orishu-owned execution contracts are compiled independently
+outside the cluster using external tooling. They may share internal source
+algorithms/libraries without merging their executable boundaries; see the
 [Kagami personas](../kagami/README.md#personas).
 Cluster users and administrators consume them as opaque, content-addressed
 artifacts that workers validate and execute as hostile code (see
@@ -46,8 +46,10 @@ artifacts that workers validate and execute as hostile code (see
   instances in a host-orchestrated graph. Workers execute assigned instances as
   untrusted guests under the versioned lifecycle contract (see
   [ADR 0024](../../adr/0024-orishu-orchestrates-a-workload-component-graph.md)).
-- **Numerical kernel:** An algorithm or library used inside a workload
-  component; not a directly loaded plugin or runtime authority.
+- **Kernel:** The canonical name for the scientific executable described above
+  by the legacy term workload component; each implements one Orishu execution
+  contract and is delivered as a WebAssembly Component.
+- **Kernel instance:** One configured use of a kernel in the workload graph.
 - **Run:** One execution of an immutable workload in a particular workload
   epoch, producing ordered observations and result/checkpoint artifacts.
 - **Run reference:** Shareable identification of a run by cluster formation,

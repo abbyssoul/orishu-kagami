@@ -397,14 +397,37 @@ the resulting revision.
 - Concurrent or external file changes cannot be silently overwritten; Kagami
   reports stale revisions or source fingerprints and requires a fresh edit.
 
+### Reinitialize a simulated field
+
+As a researcher, I want to reinitialize a selected field from the scene inspector
+and have field-domain or compute-parameter edits rebuild its initial state, so
+that the field reflects the setup I am authoring.
+
+**Acceptance criteria:**
+
+- **Reinitialize field** invokes the selected pinned kernel in the local sandbox
+  using the current domain/configuration, not coupled entities.
+- Domain/compute-parameter edits visibly include reinitialization; presentation-
+  only changes do not reset scientific state.
+- Settings and affected field states are one atomic, undoable authoring revision.
+  Failure leaves the previous revision intact, including shared-domain edits.
+- Undo/redo restore captured states without executing initialization again.
+- MCP offers the same operation and structured outcomes through the document
+  authority. Observation/replay cannot be modified by these authoring commands.
+- Saving/reopening/exporting preserves captured state without resetting it.
+
 ### Validate and package a plugin
+
+See also [ADR 0027](../../adr/0027-plugin-contributions-and-immutable-releases.md)
+and [X-PLUGIN](../../tasks/define-and-implement-plugin-contract.md): these stories
+describe the intended contract, not implemented command availability.
 
 As a plugin author, I want Kagami's headless tooling to validate and package my
 plugin source so that I do not have to calculate content identities or assemble
 an installable bundle by hand.
 
-**Given** a source manifest, declarative contribution schemas, and built
-WebAssembly Components
+**Given** a source manifest, declarative contribution schemas, and any required
+externally built WebAssembly Components
 **When** I run `kagami plugin validate` or `kagami plugin pack`
 **Then** Kagami validates the public extension and workload contracts and
 produces either structured diagnostics or a self-contained immutable release.
@@ -432,6 +455,35 @@ produces either structured diagnostics or a self-contained immutable release.
   presentation annotations only. Kagami renders them through host-owned generic
   controls and visualizers; the bundle cannot add views, windows, renderers,
   widgets, command handlers, or executable UI.
+
+### Compose independently supplied scientific contributions
+
+As a researcher, I want to combine scientific vocabulary and compatible models
+from independently developed plugins, without being forced to use a solver just
+because it shares a bundle with my object components.
+
+**Given** plugin A defines gravity and coupling mass and plugin B contributes a
+model implementing that exact scientific contract
+**When** both contributions are available and I select B's model
+**Then** I can author objects using A's mass and export a workload containing the
+required selected contributions without A's unused solver or authoring assets.
+
+**Acceptance criteria:**
+
+- B can be installed before A; its dependent contribution is dormant with a
+  useful reason, while its independent contributions remain available.
+- Once its dependencies are satisfied B becomes available, not automatically
+  selected in an experiment. Alternative models remain explicit choices.
+- Colliding display names show their providers; insertion order never selects
+  scientific meaning. Existing exact provider pins are reused; unbound dependencies
+  resolve automatically only with one eligible provider. Kagami asks when several
+  are eligible and persists the user's choice before workload export.
+- A headless CLI/MCP caller receives a structured ambiguity outcome with eligible
+  choices and can submit an explicit selection without an interactive prompt.
+- The experiment retains exact release/contribution selections. A later plugin
+  update does not silently alter them.
+- Orishu can validate and run the exported closure without either plugin being
+  installed on the worker and without the author's catalog or filesystem.
 
 ### Add a plugin to Kagami
 

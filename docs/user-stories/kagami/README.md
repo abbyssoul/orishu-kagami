@@ -92,17 +92,16 @@ An automation client never acts on its own authority: a scientist-researcher ena
 - **Document authority:** The logical owner that orders proposed authoring commands and accepts or rejects experiment revisions. It initially runs in each Kagami process and may later be hosted headlessly.
 - **Object catalog:** Kagami's client-owned collection of versioned object-template files. Editing it does not edit the open experiment.
 - **Object template:** A reusable, generic composition of components, parameters, and authored properties. Instantiation creates a self-contained experiment object with source provenance, not a live catalog link.
-- **Plugin:** The user-facing unit of Kagami extensibility: a manifest that
-  names the plugin and describes the physical phenomenon it models — including
-  the variables it exports — together with the kernel code that simulates that
-  phenomenon. Kagami ships with built-in plugins (for example electrodynamics
-  and gravity); custom plugins are authored outside Kagami and include
-  content-addressed workload component artifacts.
-- **Kernel:** A numerical algorithm or library used inside a workload
-  component. It is implementation, not the unit Kagami or Orishu loads.
-- **Workload component:** The content-addressed WebAssembly Component carrying
-  plugin model code behind the versioned component lifecycle; one workload may
-  instantiate several through its admitted graph. See the
+- **Plugin:** The user-facing bundle of contributions described by a manifest:
+  scientific vocabulary, computational models, or both. Independent plugins can
+  supply vocabulary and compatible solvers. Computational contributions include
+  content-addressed workload components; vocabulary-only plugins need no code.
+  Built-ins and externally developed plugins use the same public contract.
+- **Kernel:** An independently compiled scientific executable implementing one
+  Orishu-owned execution contract, delivered as a WebAssembly Component.
+- **Kernel instance:** A configured use of a kernel in the admitted workload graph.
+- **Workload component:** Legacy name for kernel, retained in current code/wire
+  contracts pending an explicit migration. See the
   [Orishu glossary](../orishu/README.md#glossary).
 - **Run:** One execution of an experiment: an ordered stream of computed states at committed simulation boundaries. A run is local (in-process preview) or a cluster run (submitted to `orishu` as an immutable workload).
 - **Run reference:** The information needed to identify and observe one accepted cluster run, including cluster, workload, and workload-epoch identity. It does not carry camera or playback state.
