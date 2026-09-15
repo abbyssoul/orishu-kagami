@@ -416,6 +416,19 @@ that the field reflects the setup I am authoring.
   authority. Observation/replay cannot be modified by these authoring commands.
 - Saving/reopening/exporting preserves captured state without resetting it.
 
+### Use plugin-provided scientific constants
+
+As a researcher, I want to use a plugin's dimensioned scientific constants in
+expressions without an installed plugin update changing my existing experiment.
+
+**Acceptance criteria:**
+
+- Choose among ambiguous providers explicitly; retain the selected identity and
+  values in the experiment and exported workload.
+- The shared variables engine checks dimensions and evaluates authored expressions.
+- Updating/disabling a plugin does not silently substitute another constant or
+  rewrite stored values. Unavailable dependencies are diagnosed separately.
+
 ### Validate and package a plugin
 
 See also [ADR 0027](../../adr/0027-plugin-contributions-and-immutable-releases.md)
@@ -696,6 +709,23 @@ experiment so that I can correct authoring mistakes without rebuilding state.
 - Redo is available only after an undo; a new edit clears the redo branch.
 
 ## Observing the experiment
+
+### Sample a field with a shaped probe
+
+As a researcher, I want to choose a point, finite plane, sphere, box or cylinder
+and its sampling density/count so that I can inspect field values throughout
+the chosen sampling geometry.
+
+**Acceptance criteria:**
+
+- Geometry and sampling settings determine a bounded collection of positions
+  requested through the same typed point-sampling contract.
+- Sampling does not perturb the field or affect simulation commit.
+- Each displayed/queried value maps to its sample position and the same requested
+  snapshot, including when requests are split into batches.
+- Excessive density/count has a clear diagnostic rather than unbounded allocation.
+- Surface/volume and point-layout semantics are explicit; exact supported modes
+  remain to be specified in K8/K-OBSERVATION.
 
 ### Add and attach a probe
 

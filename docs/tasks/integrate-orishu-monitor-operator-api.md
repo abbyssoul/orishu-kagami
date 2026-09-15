@@ -19,6 +19,12 @@ identity, retry, audit, and outcome semantics. The TUI adds interactive views,
 navigation, refresh, staleness reporting, and confirmed actions; it does not
 create a second administrative contract.
 
+This parity includes the planned [artifact-cache administration and admission
+policy](implement-artifact-cache-administration.md) surface when its contracts
+land: inventory, pre-positioning, retention, safe eviction/purge and digest denial.
+That task owns storage/security semantics; this task owns the matching TUI adapter.
+It is a gated follow-up, not a requirement to invent endpoints for the shell.
+
 Raw formation-admission secrets are the deliberate exception. The TUI never
 reveals, copies, or prints join tokens or join-material secrets. Retrieval and
 export remain a CLI private-file workflow. The TUI may consume already prepared

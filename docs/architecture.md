@@ -158,6 +158,15 @@ and the [resumable observation-streaming task](./tasks/implement-resumable-obser
 
 ### Scientific capability is extended through simulation plugins
 
+Kagami consumes one runtime interface with a local implementation embedding the
+same execution engine as one Orishu worker and a proxy representing the cluster.
+The proxy uses client operations, not peer coordination or local stepping of
+cluster state. Kernel invocation, buffers and sampling belong behind this
+interface. The local runtime remains available for authoring field defaults and
+reinitialization even when execution targets a cluster; the document authority
+validates and captures those outputs. This is accepted target design, not a claim
+that either complete adapter is implemented.
+
 Canonical execution terminology is **kernel** (one independently compiled
 implementation of one Orishu-owned execution contract) and **kernel instance**
 (its configured workload use). **WebAssembly Component** names the binary

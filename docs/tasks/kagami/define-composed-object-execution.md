@@ -59,6 +59,13 @@ metering, failure, checkpoint, placement and version-compatibility semantics.
 
 ## Acceptance criteria
 
+- Every selected kernel validates timestep against its configuration/discretization.
+  Rejection preserves simulation time; advice never silently rewrites authored `dt`.
+- History has explicit cold-start/birth/death semantics with X-EMITTER. Missing
+  required history is diagnosed; checkpoint/next-step results are equivalent across
+  births and restart. PoC Verlet uses pre-force half-drift and is not automatically
+  a conforming first-profile fixture.
+
 - An inertial object with dynamics and no field coupling advances analytically;
   a coupling without dynamics cannot move it.
 - Gravity and electrostatics contribute forces without either plugin writing
@@ -76,6 +83,31 @@ metering, failure, checkpoint, placement and version-compatibility semantics.
 - Built-in and fixture third-party components pass the same conformance suite.
 - `make fmt-check`, `make lint`, `make test`, `make docs`, and
   `make docs-check` pass.
+
+## Follow-up — Staged integrator capabilities
+
+Status: deferred design review, not first-pass implementation. Trigger: field
+kernels and Dynamics execute together under the fixed pipeline with validated
+numerical and checkpoint/restore evidence. Owners: X-COMPOSITION/O-WASM with
+X-FIELDS; coordinate any resulting contract changes with X-PLUGIN/S-WORKLOAD.
+
+Review integrator hooks before field-force evaluation and after forces are
+computed, including multiple force evaluations within one committed tick. Test
+the needs of explicit Euler/Verlet variants and RK4 rather than inferring them
+from names. Define field-kernel capability declarations and compatibility checks;
+not every field solver can evaluate trial states or additional stages safely.
+Review trial-state isolation, stage time, deterministic reduction, field-state
+advancement, metering and rollback before admitting any expanded profile.
+
+Use Field CAD's reported circular position/velocity histories as a reference.
+Specify integrator-required history initialization, bounded retention, updates
+and exact restart; distinguish it from trajectory display/recording retention.
+No trail setting may change scientific history or numerical results. Verify that
+the initial profile rejects unsupported staged combinations with clear diagnostics.
+
+Exit: a reviewed versioned profile/ADR and bounded implementation task, or a
+documented decision to retain the initial profile. No speculative hook API is
+required to close the first-pass work.
 
 ## Non-goals
 

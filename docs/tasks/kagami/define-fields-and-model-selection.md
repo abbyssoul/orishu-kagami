@@ -46,6 +46,8 @@ or assume every vocabulary bundle has executable code.
   vocabulary, without simultaneous governance of their respective fields.
 - Model changes validate domain, discretization, initial/boundary conditions,
   object components and requested observations atomically.
+  Missing observation channels preserve requests as unavailable under ADR 0027;
+  they do not alone block an otherwise scientifically valid model switch.
 - A simple observation request can obtain complete field state for the admitted
   domain/resolution; projected subscriptions remain identifiable subsets of the
   same committed boundary.
@@ -65,6 +67,11 @@ Undo/redo restore captured before/after states without rerunning kernels.
 Presentation-only edits, reopen, submission and replay do not reset field state.
 
 ## Non-goals
+
+- Field painting/brushes in MVP. Keep as a demand-driven post-MVP possibility;
+  if requested, specify a bounded kernel-owned state-edit command through the
+  document authority, separate from read-only sampling. Do not port the PoC brush
+  experiment as an accepted launch feature.
 
 - Implementing ADR 0024's executable component host or distributed placement;
   this task supplies the field/model identities and channel contracts it consumes.

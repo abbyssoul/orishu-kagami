@@ -149,6 +149,16 @@ only the smallest stable types required across the boundary.
 
 ## Work-package registry
 
+X-PLUGIN's [concrete v1 contract](../plugin-contract-v1-draft.md) was accepted on
+2026-09-16. R1–R8 design decisions are settled and pure-contract slice 1 is ready.
+Schema/ABI/golden-fixture evidence remains implementation work; runtime and format
+migrations retain their specific integration gates.
+
+The accepted Field CAD review adds exported constants, explicit timestep
+admissibility, entity-lifecycle history and flat quality-bearing sample buffers
+to that draft's required evidence. Field brush/painting is post-MVP and only
+revisited on demand; it is not a planned launch requirement.
+
 The IDs below provide stable coordination names for roadmap discussions. A
 linked task is ready to assign according to its status. A row marked **task
 specification required** must be promoted into `docs/tasks/` with bounded
@@ -163,7 +173,7 @@ slices and acceptance criteria before implementation begins.
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
 | K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1, K3, the boundary follow-up, and K4 in full implemented — the `default_view` section landed with K11 slice 2 as format version 2; K2's core graph, K5's command/bridge, and K6's non-gesture app adoption landed; K7 core stories captured; remaining slices are explicitly gated | K2/K5 live symbol sources and K6's real registry wait on X-PLUGIN; K6's gesture bracket is unblocked but unimplemented; K8 needs X-PLUGIN observation identities |
-| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Design in progress; ADR 0027 accepted, slice 0 gates concrete formats/resolution; implementation not delivered | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination |
+| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Concrete v1 contract accepted; slice 1 ready; executable conformance evidence and implementation pending | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination; O-WASM and version fixtures for later integration |
 | X-COMPOSITION | [Composed object execution](../tasks/kagami/define-composed-object-execution.md) | X/S/O | Specified; host-orchestrated component graph accepted | X-PLUGIN; S-WORKLOAD; O-WASM; X-FIELDS |
 | X-FIELDS | [Field families and computational-model selection](../tasks/kagami/define-fields-and-model-selection.md) | X/K/S/V | Specified; required before executable model composition | K-DOCUMENT; X-PLUGIN; S-WORKLOAD; S-OBSERVE |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | **Task specification required** | X-COMPOSITION; O-WASM host contract |
@@ -176,6 +186,7 @@ slices and acceptance criteria before implementation begins.
 | O-WASM | [Multi-component WebAssembly host](../tasks/implement-wasm-component-graph-host.md) implementing `orishu.component/v1` and the admitted step plan | O | Specified; gated on shared graph/ABI | S-WORKLOAD graph/descriptors; protocol-workload contract |
 | O-RUNTIME | [Single-node admission, fixed-step component-plan authority and commit loop](../tasks/implement-single-node-workload-runtime.md) | O | Specified; lifecycle and integration contracts gated; M2/M3 prerequisite to M5 | S-IDENTITY; S-WORKLOAD; X-COMPOSITION; O-WASM; S-OBSERVE |
 | O-STORAGE | Local content-addressed inputs plus checkpoint/result records, [lifecycle states](../storage-spec.md), persistence and coverage index | O | **Task specification required** | S-IDENTITY; S-WORKLOAD artifact identity; S-PROVENANCE; O-RUNTIME boundaries |
+| O-ARTIFACT-ADMIN | [Node artifact inventory, pre-positioning, safe eviction/purge and digest admission policy](../tasks/implement-artifact-cache-administration.md) | O/P/N | Backlog follow-up to workload delivery; security/protocol design gates remain open; does not expand X-PLUGIN local-package MVP or imply worker plugin installation | O-STORAGE; S-WORKLOAD; O-RUNTIME; O-API-SHAPE/O-CLIENT; N-TRANSFER/N-PURGE; CLI/TUI adapters coordinated with P-MONITOR |
 | O-API-SHAPE | Resolve imported [client-API compaction findings](../orishu-runtime-future-work.md#client-api-compaction-review) and version the initial resource surface | O/P/S | **Decision/task specification required before O-CLIENT**; the `metadata.uid` spelling is decided and implemented (`ResourceUid`, node resources project their `NodeId`) | S-IDENTITY; runtime data model; storage authority model |
 | O-CLIENT | Implement authenticated client API and align `orishuctl` with real server behavior | O/P | **Task specification required** | O-API-SHAPE; O-RUNTIME; O-STORAGE; S-OBSERVE |
 | K-RUN | Kagami Orishu adapter, workload submission, run projection and renderer handoff | K/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
@@ -497,8 +508,13 @@ to build independently.
   field-update/dynamics-integrator contracts with O-WASM and map legacy component
   API/wire names explicitly; this is not an implemented format migration.
   The first-pass scientific pipeline is fixed field/force computation followed
+  by a user-selected plugin integrator, not runtime-owned numerical equations.
+  X-PLUGIN distribution is local-bundle-only for MVP; registry/discovery and
+  remote update services are post-launch work. The pipeline is field/force work followed
   by Dynamics reduction/integration. Configurable pipelines remain future work;
-  the existing graph foundation does not imply their initial product support.
+  [staged integrator capability review](../tasks/kagami/define-composed-object-execution.md#follow-up--staged-integrator-capabilities)
+  is triggered by working field/Dynamics integration, not an MVP specification gate.
+  The existing graph foundation does not imply their initial product support.
 
 ### Parallel execution
 

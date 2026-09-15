@@ -32,6 +32,15 @@ deterministic spawn blueprints captured in the workload.
 
 ## Acceptance criteria
 
+- Specify newborn first-force participation and death/history retirement at named
+  commit boundaries with X-COMPOSITION, following ADR 0021 rather than a second
+  scheduler. The draft proposes births visible at the new boundary and force
+  participation on the following step; review before implementation.
+- Initialize newborn history explicitly; missing history is not a zero-force
+  fallback. Checkpoint membership/history with emission accumulator, counter and
+  random-stream state. Spawn → checkpoint → restore → next step equals uninterrupted
+  execution; failed births publish no partial state.
+
 - The emitter itself can move under dynamics and field coupling independently
   of its spawning component.
 - Multiple weighted templates are captured as self-contained blueprints in the

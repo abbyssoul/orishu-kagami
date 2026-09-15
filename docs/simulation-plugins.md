@@ -1,5 +1,9 @@
 # Simulation plugins
 
+Accepted concrete specification (2026-09-16): [X-PLUGIN v1](plugin-contract-v1-draft.md).
+That document separates proposed wire/package details from accepted decisions
+here and in ADR 0027; it is not yet an approved or implemented contract.
+
 This document describes the planned contract, not delivered plugin management.
 [ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md) records accepted
 decisions and alternatives; [X-PLUGIN](tasks/define-and-implement-plugin-contract.md)
@@ -93,6 +97,12 @@ schemas, codecs and migration policy remain X-PLUGIN design gates.
 
 ## Extension points and contributions
 
+Exported dimensioned constants are an explicit declarative contribution, consumed
+through the shared variables engine. Binding/import captures exact provider and
+scientific values in the experiment/workload; updates do not change existing
+expressions through a live installed namespace. Collisions use provider resolution,
+not last-registration-wins. The concrete proposal is in the v1 review draft.
+
 Orishu Kagami owns a versioned set of **plugin extension points** in its shared
 plugin contract. An extension point names a kind of declarative contribution,
 not a directory a bundle may overwrite. Initial examples include entity
@@ -143,6 +153,41 @@ renderers, widgets, and executable UI are outside this contract and require a
 separate architecture and security decision if later evidence justifies them.
 
 ## Field-to-entity execution
+
+All selected field and integrator kernels validate numerical timestep admissibility
+against supplied discretization, configuration and profile before execution.
+Positive finite `dt` is necessary but not sufficient. Advice such as a stability
+upper bound is reported, never silently applied to authored time controls. A
+rejection does not advance simulation time or publish candidate state.
+
+Numerical history covers emitted entities and removals, with explicit cold-start
+semantics and boundary identity. Checkpoint membership, required history and
+emitter accumulators/random-stream state together. Missing required history is
+not an implicit zero. Coordinate birth/death scheduling with X-EMITTER and prove
+spawn/checkpoint/restore/next-step equivalence.
+
+The first pass admits only integrators compatible with one field/force stage
+followed by integration using current entity state, accumulated forces, declared
+bounded history and `dt`. Pre-force/post-force integrator hooks and repeated
+force evaluations within a tick are deferred for review once field and Dynamics
+kernels execute together. Such support requires compatible field kernels too;
+it is not implied by selecting an integrator. See the
+[integration follow-up](tasks/kagami/define-composed-object-execution.md#follow-up--staged-integrator-capabilities).
+
+Field CAD's reported per-entity circular history of positions and velocities is
+a useful reference for trajectory rendering and smoothing. Distinguish numerical
+history required by an integrator from observer trajectory history: required
+history is bounded scientific state, validated and checkpointed for exact resume;
+display history may have different retention and must not control the solve.
+Storage reuse is possible only while preserving those ownership/lifetime rules.
+
+The user selects a plugin-contributed dynamics-integrator kernel; its numerical
+formula is not owned or hard-coded by Orishu. Euler and Verlet are Field CAD
+examples, and other methods such as RK4 are extensibility targets. The shared
+contract defines inputs, outputs, history and scheduling compatibility, not the
+formula. A method requiring extra force evaluations cannot infer them from one
+accumulated force vector; support for such methods must be explicit in the
+execution profile rather than assumed from the pluggable-kernel interface.
 
 The Field CAD target flow clarified on 2026-09-13 uses entity/component
 composition: an entity has identity and attached data components; systems/kernels
@@ -215,7 +260,7 @@ must be mapped explicitly to these semantics, not renamed by implication.
 Still to specify: the model's precise force evaluation time versus returned field
 state and its compatibility with the selected integration method. The two-stage
 orchestration does not itself choose an Euler variant or temporal staggering.
-Default construction executes in the local sandbox when Kagami creates a field.
+Default construction executes through the local runtime's sandbox when Kagami creates a field.
 Its scientific output is captured in the experiment as authored initial state.
 Reopening and workload submission load/export that captured state; they do not
 regenerate it by running default construction again. Runtime-only setup is
@@ -247,7 +292,134 @@ ADR 0024's graph remains a representation for the fixed pipeline; configurable
 pipelines and coupled/multi-stage schedules are future extensions, not first-pass
 requirements. Their eventual admission requires an explicit versioned profile.
 
+## Field storage and typed sampling
+
+Successful sampling carries quality (direct evaluation, interpolation or
+reconstruction) separately from numeric precision and invalidity. Concrete flags
+remain part of draft review. Use flat bounded output grants and validity/quality
+arrays, not an allocation per sample cell. Reuse is allowed only after readers
+release a buffer; cache keys include snapshot and complete query identity.
+
+Kagami consumes a common runtime interface rather than orchestrating kernels or
+peer buffers itself. Its local implementation embeds the same execution engine
+used by one Orishu worker, without requiring cluster formation. Its cluster-proxy
+implementation submits workloads and queries/observes the cluster; it does not
+independently step scientific state or coordinate peers. Kernel invocation,
+buffer management and sampling are runtime responsibilities.
+
+The local runtime is also available during authoring when execution targets a
+cluster. Field creation/reinitialization requests use the installed pinned kernel
+through this local runtime, then return scientific state to the document
+authority for validation and atomic capture. Authoring does not require a live
+cluster. Initialization cannot mutate an active local run: invocation state and
+resource ownership remain isolated. Concrete runtime API and embedding details
+remain specification/implementation work, not delivered behavior.
+
+Field state is opaque to Kagami and to the runtime's numerical interpretation.
+The selected kernel owns its meaning and representation; the host owns buffer
+allocation, lifetime, transfer and access grants. There is no requirement to
+normalize solver state into a host-defined dense grid. The public scientific
+field contract instead declares observable channels, value shapes, dimensions
+and units, and the kernel supplies bounded typed sampling.
+
+Observable values use named channels with stable scientific identities, declared
+value shapes, physical dimensions/canonical SI units and coordinate-frame
+semantics where applicable. Electromagnetic observation is not limited to E/B:
+depending on the selected kernel, channels may also expose electric scalar
+potential, vector potential and field Jacobians. The Field CAD experience makes
+kernel-provided Jacobians a required design case for flow-line consumers, not a
+reason for Kagami to decode private solver state. These are sampled quantities,
+not separate geometry or arbitrary derivative-operation APIs.
+
+Initial channel value shapes are scalars, fixed-size vectors and fixed-size
+matrices. A Jacobian is a matrix-valued channel, not disconnected scalar channels.
+Its component/derivative-axis ordering, coordinate frame and physical dimensions
+must be explicit. Sizes are fixed by the channel declaration and bounded before
+allocation. Concrete wire ordering, numeric precision and maximum sizes remain
+to be specified; supporting matrices is no longer an open design choice.
+Channel support must describe the selected kernel, not promise that every model
+of a field family supplies all possible observables. Potential conventions and
+derivative meaning belong in the scientific channel contract, not display labels.
+
+Each selected kernel explicitly declares its supplied channels by exact scientific
+contract reference. Kagami offers those channels for probes. If an otherwise valid
+model switch removes a requested channel, preserve the probe and its exact channel
+request but mark that channel unavailable with a structured reason. Do not silently
+delete, rebind by name or substitute zeroes. Other supported probe channels remain
+usable; restoring a compatible provider can restore availability without rebuilding
+the probe. Channel declaration syntax remains specification work, not this policy.
+
+The required initial sampling operation is batched point sampling. Probes may
+have a single point, finite plane, sphere, box or cylinder geometry with
+user-defined sampling density/count. Geometry defines a collection of spatial
+sample points; it does not add a shape-specific kernel interface. Observation
+instrument processing generates bounded point batches and consumes their typed
+results through the runtime interface. Kernel sampling receives positions, not
+widgets or geometry-specific rendering requests. Specialized integral, gradient
+or aggregate measurement operations are deferred from the initial kernel ABI.
+This does not exclude sampling a Jacobian/derivative channel already supplied by
+the selected kernel through the ordinary point-sampling interface.
+
+Point generation belongs to the observer. Kagami is the current observer
+application; future observers may generate their own points through the same
+public runtime sampling interface. This is not a single-observer restriction.
+Surface and volume sampling are supported instrument modes for sphere, box and
+cylinder probes. Their precise placement, ordering, density/count units and
+generation limits belong to K8/K-OBSERVATION, not X-PLUGIN contract gates.
+Attached geometry uses the object's transform at the queried boundary. Split
+batches retain point/result correspondence and one snapshot identity; point-count
+overflow or excessive density is rejected before allocation/work. Batching does
+not permit mixing readings from different simulation boundaries.
+
+Conceptually, not frozen ABI:
+
+```text
+sample(field_snapshot, channel_ids, positions[], query_context)
+    -> typed_samples_with_validity[]
+```
+
+Requests identify an exact authored initial or committed snapshot and bounded
+positions/channels. Results carry scientific identity, boundary/provenance and
+validity, including out-of-domain or undefined values. Kagami's generic probes,
+vectors, flow lines and MCP consume these typed values; kernels do not contribute
+widgets or rendering code. Sampling is read-only and outside scientific commit,
+with isolated bounded execution: failures or observer pressure cannot mutate
+scientific state or block a step. Full-domain observation is an explicitly
+described sampling/observation projection, not a promise that opaque checkpoint
+bytes are directly renderable or that finite samples reconstruct all solver state.
+
+The host may retain and reuse buffer storage and transfer opaque payloads to
+other instances of the same pinned kernel under the declared compatible state/
+exchange schema. Matching kernel code alone does not validate workload, field
+instance, boundary, partition, schema or coverage: those remain checked metadata.
+The host need not interpret numerical contents, but must enforce sizes, bounds,
+ownership, compatibility, integrity and invocation access. Opaque payloads need
+an explicit transferable representation; they cannot silently contain process-
+local pointers or an assumed Rust memory layout.
+
+Buffer reuse and avoiding redundant staging copies are implementation goals,
+not a guarantee that a WebAssembly Component ABI maps arbitrary host memory
+without copying. Keep capability-scoped bulk resources and a safe bounded-copy
+path; any mapped/zero-copy path must preserve isolation and explicit lifetimes.
+Committed inputs remain immutable while kernels write isolated candidate
+outputs, and retained observer snapshots cannot be overwritten on reuse.
+
+A recorded opaque snapshot needs the pinned sampling implementation and required
+artifacts to answer new sensor queries. Recorded sample-only observations can
+replay those measurements, but cannot promise arbitrary retrospective probes.
+Concrete sampling ABI, spatial routing/exchange profile, snapshot retention and
+recording capabilities remain specification work; opaque storage does not settle
+those mechanisms implicitly.
+
 ## Packaging and release identity
+
+MVP distribution is local-bundle-only. Plugin registry, discovery and remote
+download/update services are post-launch development; publisher signatures are
+outside the initial delivery scope. Local origin does not make code trusted:
+manifest/artifact validation, digest checks, bounds and sandboxing still apply.
+Updating locally installs an explicitly supplied new bundle and changes the
+new-authoring default without replacing existing pinned releases. Concrete local
+command syntax remains to be finalized; no automatic network lookup is implied.
 
 The user-facing distribution is one isolated, manifest-driven plugin bundle.
 It may contain schemas, WebAssembly Components, documentation, examples, and
@@ -277,7 +449,8 @@ atomically admitting anything.
 Archive encoding, compression, entry order, and filename are distribution
 details. Repacking the same canonical manifest and artifact closure preserves
 the release identity. The exact archive container, publisher-signature policy,
-and remote update-source protocol remain open decisions.
+and remote update-source protocol remain future distribution decisions; only
+the local container/profile blocks MVP specification.
 
 ## Planned Kagami plugin commands
 
@@ -291,7 +464,7 @@ not launch the authoring window.
 | `kagami plugin inspect <bundle-or-installed-release>` | Show logical/release identity, origin, contributions, dependencies, artifact digests, compatibility, and diagnostics. |
 | `kagami plugin install <bundle>` | Validate and atomically add an immutable release without replacing existing releases or editing experiments. |
 | `kagami plugin list [--all-releases]` | List logical plugins, installed releases, default release, enablement, origins, and contribution availability. |
-| `kagami plugin update <plugin-id>` | Obtain and install a newer immutable release through a configured source, then make it the default for new authoring; source discovery remains to be specified. |
+| `kagami plugin update <plugin-id> <bundle>` (draft syntax) | Validate and install an explicitly supplied local release and make it the default for new authoring. Registry discovery and remote updates are post-launch. |
 | `kagami plugin set-default <plugin-id>@<release-id>` | Select an installed release for new authoring without migrating existing experiments. |
 | `kagami plugin enable <plugin-id>` | Persistently allow the logical plugin's contributions to participate in availability resolution. |
 | `kagami plugin disable <plugin-id>` | Persistently suppress all releases of the logical plugin without removing files or changing experiments. |
@@ -443,6 +616,10 @@ blueprints; it cannot consult Kagami's catalog. See
 
 ## Security boundary and excluded meanings
 
+Field brush/painting is excluded from MVP and retained only as a demand-driven
+post-MVP possibility. If needed, it requires a bounded kernel-owned authoring
+state-edit operation through the document authority, never mutation via sampling.
+
 In the admitted design, “plugin” does not mean:
 
 - a native dynamic library loaded into Kagami or `orishu-worker`;
@@ -465,3 +642,12 @@ See [ADR 0008](./adr/0008-catalog-templates-instantiate-self-contained-objects.m
 [ADR 0010](./adr/0010-content-addressed-workload-closure-and-portable-bundles.md),
 the [workload contract](./protocol-workload.md), and
 [What is an Orishu workload?](./workloads.md).
+
+Worker artifact administration is a separate [planned operator
+surface](user-stories/orishu/artifact-administration.md), not plugin installation:
+inspect cached kernels/inputs, pre-position verified bytes, reclaim local space
+and deny compromised content. Cache eviction permits later refetch; logical
+artifact purge suppresses deleted resource identities; digest denial controls
+execution regardless of where bytes are stored. The [follow-up task](tasks/implement-artifact-cache-administration.md)
+keeps security-policy authority, propagation, persistence and active-run handling
+gated on a dedicated design.

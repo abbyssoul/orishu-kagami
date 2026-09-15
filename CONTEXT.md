@@ -13,6 +13,54 @@ and [X-PLUGIN's design gates](docs/tasks/define-and-implement-plugin-contract.md
 
 ## Product language
 
+Plugins may export dimensioned constants through declarative contributions.
+Experiment imports capture exact provider identity and values; installation
+updates never silently change existing expression results. Kernels validate
+numerical timestep admissibility against their configuration/discretization;
+recommendations do not rewrite authored time controls. Integrator history covers
+entity births/deaths and is checkpointed with membership. Successful samples
+retain evaluation/interpolation/reconstruction quality separately from precision.
+Field brush editing is post-MVP, to revisit only if needed.
+
+The initial integrator profile consumes current state, accumulated forces,
+declared bounded history and a fixed timestep after one field/force stage.
+Integrator-required history is scientific/checkpoint state; observer trajectory
+history does not govern the solve. Pre/post-force hooks and repeated evaluations
+are deferred until field/Dynamics integration evidence, with explicit field-kernel
+compatibility required.
+
+The dynamics integrator is a user-selected plugin kernel, not a runtime-owned
+numerical formula. Orishu enforces its declared execution-contract compatibility
+and state ownership. MVP plugin distribution uses local bundles only; registries
+and discovery are post-launch work, and local kernels remain untrusted.
+
+Each kernel explicitly declares supplied observation channels by scientific
+contract reference. A model switch preserves probe requests for missing channels
+as unavailable, without deleting them, rebinding by name or fabricating zeroes.
+
+Observable channels name scientific quantities with typed shapes, dimensions,
+units and coordinate semantics. Initial shapes are scalars, fixed-size vectors
+and fixed-size matrices; Jacobian channels declare their axis/index meanings.
+A selected kernel may expose additional channels
+such as electromagnetic potentials and field Jacobians; field-family identity
+alone does not imply support for every observable.
+
+Sampling-point generation is observer-owned. Kagami is the current observer
+application; the public runtime contract remains open to future observers and
+independent concurrent subscriptions. Probe surface/volume geometry affects
+observer-generated positions, not the kernel sampling interface.
+
+The initial field observation contract is batched point sampling. Probe geometry
+(point, finite plane, sphere, box or cylinder) and user-defined sampling density
+determine sample positions, not new kernel interfaces. Shape layout semantics
+remain explicit instrument metadata, separate from kernel-owned field storage.
+
+Field numerical state is kernel-defined and opaque; the host owns its buffers,
+lifetimes and reliable transfer. A kernel exposes typed bounded sampling for
+probes, visualization and MCP. Sampling does not mutate scientific state or block
+commit. Opaque contents do not remove versioned identity, partition, bounds or
+access checks, and host-owned storage does not imply a zero-copy Wasm ABI.
+
 In the initial independent-field execution flow, a field-coupling component
 selects an entity's participation in that field kernel. The kernel reads entity
 state and produces field state plus force contributions; Dynamics alone reduces
@@ -26,10 +74,15 @@ Field initialization constructs the kernel's natural default state, which need
 not be zero-filled, independently of scene entities. It may perform bounded
 kernel setup. Completed-experiment validation is separate; field/object creation
 order must not change initial conditions given the same final authored values.
-Kagami constructs field defaults in its local sandbox on field creation and
+Kagami requests field defaults from its local runtime on field creation and
 captures the scientific output in the experiment. Reopening and submission
 preserve that state; runtime-only setup is reconstructed separately, without
 regenerating or replacing authored initial conditions.
+Kagami consumes a common runtime interface: local embeds the same execution
+engine as a single Orishu worker without requiring formation; a cluster proxy
+represents cluster operations without independently stepping state or coordinating
+peers. Kernel invocation, buffers and sampling belong behind this interface.
+The local runtime remains available for authoring even with a cluster run target.
 Manual field reinitialization and domain/compute-parameter edits are normal
 authoring operations: the authority captures newly initialized state atomically
 with the edit, and undo/redo restore captured states without rerunning kernels.

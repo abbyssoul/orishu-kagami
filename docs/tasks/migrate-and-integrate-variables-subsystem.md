@@ -136,6 +136,13 @@ is claimed until an owner takes it.
 
 ## Acceptance criteria
 
+- X-PLUGIN's exported-constants contribution projects dimensioned values through
+  this engine without a process-global registry. Experiment binding captures exact
+  provider/contract and values; updates never change existing expression results.
+  Test collisions via explicit provider resolution and value/provenance capture
+  through workload export. This is follow-up plugin integration, not reopening
+  the accepted generic engine implementation.
+
 - The migrated shared crate has no dependency on application, UI, MCP, solver,
   document, networking/runtime, or resource-schema modules and contains no
   Field CAD product names.

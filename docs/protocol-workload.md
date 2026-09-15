@@ -268,12 +268,17 @@ another guest.
 
 #### `component_init`
 
+Scientific validation receives authored `dt`, domain/discretization, resolved
+parameters and execution profile for every selected field/integrator kernel before
+admission/start. Kernel-reported bounds are advice or admissibility constraints,
+not automatic changes to authored time controls. Rejection cannot advance time.
+
 Design clarification: field default construction (`init` in the scientific
 discussion) supplies the kernel-defined natural state and bounded setup without
 coupled entities. It is not a source-consistency solve or a demand for all-zero
 field values. Completed-experiment validation is separate. Its exact mapping to
 this lifecycle call, load and restore remains X-PLUGIN/O-WASM specification work.
-Kagami runs scientific default construction in its local sandbox on field creation
+Kagami requests scientific default construction from its local runtime on field creation
 and captures the output in the experiment. Reopen/submission preserve that state;
 runtime-only setup is reconstructed separately. Do not overwrite loaded authored/
 checkpoint state with freshly constructed defaults implicitly.
@@ -366,6 +371,11 @@ distributed verification of produced state. See
 
 #### `component_checkpoint`
 
+Required integrator history includes explicit newborn cold-start state and binds
+entity membership. Retirement is atomic with removal; checkpoints include consistent
+history and emitter accumulators/counters/random streams. Missing required history
+is not a zero-force fallback. Concrete birth/death timing follows X-EMITTER review.
+
 ```
 component_checkpoint(partition_context, boundary) -> checkpoint_part
 ```
@@ -381,6 +391,31 @@ step plan, placement-independent execution profile and compatible artifacts.
 If the selected stepping scheme carries bounded solver or integrator history across committed boundaries, that history belongs inside the checkpoint payload. Resume is not assumed to be valid across integration-scheme changes unless the workload component explicitly defines such compatibility.
 
 #### `component_query_observation`
+
+Successful readings retain sampling quality independently of numeric precision
+and invalidity. Physical ABI proposals use flat bounded channel buffers and
+validity/quality arrays with checked offsets/strides. Logical cell notation must
+not cause per-cell allocation. Cached grants bind exact snapshot/query identity
+and cannot be overwritten while a consumer retains them. See the
+[v1 review draft](plugin-contract-v1-draft.md#6-typed-sampling-r4).
+
+Initial sampled value shapes are scalar, fixed-size vector and fixed-size matrix,
+as declared by each channel. Jacobian channels specify component/derivative axes,
+frame and dimensions. Validate shape and bounded element counts before allocation;
+concrete numeric encoding, order and limits remain specification work.
+
+The initial field query is a bounded batch of observer-supplied positions and
+channel selections. Kagami currently generates those positions; the interface
+does not require a Kagami client or admit shape-specific kernel methods. Probe
+surface/volume layouts are observer concerns. Runtime routing and kernel sampling
+remain behind the runtime interface and independently enforce query bounds.
+
+ADR 0027 refines this boundary: numerical field storage may be opaque, but field
+kernels must expose bounded typed sampling by declared channels and spatial
+positions, with state identity, units/dimensions, provenance and validity. The
+exact sampling ABI remains to be specified. Generic observation outputs are not
+opaque checkpoint payloads. Sampling execution and retained snapshots must be
+isolated from stepping so queries cannot mutate state or block scientific commit.
 
 ```
 component_query_observation(partition_context, boundary, query) -> observation_part
@@ -417,6 +452,14 @@ load or restore.
 These are functions provided by the runtime that the workload code may call during execution. They are the only way for workload code to interact with the outside world.
 
 #### Invocation-scoped channel resources
+
+Kernel-owned numerical meaning does not require host interpretation of payloads.
+The host owns buffer storage/lifetime and may reuse it and transfer bytes directly
+where supported, subject to identity/schema/partition/boundary/coverage checks.
+Opaque formats must be explicitly transferable, not process-local pointer layouts.
+Buffer reuse must not overwrite retained snapshots or grant writes to committed
+inputs. A Wasm zero-copy mapping is an optional verified implementation path,
+not implied by these resource interfaces; bounded copies remain valid.
 
 `inputs` and `outputs` in `component_execute_phase` are opaque resources whose
 methods are equivalent to:

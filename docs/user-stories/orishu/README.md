@@ -58,6 +58,9 @@ artifacts that workers validate and execute as hostile code (see
 - **Observation:** Provenance-bearing output at a committed simulation boundary.
   Several clients may independently read live or persisted observations from
   the same run.
+- **Consumer:** A client receiving or observing simulation data through an
+  accepted live or persisted observation stream. Consumer counts describe
+  usage, not the bandwidth those streams consume.
 - **Admission:** The process by which a worker is allowed to join a cluster, including identity checks, policy checks, and any token or mTLS requirements.
 - **Re-admission:** Allowing a previously removed or blocklisted node to go through admission again.
 - **Cluster membership:** The current set of nodes that belong to a cluster.
@@ -69,8 +72,10 @@ These personas describe user goals, not hard security roles. In practice, access
 
 ## Reading order
 
-This directory captures user-facing behavior from three angles: setting up and configuring individual workers, operating a cluster, and managing workloads once the cluster is running.
+This directory captures worker setup, cluster operations, workload management and
+the planned artifact-storage/security administration follow-up.
 
 1. [worker-admin.md](./worker-admin.md) - start here for single-node setup and worker configuration.
 2. [cluster-admin.md](./cluster-admin.md) - then read cluster operations, health, topology, and admin controls.
 3. [workload.md](./workload.md) - finish with workload lifecycle, simulation control, and result-oriented workflows.
+4. [artifact-administration.md](./artifact-administration.md) - inspect and pre-position kernels/resources, reclaim space and deny compromised content; planned CLI/TUI operator stories.

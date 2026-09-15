@@ -56,8 +56,10 @@ the selected compatible model. Electric charge couples an object to either
 electromagnetic model; gravitational source/coupling mass couples it to either
 gravity model. Switching models is an explicit validated authoring command and
 never silently rewrites those object properties. Incompatible initial
-conditions, boundary conditions, discretizations or observation requests block
-the switch with structured diagnostics.
+conditions, boundary conditions or discretizations block the switch with
+structured diagnostics. ADR 0027 refines observation handling: missing channels
+preserve the probe request as unavailable rather than blocking an otherwise valid
+switch or silently deleting/replacing the request.
 
 The logical observation at a committed boundary contains the modeled object
 state and complete selected-field state. A simple client may request the

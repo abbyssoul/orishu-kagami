@@ -4,6 +4,10 @@ Tasks refine accepted product and architecture decisions into bounded,
 verifiable implementation work. `TODO.md` remains an inbox for unrefined ideas;
 once promoted, an idea links to a task here.
 
+X-PLUGIN's [concrete contract](../plugin-contract-v1-draft.md) was accepted on
+2026-09-16. Pure-contract slice 1 is ready; conformance artifacts and later
+ABI/persistence/runtime integration evidence remain pending.
+
 See the [implementation roadmap](../roadmap/README.md) for milestone order,
 cross-task dependencies, unrefined work packages, and parallel-agent ownership.
 
@@ -26,7 +30,7 @@ and viewport/app adoption.
 
 | Task | Status |
 | --- | --- |
-| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Design in progress: ADR 0027 architecture accepted; slice 0 gates concrete formats/resolution and subsequent implementation |
+| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Concrete contract accepted; slice 1 ready; implementation and executable conformance evidence pending |
 | [Harden formation parsing and local performance](harden-formation-fuzz-performance.md) | Post-M4 local fuzz and benchmark infrastructure; Raspberry Pi validation follows local review |
 | [Implement staged runtime scaling evidence](implement-staged-runtime-scaling-evidence.md) | Specified: early-M5 lab follow-ups, M5 scientific 1/3/5-worker stages, M8 complete 1/3/5/12/32-worker evidence; services and experiment plans gate execution |
 | [Qualify selected worker deployment profiles](qualify-worker-deployment-profiles.md) | Specified: M5 candidate selection, M8 selected supported-profile qualification; optional Kubernetes/cloud environments not yet selected |
@@ -54,6 +58,7 @@ and viewport/app adoption.
 | [Document and verify operator observability workflows](document-worker-observability.md) | Formation scope accepted for M4 with [current applicability review](cluster-formation-final-validation-2026-09-11.md#operator-recipe-applicability); later release/workload handoff remains planned |
 | [Implement the `orishu-monitor` TUI shell](implement-orishu-monitor-admin-tui.md) | Implemented; first slice toward full operator parity, with live APIs/actions deferred and raw admission-secret output CLI-only |
 | [Integrate `orishu-monitor` with the operator API](integrate-orishu-monitor-operator-api.md) | Backlog; promote bounded increments as N-FORMATION and O-CLIENT contracts land |
+| [Administer artifact caches and admission policy](implement-artifact-cache-administration.md) | O-ARTIFACT-ADMIN backlog; security/protocol decisions and storage/transfer/admission APIs gate implementation |
 
 The [cluster-formation integration record](cluster-formation-integration-record.md)
 preserves historical implementation reports and dated lifecycle/recovery

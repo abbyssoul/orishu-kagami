@@ -1,6 +1,6 @@
 # ADR 0027 — Plugins bundle contributions in immutable releases
 
-Status: Accepted architectural and provider-choice policies; concrete formats and eligibility details remain gated in [X-PLUGIN](../tasks/define-and-implement-plugin-contract.md).
+Status: Accepted architecture and policies; the [concrete v1 contract](../plugin-contract-v1-draft.md) was also accepted on 2026-09-16. Implementation/conformance evidence remains tracked in [X-PLUGIN](../tasks/define-and-implement-plugin-contract.md).
 
 ## Context
 
@@ -65,6 +65,11 @@ This refines [ADR 0020](0020-compose-object-behaviour-through-plugin-components.
 
 ### Packaging, identity and lifecycle
 
+- MVP distribution is local-bundle-only. Registry, discovery and remote update
+  services are post-launch; publisher signatures are not an initial requirement.
+  Explicit local updates preserve side-by-side immutable releases. Local origin
+  is not trust: all validation, bounds and sandbox requirements still apply.
+
 - Bundles are isolated and manifest-driven, not a union filesystem. Paths alone
   register nothing. Artifacts are content-addressed internally; archive layout,
   compression and source location do not determine logical identity. Installation
@@ -97,6 +102,73 @@ This refines [ADR 0020](0020-compose-object-behaviour-through-plugin-components.
   [the plugin design](../simulation-plugins.md#planned-kagami-plugin-commands).
 
 ### Workload closure and shared ownership
+
+- Accept the narrow first-pass integrator profile: current state, accumulated
+  forces, declared bounded history and `dt` produce candidate state/history after
+  one field/force stage. Defer pre-/post-force hooks and multi-evaluation stepping
+  until fields and Dynamics work together, then review with evidence. Repeated
+  force evaluation requires explicit support from field kernels as well as the
+  integrator. Numerical history is checkpointed scientific state, distinct from
+  independently retained observer trajectories; a circular buffer is a possible
+  implementation, not a mandatory wire layout.
+
+- The researcher selects a plugin-contributed dynamics-integrator kernel; its
+  formula belongs to the plugin, not Orishu. Euler/Verlet are Field CAD examples;
+  other methods may be contributed. The host owns scheduling/contract validation,
+  not the numerical algorithm. Required force evaluation stages and carried
+  history must be declared; a single accumulated-force input does not imply
+  support for arbitrary multi-stage integrators. Initial profile compatibility
+  remains a specification gate, not permission to silently alter a method.
+
+- Observable channels have stable scientific identity, typed shape, dimensions/
+  canonical SI units and coordinate semantics. Kernel-dependent electromagnetic
+  potentials and field Jacobians are explicit design cases, including Jacobians
+  for flow-line consumers. They use ordinary point sampling. Initial value shapes
+  are scalars, fixed-size vectors and fixed-size matrices, with explicit
+  axis/index semantics, frames and dimensions for Jacobians. Concrete encoding,
+  size limits, precision and declaration encoding remain to be specified.
+  Each kernel explicitly declares supplied channels by scientific contract
+  reference. An otherwise valid model switch preserves unsupported probe-channel
+  requests as unavailable with structured reasons, never deleted or replaced by
+  zeroes. This refines older model-switch wording that blocked on any unsupported
+  observation request; scientific initial-state incompatibilities remain separate.
+
+- Required initial observation is batched point sampling. Point, finite-plane,
+  sphere, box and cylinder probes with user-defined sampling density/count reduce
+  to collections of positions; the kernel need not implement shape-specific
+  sensor contracts. Point generation is observer-owned; Kagami is the current
+  observer application, not a restriction on future observers or concurrent
+  clients. Surface/volume modes are instrument features; exact geometry layout,
+  density and generation rules belong to K8/K-OBSERVATION, not X-PLUGIN gates.
+  Kernel-side sampling bounds remain mandatory. Richer measurement operations
+  are deferred; attachment, batching and routing preserve snapshot identity and
+  sample correspondence.
+
+- Kagami consumes a common runtime interface with local and cluster-proxy
+  implementations. Local embeds the same execution engine used by a single
+  Orishu worker without requiring formation. The proxy represents the cluster
+  through client operations; it does not advance state or coordinate peers.
+  Kernel invocation, buffers and sampling live behind the runtime boundary.
+  Local initialization/reinitialization remains available for authoring even
+  when execution targets the cluster, using installed pinned kernels without a
+  live cluster connection. Returned state is captured by the document authority;
+  runtime execution is not a second authoring authority.
+
+- Field state may be opaque kernel-defined storage. The mandatory public
+  observation boundary is typed bounded sampling, not a host-defined numerical
+  layout. Scientific channels declare shape, dimensions and units; samples
+  identify their state/boundary and validity. Sampling remains isolated from
+  scientific mutation and step commit. A kernel supplies values, not visual UI.
+- The host owns buffer lifetime/allocation and reliable opaque transfer between
+  compatible instances of the pinned kernel. State/exchange metadata still binds
+  bytes to workload, field instance, schema, boundary, partition and coverage.
+  Reuse and avoiding redundant copies are goals; zero-copy Wasm access is not
+  assumed. Invocation-scoped grants, immutable committed inputs and isolated
+  candidate outputs remain mandatory. A bounded-copy implementation is valid.
+- Opaque state replay with new queries requires the pinned sampling code and
+  required artifacts. Sample-only recordings promise only their recorded
+  measurements. Reject host-defined dense storage as a universal requirement,
+  and reject opaque observation outputs that generic consumers cannot interpret.
 
 - Reinitialization is a normal authoring operation: the scene inspector offers
   it explicitly, and field-domain/compute-parameter edits perform it as part of
@@ -200,15 +272,42 @@ This refines [ADR 0020](0020-compose-object-behaviour-through-plugin-components.
 
 ## Consequences and remaining decisions
 
+### Accepted refinements from the Field CAD code review
+
+- Add declarative exported dimensioned constants to the shared variables contract.
+  Capture imported values/provider provenance in experiments/workloads; never
+  adopt the PoC's duplicate-registration replacement behavior.
+- Scientific validation explicitly receives timestep, discretization, configuration
+  and profile. Every selected field/integrator kernel checks numerical admissibility;
+  optional recommendations never silently change authored `dt`.
+- Integrator history has an explicit bounded birth/death and cold-start contract,
+  tied to committed membership and checkpoint restoration. Missing required history
+  is not silently zero. Exact scheduling is reviewed with ADR 0021/X-EMITTER.
+- Sampling preserves successful-value quality independently of numeric precision
+  and uses flat bounded buffers, validity/quality arrays and explicit leases rather
+  than per-cell allocations. Cache identity includes the snapshot and query.
+- Field brush/painting is not MVP. Reconsider only on demonstrated demand; any
+  eventual state-edit interface is separate from read-only sampling.
+
+The review confirms the PoC Verlet's pre-force half-drift belongs to the staged
+profile follow-up. No change to the narrow first-pass pipeline is implied.
+
+[X-PLUGIN v1](../plugin-contract-v1-draft.md) consolidates the concrete resolutions.
+The user explicitly accepted it on 2026-09-16, including identifiers, formats,
+limits and migration policy. Pure-contract implementation may now proceed;
+acceptance does not claim generated ABI bindings or migration fixtures exist.
+
 Exact release/contribution pins require versioned catalog/document/workload
 integration, not silent reinterpretation of current IDs. Installation success,
 availability, experiment selection and run admission become distinct outcomes.
 The implementation task must test these through public interfaces and hostile
 serialized input, while preserving existing workload canonical identity fixtures.
 
-Still open: concrete provider-lock representation and eligibility rules; exact extension
-payloads and scientific hash projection; canonical release codec/proofs; archive
-format and inventory transactions; publication ownership/trust/update discovery;
-and compatibility/migration policy. Accepted architecture does not make these
-choices implicitly. [X-PLUGIN slice 0](../tasks/define-and-implement-plugin-contract.md#slice-0--finish-the-contract)
-tracks the design gates and subsequent bounded implementation work.
+The former provider, identity, archive and migration-policy questions are settled
+by that explicit acceptance. Remaining engineering evidence includes concrete
+machine-readable schemas/golden vectors, WIT bindings and host execution budgets,
+and audited document/workload version identifiers with compatibility fixtures.
+Registry discovery and publisher trust remain post-launch, while artifact-admin
+policy has its own security design gate. [X-PLUGIN](../tasks/define-and-implement-plugin-contract.md)
+tracks bounded implementation work; none of these follow-ups reopens the accepted
+local MVP design implicitly.

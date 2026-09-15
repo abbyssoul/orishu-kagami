@@ -1,7 +1,12 @@
 # Define and implement the shared plugin contract
 
-Roadmap ID: **X-PLUGIN**. Status: **Design in progress; architecture accepted,
-implementation gated by slice 0**, not implemented or fully specified.
+Roadmap ID: **X-PLUGIN**. Status: **Concrete contract accepted 2026-09-16;
+slice 1 ready; implementation and executable conformance evidence pending**.
+
+The [accepted concrete v1 contract](../plugin-contract-v1-draft.md) settles R1–R8.
+Produce section 11's conformance artifacts in the owning implementation slices;
+they are not a reason to block the pure shared contract. Design approval is complete,
+but executable specification closure and runtime integration are not yet complete.
 
 ## Outcome and authority
 
@@ -40,8 +45,10 @@ Recheck callers, tests and current implementation before beginning each slice.
 
 ## Slice 0 — Finish the contract
 
-M1 design gate. Resolve these through design review, publish concrete schemas and
-fixtures, then mark individual implementation slices ready:
+M1 design decisions below are resolved by the accepted v1 contract. Retain this
+checklist for traceability; schemas, bindings and fixtures are remaining engineering
+deliverables. Reopen a decision only for a concrete contradiction, not because the
+implementation has not yet been written:
 
 1. Specify provider eligibility and the concrete lock representation under the
    accepted policy: reuse existing exact pins, auto-resolve an unbound dependency
@@ -76,9 +83,10 @@ fixtures, then mark individual implementation slices ready:
    contract, including concurrent CLI processes and effects on open documents.
    Freeze required command syntax, machine-readable outcomes and failure behavior.
 5. Define logical plugin naming/ownership, human version/default selection and
-   source/trust policy. Distinguish an implementable local-file MVP from later
-   registry/download/signature/update-discovery work; local support must not
-   imply trusted publication or automatic network updates.
+   local source/provenance behavior. MVP distribution is now local-bundle-only;
+   registry/discovery/remote updates and publisher signatures are post-launch
+   scope, not initial gates. Specify explicit local-bundle update syntax;
+   local support must not imply trusted publication or automatic network updates.
 6. Publish an acyclic type/dependency ownership map for variables, catalog,
    workload and the planned plugin crate, with document/catalog/workload version
    and migration consequences. Coordinate X-FIELDS/X-COMPOSITION/O-WASM payloads
@@ -95,6 +103,35 @@ later distribution features must have explicit follow-up scope and cannot
 silently become requirements of the local MVP.
 
 ## Implementation slices after their design gates
+
+### Ready handoff — slice 1 only
+
+Implement the pure `orishu-plugin` contract against accepted sections 2–4, 9's
+structured diagnostics/limits and 10's ownership map. Inspect current shared types
+and canonical helpers first. Deliver release/contribution/contract identities,
+root and six typed payload schemas, exact dependency references, bounded decoding,
+canonical release/scientific hashing and structured validation errors. Publish
+machine-readable fixtures and real golden bytes/digests, including independent
+vocabulary/model providers and malformed/duplicate/oversized/unknown payload cases.
+Test semantic-versus-presentation hashing and enforce the crate dependency boundary.
+Reuse existing workload digest/canonical primitives through narrowly reviewed public
+helpers; preserve existing workload v2 golden bytes and avoid a copied codec.
+
+Do not implement resolver policy (slice 2), archive/inventory IO or commands (slice 3),
+document migration, workloads with new selection evidence, or guest execution in
+this handoff. Declare execution-contract references without pretending WIT bindings
+exist. Where prose does not fully spell a field layout, document the concrete schema
+and fixtures in the change; surface semantic ambiguity instead of inventing policy.
+Run focused public serialized-path tests, dependency tests and relevant repository
+checks. Report slice 1 evidence, not “X-PLUGIN complete”.
+
+Slice 2 follows these public types. O-WASM's WIT/binding and execution-budget
+fixtures, K4's container version audit and S-WORKLOAD's profile/version fixtures
+gate their respective integration slices, not slice 1. X-EMITTER must reconcile
+its implementation with the accepted newborn boundary schedule. The artifact-admin
+security follow-up and post-launch registry work do not block this local MVP.
+
+### Programme sequence
 
 1. **Pure shared contract.** Add `orishu-plugin` with approved identities,
    envelopes/payloads, canonical encoding and bounded public decoders/validators.
@@ -129,6 +166,65 @@ scientific model tasks. Later publication UX does not block a local contract
 fixture, but a fixture must not be reported as a working physics plugin.
 
 ## Required acceptance scenarios
+
+- Exported dimensioned constants use shared variables and exact provider resolution;
+  import/export captures values/provenance and updates cannot alter existing
+  expressions. The concrete draft includes a sixth contribution schema.
+- Kernels validate timestep/configuration/discretization/profile. Invalid timestep
+  preserves authored intent and run time; recommendations are not replacements.
+- Birth/death history policy is checkpoint-consistent with emitter state;
+  spawn/restore/next-step matches uninterrupted execution and missing required
+  history is diagnosed, not silently zero-filled.
+- Sampling quality survives UI/MCP/recording separately from precision/validity;
+  flat bounded buffers have checked ranges/strides and lease-safe cache reuse.
+  Include allocation evidence against per-cell heap growth.
+- Field painting is not initial work. Reconsider post-MVP only if needed; no
+  brush or state-writing sample interface is implied.
+
+- Enforce the accepted one-field/force-stage integrator profile with declared
+  bounded scientific history. Reject kernels requiring unsupported stages;
+  checkpoint/restore reproduces required history independently of trajectory
+  display settings. Expanded hooks/evaluations follow the
+  [X-COMPOSITION evidence-triggered review](kagami/define-composed-object-execution.md#follow-up--staged-integrator-capabilities),
+  not an unresolved first-pass design gate.
+
+- Integrator selection pins a plugin kernel rather than selecting runtime-owned
+  equations. Declare/validate required force stages and carried history; do not
+  claim arbitrary RK4/Verlet support from a single force sample. Compatible
+  integrator fixtures and their numerical evidence belong to X-COMPOSITION/O-WASM.
+- Local install/update never performs registry discovery or automatic downloads;
+  untrusted local bundles receive the same validation and sandbox restrictions.
+
+- Named observable channels declare scientific identity, shape, dimensions/SI
+  units and coordinate semantics. Include model-dependent electromagnetic scalar
+  and vector potentials and kernel-supplied Jacobians as design fixtures. Support
+  scalars, fixed-size vectors and fixed-size matrices. Specify encoding/index
+  conventions, precision, size bounds and encoding of explicit kernel channel
+  declarations referencing scientific contracts. Test model switching preserves
+  missing-channel requests as unavailable, while supported channels remain usable.
+  Test matrix shape/count mismatch and size overflow before allocation; do not
+  assume every kernel exposes every channel.
+
+- Observer-generated positions use the same bounded batched sampling ABI
+  regardless of originating shape. Test request limits, stable result
+  correspondence and snapshot identity across batches. Kagami point generation,
+  density/count expansion and surface/volume layouts belong to K8/K-OBSERVATION;
+  implementing those shapes is not an X-PLUGIN specification gate.
+
+- Field initialization/reinitialization uses Kagami's local runtime without a
+  cluster connection even when execution targets the cluster. Local and worker
+  execution share the engine; the cluster proxy neither steps scientific state
+  nor coordinates peers. Returned state passes through the document authority.
+
+- A kernel with opaque non-grid state supplies typed bounded samples usable by
+  generic probes/visualization/MCP. Validate channels, units, sample bounds,
+  validity and exact state identity; sampling failure cannot alter scientific
+  state or block commit. Recordings distinguish opaque-state-plus-sampler from
+  sample-only replay capabilities.
+- Host-managed opaque transfer rejects cross-instance/schema/boundary/partition
+  payloads even when the kernel artifact matches. Buffer reuse preserves live
+  snapshot lifetimes and immutable inputs. Do not require zero-copy or assume
+  opaque state permits copying native pointers between workers.
 
 - Manual inspector/MCP field reinitialization and domain/compute-parameter edits
   use the pinned kernel and capture valid field state in one atomic revision.

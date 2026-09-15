@@ -19,6 +19,14 @@ Contracts: [architecture](../architecture.md), [workloads](../workloads.md),
 
 ## Prerequisites and bounded slices
 
+Apply [ADR 0027](../adr/0027-plugin-contributions-and-immutable-releases.md): the
+engine must also be embeddable behind Kagami's local runtime interface without
+formation or a separate Kagami solver. Coordinate this interface with K-PREVIEW/
+K-RUN's cluster proxy. Authoring initialization/reinitialization uses an isolated
+local invocation even with a cluster target; return state to the document
+authority, never mutate a document or active run inside the engine. Prove
+authoring initialization without a cluster connection.
+
 1. Review current public types and callers; freeze the run lifecycle, workload/
    run/epoch/boundary identity, command outcomes and bounded failure transitions.
    Coordinate S-IDENTITY/S-OBSERVE, O-CLIENT and O-STORAGE contracts before

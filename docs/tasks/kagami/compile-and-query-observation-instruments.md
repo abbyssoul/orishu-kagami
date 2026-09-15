@@ -15,6 +15,19 @@ same retained authority.
 
 ## Slices
 
+Initial field sampling follows ADR 0027's batched point interface. Point, finite
+plane, sphere, box and cylinder instruments with user-defined density/count
+compile to bounded positions, never shape-specific kernel calls. Define exact
+surface/volume layout/order and count/density units with K8 before coding
+the generators. Both surface and volume modes are accepted for sphere, box and
+cylinder probes. Point generation belongs to the observer (currently Kagami),
+not to kernels or Orishu's peer coordination. Future observers consume the same
+public point-sampling interface. These geometry details do not block X-PLUGIN.
+Preserve sample indices and snapshot identity across batches and
+partition routing; resolve attached shapes at that same boundary. Test density
+overflow before allocation and deterministic point generation. Specialized
+integral/gradient/aggregate kernel operations are outside the initial ABI.
+
 1. Map stable instrument/channel identities into S-WORKLOAD requests with
    dimensions, cadence, retention and limits.
 2. Emit readings at committed boundaries with workload/run, schema/model,
@@ -30,6 +43,17 @@ same retained authority.
    a later acceptance slice and does not block cluster probe queries in M3.
 
 ## Acceptance criteria
+
+- Preserve successful-sample quality separately from precision/invalidity through
+  UI/MCP/recording. Use flat bounded values/validity/quality storage; test range/
+  stride arithmetic, cache snapshot/query keys and reader leases, with no
+  allocation per logical sample cell.
+
+- Discover channels from the selected kernel's explicit scientific-contract
+  references. An otherwise valid model switch retains missing-channel probe
+  requests with structured unavailability, not deletion, name-based substitution
+  or zero values. Supported channels stay usable; restoring compatible support
+  restores availability. UI and MCP expose the same diagnostic state.
 
 - An ideal probe or sampling region cannot affect a solve; a perturbing detector
   must be a modeled object component.

@@ -425,6 +425,58 @@ This is a quick "health check" operation that answers the most common administra
 - Running without authentication is permitted for local access (Tier 1). Remote access follows standard authentication requirements.
 
 
+### Monitor active simulation consumers
+
+As an administrator, I want to see how many clients are actively consuming
+simulation data so that I can understand cluster usage and assess demand on
+network resources.
+
+**Given** a running cluster with zero or more live or persisted observation
+streams
+**When** I inspect active consumers
+**Then** I see the current cluster-wide consumer count and the count for each
+simulation run.
+
+For this story, a **consumer** is a client with an accepted live or persisted
+observation stream for a simulation run. Each independently accepted stream is
+counted once because each can create separate delivery work; one client process
+with multiple streams may therefore count more than once. A consumer becomes
+active when its stream is accepted and remains active while the stream is open
+and responsive, even when the simulation is temporarily producing no new
+observations. It stops being active when the client closes the stream, the
+transport reports disconnection or delivery failure, or the cluster expires a
+stalled or unreachable client under its bounded liveness or backpressure
+timeout.
+
+**Acceptance criteria:**
+
+- A read-only administrative view displays the total number of active
+  consumers across the cluster.
+- The same snapshot groups active consumer counts by simulation run, identified
+  by formation, workload identity, and workload epoch, and the cluster-wide
+  total equals the sum of the displayed per-run counts.
+- The cluster-wide view counts each accepted client stream once even when an
+  entry node relays it or multiple workers participate in producing its data;
+  internal peer transfers and non-observation client connections are excluded.
+- Explicitly closed or observably disconnected streams are removed promptly.
+  Half-open, stalled, or unreachable clients are excluded after a documented,
+  bounded timeout, and the view exposes the timeout policy used to determine
+  activity.
+- The output includes its observation time and clearly reports when a complete
+  cluster view is unavailable; partial or stale data is not presented as an
+  exact current count.
+- Inspecting consumer counts does not interrupt observation streams, mutate a
+  run, or otherwise affect simulation progress.
+- Counts communicate usage only. They do not claim to measure bytes, transfer
+  rate, or bandwidth demand; actual bandwidth requires a separate metric.
+
+Status: **planned**.
+
+Future work may let authorized administrators disconnect individual consumers
+and configure consumer limits or quotas to control observation traffic. Those
+controls are not part of this initial read-only story.
+
+
 ### Remove a node from the cluster
 
 As an administrator, I want to remove a node from the cluster so that I can re-adjust topology, perform maintenance, or remove unhealthy nodes.
@@ -697,3 +749,12 @@ As an administrator, I want to manage access and review changes to the cluster t
 - Privileged commands (like `rm`, `blocklist add`, or `cluster lock`) require authentication, while read-only diagnostics (`ls`, `inspect`) may be permitted from local or authorized clients.
 - Workload submission validates content hashes and, when enabled by cluster policy, verifies workload signatures before any node begins execution.
 - Administrator credentials, worker join tokens, and worker identity material are distinct and must not be interchangeable.
+
+## Kernel and resource administration follow-up
+
+[Artifact administration stories](artifact-administration.md) cover per-node
+inventory, local upload/peer pre-positioning, safe cache eviction and compromised
+content denial. These are planned operator capabilities, not worker-side plugin
+management. Content-digest denial is distinct from node blocklisting and stored
+artifact purge; propagation, persistence and already-running workload handling
+require the linked task's security design before implementation.
