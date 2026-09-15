@@ -4066,6 +4066,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "orishu-plugin"
+version = "0.1.0"
+dependencies = [
+ "cargo_metadata",
+ "ciborium",
+ "orishu-resource",
+ "orishu-variables",
+ "orishu-workload",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "orishu-resource"
 version = "0.1.0"
 dependencies = [

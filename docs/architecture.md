@@ -195,8 +195,10 @@ workload component                   +-------------> Orishu cluster
 A simulation plugin bundles declarative vocabulary and/or computational model
 contributions. Vocabulary and model providers can be independently developed;
 exact scientific contracts connect them, and availability is contribution-level.
-The planned pure `orishu-plugin` contract is shared by Kagami and Orishu, with
-IO in adapters and only selected transitive contributions exported in workloads.
+The pure `orishu-plugin` declaration/identity contract is implemented for shared
+Kagami/Orishu consumption; resolver and application/runtime adoption remain planned.
+The target keeps IO in adapters and exports only selected transitive contributions
+in workloads.
 See [ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md) for immutable
 releases, identities, enablement, options considered and remaining design gates.
 

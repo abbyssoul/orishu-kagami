@@ -150,9 +150,10 @@ only the smallest stable types required across the boundary.
 ## Work-package registry
 
 X-PLUGIN's [concrete v1 contract](../plugin-contract-v1-draft.md) was accepted on
-2026-09-16. R1–R8 design decisions are settled and pure-contract slice 1 is ready.
-Schema/ABI/golden-fixture evidence remains implementation work; runtime and format
-migrations retain their specific integration gates.
+2026-09-16. R1–R8 design decisions are settled; pure-contract slice 1 is implemented
+in `orishu-plugin`, pending review, with schemas and canonical identity fixtures.
+Resolver, ABI and integration evidence remains work; runtime and format migrations
+retain their specific integration gates.
 
 The accepted Field CAD review adds exported constants, explicit timestep
 admissibility, entity-lifecycle history and flat quality-bearing sample buffers
@@ -173,7 +174,7 @@ slices and acceptance criteria before implementation begins.
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
 | K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1, K3, the boundary follow-up, and K4 in full implemented — the `default_view` section landed with K11 slice 2 as format version 2; K2's core graph, K5's command/bridge, and K6's non-gesture app adoption landed; K7 core stories captured; remaining slices are explicitly gated | K2/K5 live symbol sources and K6's real registry wait on X-PLUGIN; K6's gesture bracket is unblocked but unimplemented; K8 needs X-PLUGIN observation identities |
-| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Concrete v1 contract accepted; slice 1 ready; executable conformance evidence and implementation pending | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination; O-WASM and version fixtures for later integration |
+| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Concrete v1 contract accepted; pure-contract slice 1 implemented, pending review; slices 2–6 and ABI/integration conformance remain | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination; O-WASM and version fixtures for later integration |
 | X-COMPOSITION | [Composed object execution](../tasks/kagami/define-composed-object-execution.md) | X/S/O | Specified; host-orchestrated component graph accepted | X-PLUGIN; S-WORKLOAD; O-WASM; X-FIELDS |
 | X-FIELDS | [Field families and computational-model selection](../tasks/kagami/define-fields-and-model-selection.md) | X/K/S/V | Specified; required before executable model composition | K-DOCUMENT; X-PLUGIN; S-WORKLOAD; S-OBSERVE |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | **Task specification required** | X-COMPOSITION; O-WASM host contract |
@@ -499,10 +500,10 @@ to build independently.
   and projection have landed. Remaining slices consume X-PLUGIN's
   symbol/schema inventory and a run authority; do not describe those gated
   slices as implemented.
-- Complete [X-PLUGIN slice 0](../tasks/define-and-implement-plugin-contract.md#slice-0--finish-the-contract)
-  from accepted ADR 0027: concrete payloads, provider resolution, canonical identity,
-  local inventory/profile and migration rules. Include independent gravity
-  vocabulary/model providers, alternatives, incompatible and dormant fixtures.
+- Complete remaining [X-PLUGIN conformance evidence](../tasks/define-and-implement-plugin-contract.md#slice-0--finish-the-contract)
+  against the accepted contract. Pure declarations, canonical identities and
+  independent-provider fixtures are implemented in slice 1, pending review;
+  resolver/dormancy, local inventory and migration evidence remains.
   Kernel terminology and independent executable boundaries are accepted: one
   Orishu execution-contract implementation per compiled kernel. Specify the
   field-update/dynamics-integrator contracts with O-WASM and map legacy component
@@ -580,8 +581,8 @@ workload it would submit, before attempting distributed execution.
   boundary.
 - Complete S-VARIABLES workload-resource validation; its experiment
   integration and shared-engine limit hardening have landed.
-- After X-PLUGIN's relevant slice-0 gates, implement the shared pure contract,
-  contribution availability, immutable local inventory/management and exact-pinned
+- Build on X-PLUGIN's implemented pure declaration contract (slice 1, pending
+  review) with contribution availability, immutable local inventory/management and exact-pinned
   authoring/selected-workload integration. Use the same public path for built-ins
   and third parties; remote distribution and executable simulation retain their
   separate gates. See the [bounded slices](../tasks/define-and-implement-plugin-contract.md).

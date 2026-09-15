@@ -611,7 +611,10 @@ Source inspected for this draft, not merely task status:
 - `kagami-catalog::SchemaRegistry` keys by `ComponentTypeId` and replaces on insert;
   its `PropertyKind` is quantity/boolean/text, not release-aware plugin schemas.
 - `kagami-document::PluginComposition` stores logical catalog plugin IDs, not pins.
-- No `orishu-plugin` implementation is implied by these foundations.
+- As of 2026-09-16, `orishu-plugin` implements the declaration/identity slice.
+  See its [schema details and acceptance layers](../crates/orishu-plugin/README.md)
+  and [fixed fixtures](../crates/orishu-plugin/tests/fixtures/contract-v1.json).
+  Resolution, package IO and application/runtime integration remain unimplemented.
 
 Proposed dependency ownership:
 

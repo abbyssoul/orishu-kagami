@@ -26,6 +26,7 @@ kagami-session = { path = "crates/kagami-session" }
 orishu = { path = "crates/orishu" }
 orishu-identity = { path = "crates/orishu-identity" }
 orishu-membership = { path = "crates/orishu-membership" }
+orishu-plugin = { path = "crates/orishu-plugin" }
 orishu-resource = { path = "crates/orishu-resource" }
 orishu-variables = { path = "crates/orishu-variables" }
 orishu-workload = { path = "crates/orishu-workload" }
@@ -51,4 +52,3 @@ serde_yaml = "0.9"
 sha2 = "0.11"
 tempfile = "3"
 thiserror = "2"
-

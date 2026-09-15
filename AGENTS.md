@@ -67,6 +67,11 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   a test enforces that against the resolved dependency graph. Notably it must
   never depend on `crates/orishu`, which links `reqwest` and `tokio`. See
   `docs/workloads.md`.
+- `crates/orishu-plugin`: pure v1 simulation-plugin declarations, bounded readers,
+  canonical identities and payload verification. Reuses workload digest/CBOR and
+  shared variables dimensions; no inventory IO, provider resolver or Wasm engine.
+  Raw declarations are not acceptance; use the bounded readers and validators.
+  See `crates/orishu-plugin/README.md` for current scope and fixtures.
 - `crates/orishu-membership`: sans-IO functional core for cluster membership —
   admission, SWIM, gossip merge, and anti-entropy. It must never acquire a
   networking, async-runtime, clock, filesystem, TLS, or RNG dependency; a test

@@ -5,8 +5,8 @@ verifiable implementation work. `TODO.md` remains an inbox for unrefined ideas;
 once promoted, an idea links to a task here.
 
 X-PLUGIN's [concrete contract](../plugin-contract-v1-draft.md) was accepted on
-2026-09-16. Pure-contract slice 1 is ready; conformance artifacts and later
-ABI/persistence/runtime integration evidence remain pending.
+2026-09-16. Pure-contract slice 1 is implemented, pending review; resolver and
+later ABI/persistence/runtime integration evidence remain pending.
 
 See the [implementation roadmap](../roadmap/README.md) for milestone order,
 cross-task dependencies, unrefined work packages, and parallel-agent ownership.
@@ -30,7 +30,7 @@ and viewport/app adoption.
 
 | Task | Status |
 | --- | --- |
-| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Concrete contract accepted; slice 1 ready; implementation and executable conformance evidence pending |
+| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Concrete contract accepted; pure-contract slice 1 implemented, pending review; slices 2–6 and ABI/integration evidence remain |
 | [Harden formation parsing and local performance](harden-formation-fuzz-performance.md) | Post-M4 local fuzz and benchmark infrastructure; Raspberry Pi validation follows local review |
 | [Implement staged runtime scaling evidence](implement-staged-runtime-scaling-evidence.md) | Specified: early-M5 lab follow-ups, M5 scientific 1/3/5-worker stages, M8 complete 1/3/5/12/32-worker evidence; services and experiment plans gate execution |
 | [Qualify selected worker deployment profiles](qualify-worker-deployment-profiles.md) | Specified: M5 candidate selection, M8 selected supported-profile qualification; optional Kubernetes/cloud environments not yet selected |

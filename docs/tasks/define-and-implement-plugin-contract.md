@@ -1,7 +1,7 @@
 # Define and implement the shared plugin contract
 
 Roadmap ID: **X-PLUGIN**. Status: **Concrete contract accepted 2026-09-16;
-slice 1 ready; implementation and executable conformance evidence pending**.
+slice 1 implemented (review pending); slices 2–6 and ABI/integration evidence pending**.
 
 The [accepted concrete v1 contract](../plugin-contract-v1-draft.md) settles R1–R8.
 Produce section 11's conformance artifacts in the owning implementation slices;
@@ -23,7 +23,8 @@ invent the remaining persisted formats or compatibility policies in code.
 
 ## Verified current gap
 
-Source inspected on 2026-09-12:
+Original seam audit: 2026-09-12; declaration/workload ownership rechecked during
+slice-1 implementation on 2026-09-16:
 
 - `crates/kagami-document/src/setup.rs` stores `PluginComposition` as a set of
   logical catalog `PluginId`s, not immutable releases/contribution selections.
@@ -34,8 +35,10 @@ Source inspected on 2026-09-12:
 - `crates/orishu-workload/src/ids.rs` and catalog types already have identifiers;
   the workload crate has bounded graph/canonical closure machinery. Neither is
   proof that plugin release identity, packaging or compilation exists.
-- There is no `crates/orishu-plugin`. Do not duplicate existing identities or
-  change canonical workload bytes without an explicit ownership/version decision.
+- `crates/orishu-plugin` now implements slice 1's pure declarations, bounded
+  readers, canonical identities and payload verification. It reuses workload
+  digest/CBOR primitives without changing workload bytes. No resolver, inventory,
+  authoring migration or runtime integration exists in this crate yet.
 - `crates/orishu-workload/src/graph.rs` exposes `ComponentInstance` with a list
   of roles. These are existing API/format names, not proof of the new one-execution-
   contract-per-kernel rule. Reconcile role/phase metadata with a kernel's contract
@@ -104,7 +107,40 @@ silently become requirements of the local MVP.
 
 ## Implementation slices after their design gates
 
-### Ready handoff — slice 1 only
+### Slice 1 implementation record — 2026-09-16
+
+Implemented in [orishu-plugin](../../crates/orishu-plugin/README.md); pending review:
+six typed payload schemas and root envelope, exact identity/dependency references,
+bounded JSON/CBOR readers, explicit canonical root/scientific projections,
+structural/role/reference validation and digest-verified known/opaque payloads.
+The [JSON Schema](../../crates/orishu-plugin/schema/plugin-v1.schema.json) and
+[canonical vectors](../../crates/orishu-plugin/tests/fixtures/contract-v1.json)
+capture concrete field layouts and eight declarations across independent vocabulary,
+solver and alternative-provider releases. Kernel artifacts are inert test bytes,
+not ABI or numerical conformance fixtures. Existing workload code/bytes are unchanged.
+
+Tests cover all six shapes, independent CBOR decoding, fixed hashes/bytes,
+presentation versus semantic identity, sorted sets versus ordered properties,
+unknown payload integrity, role/contract mismatch, local reference matching,
+duplicates/nulls/oversized/truncated input, programmatic bound bypass, expression
+syntax and resolved dependency isolation. JSON Schema was independently validated
+against the eight declarations and three release fixtures.
+
+Validation on 2026-09-16: `cargo test --locked --offline -p orishu-plugin
+--all-targets` (20 tests), its doc test, `cargo test --locked --offline -p
+orishu-workload --all-targets`, workspace/all-target Clippy with `-D warnings`,
+workspace formatting, `make docs-check` and `git diff --check` passed. Cargo also
+reported an existing future-incompatibility warning for `proc-macro-error2`.
+The full workspace execution/UI/network test suite was not run for this isolated
+pure-crate addition; there are no app/runtime changes or persisted-format migration.
+
+Section 11's resolver, WIT/budget, selection/lock, document/workload migration and
+real execution evidence remains pending. Do not mark the whole X-PLUGIN programme
+complete. Slice 2 can use these public types after slice-1 review.
+
+<a id="ready-handoff--slice-1-only"></a>
+
+### Original implementation handoff — slice 1 only
 
 Implement the pure `orishu-plugin` contract against accepted sections 2–4, 9's
 structured diagnostics/limits and 10's ownership map. Inspect current shared types

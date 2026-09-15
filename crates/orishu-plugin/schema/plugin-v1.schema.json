@@ -1,0 +1,933 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "X-PLUGIN v1 authoring declarations",
+  "$comment": "Structural authoring schema. Rust bounded readers additionally enforce UTF-8 byte limits, uniqueness, arithmetic bounds and cross-reference/role semantics. No nulls. Select a payload $defs entry by the external extension point.",
+  "$ref": "#/$defs/release",
+  "$defs": {
+    "pluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*){0,7}$",
+      "maxLength": 128
+    },
+    "localId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 64
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "extensionPoint": {
+      "type": "string",
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*){0,7}/v[1-9][0-9]*$"
+    },
+    "dimension": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "integer",
+        "minimum": -128,
+        "maximum": 127
+      }
+    },
+    "contractRef": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "contributionRef": {
+      "type": "object",
+      "properties": {
+        "release": {
+          "$ref": "#/$defs/digest"
+        },
+        "extensionPoint": {
+          "$ref": "#/$defs/extensionPoint"
+        },
+        "localId": {
+          "$ref": "#/$defs/localId"
+        }
+      },
+      "required": [
+        "release",
+        "extensionPoint",
+        "localId"
+      ],
+      "additionalProperties": false
+    },
+    "contractRequirement": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/localId"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        }
+      },
+      "required": [
+        "slot",
+        "contract"
+      ],
+      "additionalProperties": false
+    },
+    "requirement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "slot": {
+              "$ref": "#/$defs/localId"
+            },
+            "contract": {
+              "$ref": "#/$defs/contractRef"
+            }
+          },
+          "required": [
+            "slot",
+            "contract"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "slot": {
+              "$ref": "#/$defs/localId"
+            },
+            "localContribution": {
+              "$ref": "#/$defs/localId"
+            }
+          },
+          "required": [
+            "slot",
+            "localContribution"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "annotations": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "group": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "preferredUnit": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "iconArtifact": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "mediaType": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        }
+      },
+      "required": [
+        "digest",
+        "sizeBytes",
+        "mediaType"
+      ],
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "versionLabel": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "pluginId",
+        "versionLabel"
+      ],
+      "additionalProperties": false
+    },
+    "contribution": {
+      "type": "object",
+      "properties": {
+        "localId": {
+          "$ref": "#/$defs/localId"
+        },
+        "extensionPoint": {
+          "$ref": "#/$defs/extensionPoint"
+        },
+        "payload": {
+          "$ref": "#/$defs/digest"
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requirement"
+          },
+          "maxItems": 64
+        },
+        "annotations": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "localId",
+        "extensionPoint",
+        "payload",
+        "requirements"
+      ],
+      "additionalProperties": false
+    },
+    "propertyType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "quantity"
+            },
+            "dimension": {
+              "$ref": "#/$defs/dimension"
+            },
+            "defaultExpression": {
+              "type": "string",
+              "maxLength": 4096,
+              "minLength": 1
+            },
+            "minimumSI": {
+              "type": "number"
+            },
+            "maximumSI": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "dimension"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "boolean"
+            },
+            "default": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "text"
+            },
+            "maxBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4096
+            },
+            "default": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "kind",
+            "maxBytes"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "property": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "schema": {
+          "$ref": "#/$defs/propertyType"
+        }
+      },
+      "required": [
+        "id",
+        "required",
+        "schema"
+      ],
+      "additionalProperties": false
+    },
+    "bindings": {
+      "type": "object",
+      "properties": {
+        "inertialMass": {
+          "$ref": "#/$defs/localId"
+        },
+        "source": {
+          "$ref": "#/$defs/localId"
+        },
+        "response": {
+          "$ref": "#/$defs/localId"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "shape": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "scalar"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "vector"
+            },
+            "length": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            }
+          },
+          "required": [
+            "kind",
+            "length"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "matrix"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "columns"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "constant": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "dimension": {
+          "$ref": "#/$defs/dimension"
+        },
+        "valueSI": {
+          "type": "number"
+        },
+        "meaning": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "dimension",
+        "valueSI",
+        "meaning"
+      ],
+      "additionalProperties": false
+    },
+    "stateFormat": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "history": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/stateFormat"
+        },
+        "maxBytesPerEntity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "coldStart": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        }
+      },
+      "required": [
+        "format",
+        "maxBytesPerEntity",
+        "samples",
+        "coldStart"
+      ],
+      "additionalProperties": false
+    },
+    "release": {
+      "type": "object",
+      "properties": {
+        "apiVersion": {
+          "const": "orishu.plugin/v1"
+        },
+        "kind": {
+          "const": "PluginRelease"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "contributions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/contribution"
+              },
+              "maxItems": 256
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/artifact"
+              },
+              "maxItems": 4096
+            }
+          },
+          "required": [
+            "contributions",
+            "artifacts"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata",
+        "spec"
+      ],
+      "additionalProperties": false
+    },
+    "componentsScientific": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractRequirement"
+          },
+          "maxItems": 64
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          },
+          "maxItems": 256
+        },
+        "role": {
+          "enum": [
+            "data",
+            "dynamics",
+            "field-coupling"
+          ]
+        },
+        "bindings": {
+          "$ref": "#/$defs/bindings"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "requirements",
+        "properties",
+        "role",
+        "bindings"
+      ],
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "object",
+      "properties": {
+        "scientific": {
+          "$ref": "#/$defs/componentsScientific"
+        },
+        "presentation": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "scientific"
+      ],
+      "additionalProperties": false
+    },
+    "fieldsScientific": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractRequirement"
+          },
+          "maxItems": 64
+        },
+        "domainDimension": {
+          "const": 3
+        },
+        "domainRequirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/localId"
+          },
+          "maxItems": 256
+        },
+        "requiredObservables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/localId"
+          },
+          "maxItems": 128
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "requirements",
+        "domainDimension",
+        "domainRequirements",
+        "requiredObservables"
+      ],
+      "additionalProperties": false
+    },
+    "fields": {
+      "type": "object",
+      "properties": {
+        "scientific": {
+          "$ref": "#/$defs/fieldsScientific"
+        },
+        "presentation": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "scientific"
+      ],
+      "additionalProperties": false
+    },
+    "observablesScientific": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractRequirement"
+          },
+          "maxItems": 64
+        },
+        "meaning": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        },
+        "shape": {
+          "$ref": "#/$defs/shape"
+        },
+        "dimension": {
+          "$ref": "#/$defs/dimension"
+        },
+        "frame": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        },
+        "axes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1
+          },
+          "maxItems": 2
+        },
+        "conventions": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "requirements",
+        "meaning",
+        "shape",
+        "dimension",
+        "frame",
+        "axes",
+        "conventions"
+      ],
+      "additionalProperties": false
+    },
+    "observables": {
+      "type": "object",
+      "properties": {
+        "scientific": {
+          "$ref": "#/$defs/observablesScientific"
+        },
+        "presentation": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "scientific"
+      ],
+      "additionalProperties": false
+    },
+    "constantsScientific": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractRequirement"
+          },
+          "maxItems": 64
+        },
+        "constants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/constant"
+          },
+          "maxItems": 256
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "requirements",
+        "constants"
+      ],
+      "additionalProperties": false
+    },
+    "constants": {
+      "type": "object",
+      "properties": {
+        "scientific": {
+          "$ref": "#/$defs/constantsScientific"
+        },
+        "presentation": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "scientific"
+      ],
+      "additionalProperties": false
+    },
+    "fieldModelsScientific": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractRequirement"
+          },
+          "maxItems": 64
+        },
+        "configuration": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          },
+          "maxItems": 256
+        },
+        "kernel": {
+          "$ref": "#/$defs/digest"
+        },
+        "profile": {
+          "const": "orishu.force-then-integrate/v1"
+        },
+        "field": {
+          "$ref": "#/$defs/localId"
+        },
+        "couplings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/localId"
+          },
+          "maxItems": 64
+        },
+        "stateFormat": {
+          "$ref": "#/$defs/stateFormat"
+        },
+        "executionContract": {
+          "const": "orishu:simulation/field@1"
+        },
+        "observables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/localId"
+          },
+          "maxItems": 128
+        },
+        "fieldTimeConvention": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 1
+        },
+        "maxStateBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "requirements",
+        "configuration",
+        "kernel",
+        "profile",
+        "field",
+        "couplings",
+        "stateFormat",
+        "executionContract",
+        "observables",
+        "fieldTimeConvention",
+        "maxStateBytes"
+      ],
+      "additionalProperties": false
+    },
+    "fieldModels": {
+      "type": "object",
+      "properties": {
+        "scientific": {
+          "$ref": "#/$defs/fieldModelsScientific"
+        },
+        "presentation": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "scientific"
+      ],
+      "additionalProperties": false
+    },
+    "integratorsScientific": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractRequirement"
+          },
+          "maxItems": 64
+        },
+        "configuration": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          },
+          "maxItems": 256
+        },
+        "kernel": {
+          "$ref": "#/$defs/digest"
+        },
+        "profile": {
+          "const": "orishu.force-then-integrate/v1"
+        },
+        "dynamics": {
+          "$ref": "#/$defs/localId"
+        },
+        "executionContract": {
+          "const": "orishu:simulation/dynamics@1"
+        },
+        "history": {
+          "$ref": "#/$defs/history"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "requirements",
+        "configuration",
+        "kernel",
+        "profile",
+        "dynamics",
+        "executionContract",
+        "history"
+      ],
+      "additionalProperties": false
+    },
+    "integrators": {
+      "type": "object",
+      "properties": {
+        "scientific": {
+          "$ref": "#/$defs/integratorsScientific"
+        },
+        "presentation": {
+          "$ref": "#/$defs/annotations"
+        }
+      },
+      "required": [
+        "scientific"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

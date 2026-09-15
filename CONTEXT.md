@@ -4,9 +4,10 @@ Orishu Kagami provides one product for authoring, executing, and observing
 scientific simulations. Orishu and Kagami are roles within that product, not
 independent platforms.
 
-The accepted MVP plugin boundary is a planned dependency-light `orishu-plugin`
-crate shared by Kagami and Orishu, alongside variables, catalog and workload
-contracts. These form one coupled product seam; keep dependency ownership
+The accepted MVP plugin boundary has an implemented dependency-light `orishu-plugin`
+declaration/identity crate for Kagami and Orishu, alongside variables, catalog and
+workload contracts. Provider resolution and application/runtime adoption remain
+planned. These form one coupled product seam; keep dependency ownership
 acyclic and IO in adapters. The crate layout may be reconsidered after MVP.
 See [ADR 0027](docs/adr/0027-plugin-contributions-and-immutable-releases.md)
 and [X-PLUGIN's design gates](docs/tasks/define-and-implement-plugin-contract.md).

@@ -1,0 +1,21 @@
+[package]
+name = "orishu-plugin"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure simulation plugin declarations, bounded validation and canonical identity"
+
+[dependencies]
+orishu-resource.workspace = true
+orishu-variables.workspace = true
+orishu-workload.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+cargo_metadata = "0.23"
+# Independent decoder for canonical fixtures; already resolved through criterion.
+ciborium = "=0.2.2"
