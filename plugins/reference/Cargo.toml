@@ -1,0 +1,13 @@
+# Independently built plugin Components: outside the application's workspace.
+[workspace]
+members = ["euler", "newtonian"]
+resolver = "3"
+
+[workspace.dependencies]
+orishu-plugin = { path = "../../crates/orishu-plugin" }
+wit-bindgen = { version = "=0.57.1", default-features = false, features = ["macros", "realloc", "std"] }
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+strip = "debuginfo"

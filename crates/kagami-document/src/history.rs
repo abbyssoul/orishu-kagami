@@ -205,6 +205,16 @@ impl EditHistory {
         self.undo.clear();
         self.redo.clear();
     }
+
+    /// Read-only captured scientific setups on both sides of history, for an
+    /// authority's aggregate retention admission. Duplicates intentionally remain
+    /// here; the shared-buffer tally deduplicates their actual allocations.
+    pub fn scientific_setups(&self) -> impl Iterator<Item = &crate::scientific::ScientificSetup> {
+        self.undo
+            .iter()
+            .chain(&self.redo)
+            .filter_map(|entry| entry.checkpoint.0.setup.scientific())
+    }
 }
 
 impl Default for EditHistory {

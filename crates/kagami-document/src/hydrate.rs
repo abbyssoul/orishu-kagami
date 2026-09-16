@@ -186,6 +186,7 @@ pub fn hydrate(
     state.objects = Arc::new(objects);
 
     validate_structure(&state, limits)?;
+    crate::update::validate_scientific(&state, limits)?;
     Ok(Experiment {
         state: Arc::new(state),
         counters,

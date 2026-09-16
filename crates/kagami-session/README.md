@@ -20,6 +20,15 @@ kagami-document    model, transition, history    <- pure, sans-IO
 
 ## The envelope contract
 
+The document model's wire version is now 3 (scientific setup descriptors); the
+session envelope remains version 1. A scientific capture is an in-process edit
+with normal revision, history and refusal semantics, but `WireEnvelope::of`
+returns `None` for it: bounded blob effects are not ordinary JSON intents. The
+future effect adapter must also guard document identity, not just a revision.
+The durable file store now selects the self-contained v4 container for scientific
+setup; direct bare JSON encoding still refuses it. Reopening restores exact captured
+bytes, with no installed executable requirement or initializer invocation.
+
 Deliberately the same four properties `kagami-catalog`'s authority already
 established, so an adapter learns one pattern for both:
 
@@ -29,6 +38,9 @@ established, so an adapter learns one pattern for both:
 - **Idempotent** — a submission carries a `CommandId`; resubmitting one that
   already succeeded replays its recorded outcome. A *failed* command is not
   recorded, so a retry after a transient transport error still runs.
+  Old receipts are bounded by count, command count and scientific retained bytes;
+  a receipt evicted under pressure is outside the replay window. Revision guards
+  remain essential for retries beyond that window.
 - **Attributed** — every accepted command records its actor on the resulting
   event.
 - **Observable** — every accepted command appends one bounded
@@ -36,6 +48,24 @@ established, so an adapter learns one pattern for both:
   re-reading everything. `can_catch_up_from` says when a view has fallen
   further behind than the retained window, instead of silently returning a
   truncated one.
+
+Scientific capture and scientific Open are staged transactions. Before publication,
+the authority counts unique buffer allocations plus canonical metadata weight
+across current state, undo/redo and replay receipts (default 512 MiB). It may evict
+the oldest replay prefix but must retain the new receipt. It does not silently
+trim undo/redo to make a capture fit: `scientific_retention_limit` leaves revision,
+history, dirty state, counters and gesture/events unchanged. Scientific edit
+preflight runs this same rule. Open also reapplies the receiving authority's
+per-setup byte/count policy rather than trusting the decoder's policy.
+
+The tally pins shared allocations while accounting, so equal digests in independent
+allocations count separately and address reuse cannot produce free retention.
+Normal timestep edits, undo and redo share captures and add no new opaque buffers.
+Only cold capture/Open transactions copy bounded registry/replay metadata; ordinary
+gestures do not. Work is proportional to retained capture references and unique
+buffers with ordered-map lookup; no opaque bytes are copied or rehashed by the
+tally. This bounds authority retention, not allocator overhead, external snapshot
+holders, pending initialization, JIT memory or file-I/O staging.
 
 ## Three decisions worth knowing
 
@@ -57,6 +87,23 @@ established, so an adapter learns one pattern for both:
   this experiment even though the contents match.
 
 ## What is not here
+
+The JSON experiment codec now writes envelope version 3, which supports exact
+component contribution pins. Versions 1 and 2 are explicitly converted while
+preserving their legacy logical references, not choosing installed providers.
+Exact pins mislabeled as v1/v2 are refused. The independently versioned default
+view is unchanged. Scientific drafts use the separate
+[stored-ZIP v4 container](../../docs/experiment-container-v4.md), with exact retained
+declarations/configuration/state/history and no embedded executable code. Both
+decoders return the normalized in-memory `ExperimentDocument`; save chooses the
+format by its explicit setup variant. Neither format is a workload export.
+
+The authority accepts an owned schema snapshot from the plugin adapter.
+`PluginStore::resolve_authoring` can supply exact, verified selected component
+schemas, and `adopt_schemas` changes capability reporting without modifying
+experiment intent or its revision. Plugin property constraints govern ordinary
+commands, variable repricing and capability checks. Application startup/document
+selection wiring remains separate integration work.
 
 No run: no play, pause, step, clock, tick pacing, solver, or observation.
 [ADR 0004](../../docs/adr/0004-separate-authoring-commands-from-run-observations.md)

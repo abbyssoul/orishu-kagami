@@ -18,22 +18,110 @@ use kagami_session::{
     AuthoringView, LeaveConsequence, SceneScale, SessionCommand, ViewAdjustment, ViewError,
 };
 
-use crate::message::{Authoritative, ClientLocal, Message, WorkspaceIntent};
+use crate::mcp::{self, McpState, SessionState};
+use crate::message::{Authoritative, ClientLocal, McpControl, Message, WorkspaceIntent};
 use crate::model::{Model, PropertyEdit};
 
 pub fn update(model: &mut Model, message: Message) -> iced::Task<Message> {
-    match message {
+    let task = match message {
+        #[cfg(unix)]
+        Message::PhysicsForm(action) => {
+            use crate::physics_form::PhysicsAction;
+            if action == PhysicsAction::LoadCaptured {
+                let result = model
+                    .document
+                    .snapshot()
+                    .setup()
+                    .scientific()
+                    .ok_or("No captured scientific setup to copy.")
+                    .and_then(|setup| {
+                        crate::physics_form::PhysicsForm::from_captured(
+                            setup,
+                            &model.kernel_choices,
+                            model
+                                .inventory_revision
+                                .ok_or("No plugin inventory is configured.")?,
+                        )
+                    });
+                match result {
+                    Ok(form) => {
+                        model.physics_form = form;
+                        model.document.notice = Some("Captured settings copied into the form. The experiment is unchanged; Apply will reset initial states only after confirmation.".into());
+                    }
+                    Err(error) => model.document.notice = Some(error.into()),
+                }
+            } else if action == PhysicsAction::Apply {
+                let request = model.inventory_revision.ok_or("No plugin inventory is configured.")
+                    .and_then(|revision| model.physics_form.request(&model.kernel_choices, revision))
+                    .and_then(|mut request| {
+                        let mut roots: std::collections::BTreeSet<_> = request.selection.roots.into_iter().collect();
+                        for object in model.document.snapshot().objects().values() {
+                            for kind in object.components.keys() {
+                                let contribution = kind.contribution().ok_or("Legacy components require explicit migration before configuring plugin physics.")?;
+                                if !roots.contains(contribution) {
+                                    if roots.len() == orishu_plugin::selected::SelectionLimits::default().contributions { return Err("Scene contribution roots exceed the selection budget."); }
+                                    roots.insert(contribution.clone());
+                                }
+                            }
+                        }
+                        request.selection.roots = roots.into_iter().collect();
+                        Ok(request)
+                    });
+                match request {
+                    Ok(request) => {
+                        match model.scientific_effects.configure(&model.document, request) {
+                            Ok(()) => {
+                                model.physics_form.confirmed = false;
+                                model.document.notice = Some("Preparing selected physics; no partial initial state will be adopted.".into());
+                            }
+                            Err(error) => model.document.notice = Some(error.to_string()),
+                        }
+                    }
+                    Err(error) => model.document.notice = Some(error.into()),
+                }
+            } else {
+                model.physics_form.edit(action, &model.kernel_choices);
+            }
+            iced::Task::none()
+        }
+        #[cfg(unix)]
+        Message::Scientific(action) => {
+            use crate::message::ScientificAction;
+            match action {
+                ScientificAction::Configure(request) => {
+                    match model.scientific_effects.configure(&model.document, *request) {
+                        Ok(()) => model.document.notice = Some("Preparing scientific setup in the background; nothing is adopted until every kernel succeeds.".into()),
+                        Err(error) => model.document.notice = Some(error.to_string()),
+                    }
+                }
+                ScientificAction::Reinitialize(instance) => {
+                    match model.scientific_effects.reinitialize(&model.document, instance) {
+                        Ok(()) => model.document.notice = Some("Reinitializing field in the background; authored state is unchanged until acceptance.".into()),
+                        Err(error) => model.document.notice = Some(error.to_string()),
+                    }
+                }
+                ScientificAction::Cancel => model.scientific_effects.cancel(),
+                ScientificAction::Poll => {}
+            }
+            iced::Task::none()
+        }
         Message::Authoritative(intent) => {
             // Any submission ends whatever menu invoked it, so the window does
             // not sit open over a changed document.
             model.open_menu = None;
             submit(model, intent);
+            iced::Task::none()
         }
-        Message::Local(local) => apply_local(model, local),
+        Message::Local(local) => {
+            apply_local(model, local);
+            iced::Task::none()
+        }
         Message::Workspace(intent) => {
             model.open_menu = None;
             change_mode(model, intent);
+            iced::Task::none()
         }
+        Message::Mcp(control) => mcp_control(model, control),
         Message::Exit => return iced::exit(),
         Message::ExitTimerTick => {
             if let Some(deadline) = model.exit_deadline
@@ -41,6 +129,79 @@ pub fn update(model: &mut Model, message: Message) -> iced::Task<Message> {
             {
                 log::info!("self-imposed lifetime reached; exiting");
                 return iced::exit();
+            }
+            iced::Task::none()
+        }
+    };
+
+    #[cfg(unix)]
+    {
+        if model.scientific_effects.poll(&mut model.document) {
+            model.forget_missing();
+        }
+        model.queue_len = usize::from(model.scientific_effects.is_pending());
+    }
+
+    // Keep the projection MCP reads honest with whatever just changed. Reading
+    // the live document here means `kagami_status` always reports the revision,
+    // dirty state, and mode the window last drew — never a stale or duplicate
+    // model.
+    if let McpState::Running(running) = &model.mcp {
+        running.refresh(&model.document);
+    }
+
+    task
+}
+
+/// Enable, disable, or observe the embedded MCP server.
+///
+/// None of these touch the experiment, a run, or the cluster connection (ADR
+/// 0006): disabling is not a run control, and a running simulation keeps
+/// running. A disable that would cut off connected clients asks to confirm
+/// first, naming how many lose access in the view.
+fn mcp_control(model: &mut Model, control: McpControl) -> iced::Task<Message> {
+    match control {
+        McpControl::Enable => {
+            model.open_menu = None;
+            model.mcp = mcp::enable(
+                SessionState::from_document(&model.document),
+                mcp::DEFAULT_ADDR,
+            );
+        }
+        McpControl::Disable => {
+            if let McpState::Running(running) = &mut model.mcp {
+                let connected = running.connection_count().unwrap_or(0);
+                if connected > 0 && !running.awaiting_disable_confirm() {
+                    // Name the consequence and wait for an explicit confirm.
+                    running.request_disable_confirm();
+                } else {
+                    running.disable();
+                    model.mcp = McpState::Disabled;
+                }
+            }
+        }
+        McpControl::ConfirmDisable => {
+            if let McpState::Running(running) = &model.mcp {
+                running.disable();
+            }
+            model.mcp = McpState::Disabled;
+        }
+        McpControl::CancelDisable => {
+            if let McpState::Running(running) = &mut model.mcp {
+                running.cancel_disable_confirm();
+            }
+        }
+        McpControl::CopyToken => {
+            if let McpState::Running(running) = &model.mcp {
+                return iced::clipboard::write(running.token().to_owned());
+            }
+        }
+        McpControl::Poll => {
+            if let McpState::Running(running) = &mut model.mcp
+                && let Err(reason) = running.poll()
+            {
+                // The server died after binding; show the failure honestly.
+                model.mcp = McpState::Failed(reason);
             }
         }
     }
@@ -130,16 +291,21 @@ fn submit(model: &mut Model, intent: Authoritative) {
             }
         },
         Authoritative::AttachComponent(object, component) => {
-            // Attached with no values: a schema's required properties are
-            // authored next, in the inspector. The authority refuses the
-            // incomplete component, which is the honest outcome — the window
-            // does not invent a default for a physical quantity.
+            // Clicking Add authors the selected plugin's declared defaults.
+            // No quantity is invented when a declaration has no default; an
+            // incomplete proposal is still refused by the same authority.
+            let properties = model
+                .document
+                .schemas()
+                .get(&component)
+                .map(crate::plugins::component_defaults)
+                .unwrap_or_default();
             model
                 .document
                 .edit(vec![ExperimentCommand::AttachComponent {
                     object,
                     component,
-                    properties: Default::default(),
+                    properties,
                 }])
         }
         Authoritative::DetachComponent(object, component) => {

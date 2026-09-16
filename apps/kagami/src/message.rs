@@ -3,7 +3,9 @@
 //! `TODO.md` records the Doom 3 framing this comes from: a client produces
 //! commands and the server is authoritative about whether they applied.
 //! Conflating the two queues is the failure mode, so they are separate types
-//! here and [`Message::intent`] is the only place either is produced.
+//! here. [`Message::intent`] classifies synchronous window intents. Scientific
+//! actions instead prepare an asynchronous candidate; only a guarded document
+//! submission can adopt it. Editing the physics form alone submits nothing.
 //!
 //! - [`Authoritative`] reaches [`crate::document::Document`] as an envelope.
 //!   Whether it applied is the authority's answer, not the window's.
@@ -136,6 +138,30 @@ pub enum ClientLocal {
     CancelScaleEdit,
 }
 
+/// A change to the embedded MCP server's lifecycle. Decided by the app.
+///
+/// Its own arm because it is none of the other three: enabling, disabling, or
+/// polling the server produces no envelope, is not experiment intent (ADR
+/// 0012), and is not a workspace-mode change. `Message::intent` answers `None`
+/// for it, so `tests/authoring.rs`'s guarantee — that no non-authoritative
+/// message reaches the authority — still holds. Enabling and disabling never
+/// touch the experiment, a run, or the cluster connection (ADR 0006).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpControl {
+    /// Start the server on the default loopback endpoint.
+    Enable,
+    /// Stop the server. With clients connected, this first asks to confirm.
+    Disable,
+    /// Confirm a disable that would cut off connected clients.
+    ConfirmDisable,
+    /// Abandon a pending disable confirmation.
+    CancelDisable,
+    /// Copy the full bearer token to the clipboard.
+    CopyToken,
+    /// Refresh the connected-client count and liveness.
+    Poll,
+}
+
 /// A change of workspace mode. Decided by `kagami_session::Workspace`.
 ///
 /// Its own arm because it is neither of the other two: no envelope reaches the
@@ -160,12 +186,20 @@ pub enum WorkspaceIntent {
 /// One thing the window was asked to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
+    /// Client-local edits of the explicit physics-selection form.
+    #[cfg(unix)]
+    PhysicsForm(crate::physics_form::PhysicsAction),
+    /// Background scientific authoring intent/completion polling (not a result).
+    #[cfg(unix)]
+    Scientific(ScientificAction),
     /// Something the authority decides.
     Authoritative(Authoritative),
     /// Something the window decides.
     Local(ClientLocal),
     /// A change of mode.
     Workspace(WorkspaceIntent),
+    /// A change to the MCP server's lifecycle.
+    Mcp(McpControl),
     /// Quit.
     Exit,
     /// Periodic tick used to notice `--exit-after`'s deadline has passed.
@@ -181,10 +215,33 @@ impl Message {
     /// rather than a `match` arm buried in `update`.
     pub fn intent(&self) -> Option<&Authoritative> {
         match self {
+            #[cfg(unix)]
+            Self::Scientific(_) => None,
+            #[cfg(unix)]
+            Self::PhysicsForm(_) => None,
             Self::Authoritative(intent) => Some(intent),
-            Self::Local(_) | Self::Workspace(_) | Self::Exit | Self::ExitTimerTick => None,
+            Self::Local(_)
+            | Self::Workspace(_)
+            | Self::Mcp(_)
+            | Self::Exit
+            | Self::ExitTimerTick => None,
         }
     }
+}
+
+/// UI requests over the guarded background initializer. No opaque state in UI
+/// messages; completed candidates stay in the single capacity-owned job.
+#[cfg(unix)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScientificAction {
+    /// Explicit complete scientific setup proposal; kernels never select physics.
+    Configure(Box<crate::scientific_effect::SetupRequest>),
+    /// Restore one captured field's kernel-defined natural state explicitly.
+    Reinitialize(orishu_workload::ComponentInstanceId),
+    /// Cancel, retaining capacity until native work actually exits.
+    Cancel,
+    /// Inspect completion without blocking the window.
+    Poll,
 }
 
 impl From<Authoritative> for Message {
@@ -202,6 +259,12 @@ impl From<ClientLocal> for Message {
 impl From<WorkspaceIntent> for Message {
     fn from(intent: WorkspaceIntent) -> Self {
         Self::Workspace(intent)
+    }
+}
+
+impl From<McpControl> for Message {
+    fn from(control: McpControl) -> Self {
+        Self::Mcp(control)
     }
 }
 

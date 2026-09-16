@@ -267,7 +267,9 @@ fn check_envelope(value: &serde_yaml::Value) -> Result<(), Box<Diagnostic>> {
     // Reported per field rather than as one combined mismatch: a catalog
     // browser distinguishes "written for a newer Kagami" from "not a template
     // at all", and they are different things for a user to do something about.
-    if header.api_version() != &document::api_version() {
+    if header.api_version() != &document::api_version()
+        && header.api_version().as_str() != document::PINNED_API_VERSION
+    {
         return Err(Box::new(Diagnostic::at(
             "apiVersion",
             InvalidReason::UnsupportedApiVersion {
@@ -430,7 +432,7 @@ spec:
         write(
             directory.path(),
             "future.yaml",
-            "apiVersion: kagami.catalog/v2\nkind: ObjectTemplate\nwhatever: [1, 2]\n",
+            "apiVersion: kagami.catalog/v3\nkind: ObjectTemplate\nwhatever: [1, 2]\n",
         );
         let set = load_directory(directory.path(), &registry(), &Limits::DEFAULT);
         let LoadResult::Invalid { diagnostics } = &set.entries()[0].result else {

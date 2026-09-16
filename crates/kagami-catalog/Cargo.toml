@@ -19,6 +19,8 @@ description = "Kagami's editable object-template catalog: format, bounded loadin
 #                         Structural only: it owns no metadata schema, no
 #                         validation, no IO, and no catalog vocabulary.
 # - orishu-variables:     the one shared expression parser and evaluator.
+# - orishu-plugin:        exact provider identities and verified declarations;
+#                         pure shared schemas/constraints, never a Wasm engine.
 # - serde/serde_yaml:     the hand-authored document format.
 # - serde_path_to_error:  field-located diagnostics for a malformed document.
 # - sha2:                 canonical content fingerprints.
@@ -26,6 +28,7 @@ description = "Kagami's editable object-template catalog: format, bounded loadin
 [dependencies]
 dhat = { workspace = true, optional = true }
 orishu-resource = { workspace = true }
+orishu-plugin = { workspace = true }
 orishu-variables = { workspace = true }
 serde = { workspace = true }
 serde_path_to_error = { workspace = true }

@@ -13,6 +13,8 @@
 /// Bounds applied while validating a candidate experiment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
+    /// Captured scientific setup/state policy, independent of executable sandbox limits.
+    pub scientific: crate::scientific::ScientificLimits,
     /// Largest number of objects one experiment may hold.
     pub max_objects: usize,
     /// Largest number of components one object may carry.
@@ -53,6 +55,7 @@ impl Limits {
     /// *distinct* experiments reachable through the stack rather than the
     /// depth itself.
     pub const DEFAULT: Self = Self {
+        scientific: crate::scientific::ScientificLimits::DEFAULT,
         max_objects: 65_536,
         max_components_per_object: 64,
         max_properties_per_component: 64,

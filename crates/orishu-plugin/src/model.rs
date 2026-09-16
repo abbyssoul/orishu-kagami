@@ -217,7 +217,7 @@ pub struct Property {
 }
 
 /// Initial property schema: scalar quantity expressions, booleans or bounded text.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum PropertyType {
     /// SI dimension is explicit; default source is evaluated by the variables owner.

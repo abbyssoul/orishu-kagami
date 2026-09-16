@@ -109,6 +109,12 @@ pub enum CapabilityGap {
         /// The property still holding an unpriced value.
         property: PropertyName,
     },
+    /// A selected plugin's resolved SI or text-length limit is violated.
+    #[error("property `{property}` violates the installed declaration's constraints")]
+    PropertyConstraint {
+        /// The constrained property.
+        property: PropertyName,
+    },
 }
 
 impl CapabilityGap {
@@ -121,6 +127,7 @@ impl CapabilityGap {
             Self::PropertyDimensionChanged { .. } => "property_dimension_changed",
             Self::RequiredPropertyMissing { .. } => "required_property_missing",
             Self::ValueNotPriced { .. } => "value_not_priced",
+            Self::PropertyConstraint { .. } => "property_constraint",
         }
     }
 
@@ -358,6 +365,14 @@ pub(crate) fn gap_of(
                     stored: stored.kind_label(),
                 });
             }
+        }
+        if !value
+            .schema_value()
+            .is_some_and(|value| declared.accepts(value))
+        {
+            return Some(CapabilityGap::PropertyConstraint {
+                property: name.clone(),
+            });
         }
     }
 

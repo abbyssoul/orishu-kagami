@@ -57,7 +57,10 @@ use crate::validate::{
 };
 use crate::variable::{Variable, VariableId, VariableSpec};
 
-/// How much evaluation one accepted batch cost.
+/// Work in the object/variable expression-evaluation phase of a batch.
+///
+/// Scientific configuration/history coherence is a separate validation pass and
+/// is not included in these counters; they are not total transition work.
 ///
 /// Reported so "an edit evaluates the affected closure, not the document" is
 /// something a caller can *observe* rather than a claim in a comment: the
@@ -187,6 +190,7 @@ pub fn update(
 
     validate_structure(&state, limits)?;
     validate_governed(&state, &batch.touched, schemas)?;
+    validate_scientific(&state, limits)?;
 
     state.revision = experiment.revision().next();
     let report = CommitReport {
@@ -235,6 +239,7 @@ pub fn restore(
     let mut state = (*checkpoint.0).clone();
     validate_structure(&state, limits)?;
     validate_restorable(&state, schemas)?;
+    validate_scientific(&state, limits)?;
 
     state.revision = experiment.revision().next();
     let report = CommitReport {
@@ -414,16 +419,38 @@ fn apply(
             variable_mut(state, *variable)?.description = description.clone();
         }
         ExperimentCommand::SetDomain(domain) => {
-            setup_mut(state).domain = *domain;
+            let Setup::Legacy(setup) = setup_mut(state) else {
+                return Err(Rejection::Scientific(
+                    crate::scientific::ScientificError::Reinitialize,
+                ));
+            };
+            setup.domain = *domain;
         }
         ExperimentCommand::SetTimeStep(time_step) => {
-            setup_mut(state).time_step = *time_step;
+            setup_mut(state).set_time_step(*time_step);
         }
         ExperimentCommand::SetPluginEnabled { plugin, enabled } => {
-            setup_mut(state)
-                .plugins
-                .set_enabled(plugin.clone(), *enabled);
+            let Setup::Legacy(setup) = setup_mut(state) else {
+                return Err(Rejection::Scientific(
+                    crate::scientific::ScientificError::Mismatch,
+                ));
+            };
+            setup.plugins.set_enabled(plugin.clone(), *enabled);
         }
+        ExperimentCommand::AdoptScientificSetup(setup) => {
+            *setup_mut(state) = Setup::Scientific(std::sync::Arc::clone(setup));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_scientific(
+    state: &ExperimentState,
+    limits: &Limits,
+) -> Result<(), Rejection> {
+    if let Some(setup) = state.setup.scientific() {
+        let variables = compile_document_variables(state, limits)?;
+        setup.validate_candidate(state, &variables, limits)?;
     }
     Ok(())
 }
@@ -624,6 +651,25 @@ pub fn resolve_variables(
         values.insert(name, value.magnitude());
     }
     Ok(values)
+}
+
+/// Build the dimension-aware variable context for a captured authoring effect.
+/// Reuses document validation and its caller-owned bounds; no scientific guest
+/// executes here. The resulting owned context cannot mutate the document.
+pub fn variable_context(
+    snapshot: &crate::model::ExperimentSnapshot,
+    limits: &Limits,
+) -> Result<VariablesSystem, Rejection> {
+    if snapshot.variable_count() > limits.max_variables {
+        return Err(Rejection::TooManyVariables {
+            found: snapshot.variable_count(),
+            limit: limits.max_variables,
+        });
+    }
+    for definition in snapshot.variables().values() {
+        check_expression_length(&definition.qualified_name(), &definition.expression, limits)?;
+    }
+    compile_document_variables(snapshot.state(), limits)
 }
 
 /// Compile and prove *every* definition a document carried.

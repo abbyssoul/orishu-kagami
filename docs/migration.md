@@ -32,6 +32,23 @@ clear in the combined product.
 
 ## Field CAD extraction candidates
 
+Implementation checkpoint: the [reference classical symplectic Euler Component](../plugins/reference/README.md)
+uses the shared WIT and standard packets and has actual-Wasm numerical evidence.
+Field CAD's kick-before-drift and force/inertial-mass ownership informed it; its
+native registry, persisted `pinned` branch and relativistic momentum machinery were
+not copied. This is a deliberately named classical contribution, not high-speed
+Field CAD parity. Relativistic/Verlet alternatives require their own explicitly
+selected contribution and compatible execution profile.
+
+The separate Newtonian reference now retains Field CAD's direct point-source
+superposition, exclusion-radius undefinedness, independent gravitational coupling,
+and acceleration/potential/Jacobian observables. Natural state has no sources;
+each advance snapshots committed input source positions. It has actual Component
+coupling/restart tests with Euler, not a worker runtime or scene authoring port.
+Uniform-sphere interiors and other source shapes remain separate extensions, not
+silent approximations by point sources. See the reference workspace for exact
+formats, phase convention and remaining generic sampling/packaging work.
+
 The following work is valuable, but each item needs a deliberate interface and
 tests before migration:
 

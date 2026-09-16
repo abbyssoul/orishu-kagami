@@ -54,7 +54,7 @@ use crate::id::{ExperimentRevision, ObjectId};
 use crate::model::ExperimentSnapshot;
 use crate::name::DisplayName;
 use crate::object::{AuthoredValue, ComponentProperties, ObjectSpec, PropertyValue};
-use crate::setup::{Domain, Setup, TimeStep};
+use crate::setup::{Domain, SetupDescription, TimeStep};
 use crate::variable::{VariableId, VariableSpec};
 
 /// The version of the representation in this module.
@@ -62,7 +62,11 @@ use crate::variable::{VariableId, VariableSpec};
 /// Bumped when an existing message's meaning changes, not when a variant is
 /// added. Carried on [`WireSnapshot`] so a reader can refuse a message from a
 /// future it does not understand rather than misreading it.
-pub const WIRE_VERSION: u32 = 1;
+/// Version 2 adds exact provider-qualified component identities. Legacy logical
+/// spellings remain readable but never resolve to exact pins implicitly.
+/// Version 3 adds scientific setup read projections with external state
+/// descriptors. Initialization results are not ordinary wire commands.
+pub const WIRE_VERSION: u32 = 3;
 
 /// Why a well-formed message could not be converted into a command.
 ///
@@ -387,8 +391,12 @@ pub enum WireCommand {
 
 impl WireCommand {
     /// Encode a command.
-    pub fn of(command: &ExperimentCommand) -> Self {
-        match command {
+    /// Returns `None` for captured scientific effect results, which require a
+    /// document/revision guard and separately bounded blob transfer, not JSON
+    /// byte arrays disguised as an ordinary editing intent.
+    pub fn of(command: &ExperimentCommand) -> Option<Self> {
+        Some(match command {
+            ExperimentCommand::AdoptScientificSetup(_) => return None,
             ExperimentCommand::CreateObject(spec) => Self::CreateObject {
                 spec: Box::new(WireObjectSpec::of(spec)),
             },
@@ -475,7 +483,7 @@ impl WireCommand {
                 plugin: plugin.clone(),
                 enabled: *enabled,
             },
-        }
+        })
     }
 
     /// Decode into a command, resolving identities against `snapshot`.
@@ -624,7 +632,7 @@ pub struct WireSnapshot {
     /// Every object, in identity order.
     pub objects: Vec<WireObject>,
     /// The numerical setup and plugin composition.
-    pub setup: Setup,
+    pub setup: SetupDescription,
 }
 
 impl WireSnapshot {
@@ -653,7 +661,7 @@ impl WireSnapshot {
                         .collect(),
                 })
                 .collect(),
-            setup: snapshot.setup().clone(),
+            setup: SetupDescription::of(snapshot.setup()),
         }
     }
 }

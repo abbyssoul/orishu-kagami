@@ -13,6 +13,31 @@ license = "Apache-2.0"
 repository = "https://github.com/abbyssoul/orishu-kagami"
 
 [workspace.dependencies]
+# --- Embedded MCP server (apps/kagami only; see apps/kagami/src/mcp) ---
+# These are attached to the Kagami app alone: the MCP server has exactly one
+# caller and no library crate under crates/ may depend on an async runtime,
+# network, or the MCP SDK (crates/kagami-session/tests/dependencies.rs enforces
+# that budget). The task referenced rmcp 3.2.0; 3.3.0 is the current compatible
+# release and the one adopted here — its Streamable HTTP server API, loopback
+# `allowed_hosts` default, session-table visibility, request-body cap, and
+# cancellation-token integration were verified against its vendored source
+# before adoption.
+rmcp = { version = "3.3", default-features = false, features = [
+    "server",
+    "transport-streamable-http-server",
+    "macros",
+] }
+# Current-thread runtime for the dedicated MCP OS thread; net/time drivers for
+# the TCP listener and graceful shutdown.
+tokio = { version = "1", features = ["rt", "net", "time", "io-util"] }
+# `CancellationToken`, the cooperative stop signal for the serve loop.
+tokio-util = "0.7"
+# HTTP host for the rmcp Streamable HTTP Tower service. Pinned to the axum
+# version rmcp itself pins for its Streamable HTTP transport tests, so the
+# http/http-body/tower-service traits both sides use are the same impls.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+# Fresh per-enable bearer credential (v4 UUID), never persisted.
+uuid = { version = "1", features = ["v4"] }
 bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive", "env"] }
 criterion = "0.8.2"
@@ -30,6 +55,7 @@ orishu-plugin = { path = "crates/orishu-plugin" }
 orishu-resource = { path = "crates/orishu-resource" }
 orishu-variables = { path = "crates/orishu-variables" }
 orishu-workload = { path = "crates/orishu-workload" }
+orishu-runtime = { path = "crates/orishu-runtime" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1", features = ["derive", "rc"] }
 # `float_roundtrip` is load-bearing, not a tuning choice: without it

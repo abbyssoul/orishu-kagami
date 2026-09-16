@@ -2,6 +2,8 @@ mod client_assembly;
 mod config;
 #[cfg(feature = "observability")]
 mod diagnostics;
+#[cfg(unix)]
+mod scientific_api;
 
 #[cfg(all(test, unix))]
 mod client_flow_tests;
@@ -865,6 +867,10 @@ struct Cli {
     #[arg(long, env = "ORISHU_STATE_DIR")]
     state_dir: Option<PathBuf>,
 
+    /// Enable experimental locked-single-node workload admission and receipt APIs.
+    #[arg(long = "scientific.enabled", env = "ORISHU_SCIENTIFIC_ENABLED", action = clap::ArgAction::Set)]
+    scientific_enabled: Option<bool>,
+
     /// Non-unique worker label.
     #[arg(long, env = "ORISHU_WORKER_NAME")]
     name: Option<orishu_membership::WorkerName>,
@@ -1026,6 +1032,35 @@ async fn main() {
     let log = logging.as_ref().map(|(log, _)| log.clone());
     let (state, owner_task) = state.start();
     let state = Arc::new(state);
+    #[cfg(unix)]
+    if runtime.scientific.enabled == Some(true) {
+        let directory = runtime
+            .state_dir
+            .clone()
+            .expect("finalized state directory");
+        let prepared = tokio::task::spawn_blocking(move || {
+            let receipts = orishu_worker::workload_receipts::ReceiptStore::open(&directory)
+                .map_err(|_| "cannot open scientific receipt history")?;
+            let sandbox = orishu_runtime::Sandbox::new(Default::default())
+                .map_err(|_| "cannot initialize scientific sandbox")?;
+            Ok::<_, &'static str>((receipts, Arc::new(sandbox)))
+        })
+        .await;
+        let (receipts, sandbox) = match prepared {
+            Ok(Ok(value)) => value,
+            _ => {
+                eprintln!("scientific serving initialization failed");
+                std::process::exit(2);
+            }
+        };
+        if state
+            .install_load_coordinator(receipts, sandbox, Default::default())
+            .is_err()
+        {
+            eprintln!("scientific coordinator installation failed");
+            std::process::exit(2);
+        }
+    }
     #[cfg(feature = "formation-fault-test")]
     if cli.test_drop_next_departure {
         state.test_drop_next_departure().await;
@@ -1092,6 +1127,8 @@ async fn main() {
     let mut server_handles: Vec<ServerHandle> = Vec::new();
     let mut tasks: Vec<JoinHandle<()>> = Vec::new();
     let mutation_capacity = Arc::new(tokio::sync::Semaphore::new(16));
+    #[cfg(unix)]
+    let scientific_capacity = Arc::new(tokio::sync::Semaphore::new(8));
     let inspection_capacity = Arc::new(tokio::sync::Semaphore::new(16));
     #[cfg(feature = "otlp-tracing")]
     let tracing = tracing.map(|(queue, exporter)| {
@@ -1179,6 +1216,8 @@ async fn main() {
                     capacity: mutation_capacity.clone(),
                 }),
             );
+        #[cfg(unix)]
+        let router = scientific_api::routes(router, state.clone(), scientific_capacity.clone());
         let service = Service::new(router);
         #[cfg(feature = "otlp-tracing")]
         let service = if let Some((queue, _, _, _)) = &tracing {
@@ -1461,6 +1500,9 @@ fn resolve_runtime_config(cli: &Cli) -> Result<RuntimeConfig, String> {
     };
 
     runtime.apply_cli(&cli.listen, cli.tls_cert.as_deref(), cli.tls_key.as_deref());
+    if let Some(enabled) = cli.scientific_enabled {
+        runtime.scientific.enabled = Some(enabled);
+    }
     runtime.tracing.overlay(&cli.tracing);
     runtime.logging.overlay(&cli.logging);
     if let Some(enabled) = cli.observability_enabled {

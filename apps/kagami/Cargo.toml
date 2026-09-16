@@ -24,5 +24,29 @@ kagami-catalog.workspace = true
 kagami-document.workspace = true
 kagami-session.workspace = true
 orishu.workspace = true
+orishu-plugin.workspace = true
+# Actual local field/history initialization uses the worker's sandbox; no native
+# numerical implementation or runtime dependency is added to document/session.
+orishu-runtime.workspace = true
+orishu-workload.workspace = true
+orishu-variables.workspace = true
 env_logger = "0.11"
 log = "0.4"
+
+# Embedded, loopback-only MCP server (src/mcp). Kept app-local: no crate under
+# crates/ gains these. See the workspace manifest for the version rationale.
+rmcp.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+axum.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# App-local package IO: safe descriptor-relative, no-follow opens/atomic rename.
+# Pin the already-resolved version; no filesystem capability enters shared types.
+rustix = { version = "=1.1.4", features = ["fs"] }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -6,10 +6,21 @@
 //! ordinary functions over values; only `view` needs a window.
 
 pub mod document;
+pub mod export;
 pub mod launch;
+pub mod mcp;
 pub mod message;
 pub mod model;
+#[cfg(unix)]
+pub mod physics_form;
+pub mod plugins;
+#[cfg(unix)]
+pub mod scientific;
+#[cfg(unix)]
+pub mod scientific_effect;
 pub mod subscription;
 pub mod update;
 pub mod view;
 pub mod viewport;
+#[cfg(unix)]
+pub mod workload;

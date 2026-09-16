@@ -1,0 +1,11 @@
+[package]
+name = "orishu-dynamics-contract-fixture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "=0.57.1", default-features = false, features = ["macros", "realloc", "std"] }

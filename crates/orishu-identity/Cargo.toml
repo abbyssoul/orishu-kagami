@@ -15,4 +15,11 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# The tests pin the serialized wire contract against real bytes in both a
+# human-readable and a binary codec, because the one place the two encodings
+# differ — a fingerprint is hex text in JSON and a byte string in CBOR — is this
+# crate's own `is_human_readable` logic. `cargo_metadata` lets the dependency
+# budget be a test rather than a review note.
 serde_json.workspace = true
+ciborium = "0.2.2"
+cargo_metadata = "0.23"

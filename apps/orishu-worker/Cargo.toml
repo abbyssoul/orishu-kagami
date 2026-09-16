@@ -55,6 +55,10 @@ reqwest = { version = "=0.13.4", default-features = false, features = ["rustls-n
 ciborium = "=0.2.2"
 thiserror = { workspace = true }
 orishu-membership = { workspace = true }
+# Shared scientific admission; no worker-side plugin installation or second engine.
+orishu-plugin = { workspace = true }
+orishu-workload = { workspace = true }
+orishu-runtime = { workspace = true }
 # Reuse the workspace's existing Quinn/rustls versions and crypto provider.
 quinn = { version = "=0.11.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
 rustls = { version = "=0.23.44", default-features = false, features = ["std", "aws_lc_rs"] }

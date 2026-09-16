@@ -1,0 +1,45 @@
+{
+  "format": "kagami.experiment",
+  "formatVersion": 4,
+  "metadata": {
+    "generator": "kagami test",
+    "created": "2026-09-16T00:00:00Z",
+    "saved": "2026-09-16T00:00:00Z",
+    "savedRevision": 0
+  },
+  "experiment": {
+    "counters": {
+      "objects": 0,
+      "variables": 0
+    },
+    "setup": {
+      "apiVersion": "kagami.scientific-setup/v1",
+      "timeStep": 0.001,
+      "domain": {
+        "apiVersion": "orishu.simulation.domain/v1",
+        "lowerMetres": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "upperMetres": [
+          1.0,
+          2.0,
+          1.0
+        ],
+        "discretization": {
+          "kind": "continuous"
+        }
+      },
+      "selection": {
+        "apiVersion": "orishu.plugin-selection/v1",
+        "roots": [],
+        "contributions": [],
+        "bindings": [],
+        "kernelInstances": [],
+        "releaseEvidence": []
+      },
+      "kernels": []
+    }
+  }
+}

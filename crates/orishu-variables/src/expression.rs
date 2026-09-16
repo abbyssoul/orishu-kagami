@@ -148,9 +148,12 @@ impl<'a> Lexer<'a> {
             let c = bytes[self.pos] as char;
             let dot_continues_identifier = c == '.'
                 && self.pos + 1 < bytes.len()
-                && ((bytes[self.pos + 1] as char).is_alphanumeric()
+                && ((bytes[self.pos + 1] as char).is_ascii_alphanumeric()
                     || bytes[self.pos + 1] as char == '_');
-            if c.is_alphanumeric() || c == '_' || dot_continues_identifier {
+            // Classify raw bytes as ASCII only: a UTF-8 continuation byte cast to
+            // `char` must never look alphanumeric, or `self.pos` would advance into
+            // the middle of a multi-byte character and the slice below would panic.
+            if c.is_ascii_alphanumeric() || c == '_' || dot_continues_identifier {
                 self.pos += 1;
             } else {
                 break;
@@ -203,9 +206,13 @@ impl<'a> Iterator for Lexer<'a> {
         }
 
         let ch = bytes[self.pos] as char;
+        // A symbol starts on an ASCII letter or `_` only. A non-ASCII lead byte
+        // cast to `char` must fall through to `lex_operator`, which returns a
+        // structured `Syntax` error, rather than start a symbol the lexer would
+        // slice at a non-character boundary.
         if ch.is_ascii_digit() {
             Some(self.lex_number())
-        } else if ch.is_alphabetic() || ch == '_' {
+        } else if ch.is_ascii_alphabetic() || ch == '_' {
             Some(Ok(self.lex_symbol()))
         } else {
             Some(self.lex_operator())
@@ -825,6 +832,25 @@ mod tests {
     fn parse_rejects_malformed_syntax_with_span() {
         assert!(CompiledExpression::parse("2+").is_err());
         assert!(CompiledExpression::parse("(1+2").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_non_ascii_input_as_syntax_rather_than_panicking() {
+        // A non-ASCII character used to be cast byte-by-byte to `char`, classed
+        // as alphanumeric, and sliced at a non-character boundary — a panic on
+        // untrusted input. Every valid symbol, unit, and operator is ASCII, so a
+        // non-ASCII character is a structured syntax error. Found by fuzzing.
+        for source in [
+            "(\u{0658}",
+            "\u{0658}",
+            "1 + \u{00b5}",
+            "a.\u{00e9}",
+            "kg\u{00b5}m",
+        ] {
+            let error = CompiledExpression::parse(source)
+                .expect_err("non-ASCII input is refused, never parsed");
+            assert!(matches!(error.kind, ExprParsingErrorKind::Syntax));
+        }
     }
 
     #[test]

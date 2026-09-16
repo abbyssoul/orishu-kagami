@@ -40,6 +40,8 @@ description = "Kagami's document server: the sole mechanism by which an experime
 kagami-catalog = { workspace = true }
 kagami-document = { workspace = true }
 orishu-variables = { workspace = true }
+# Pure declaration witnesses and strict archive framing for captured documents.
+orishu-plugin = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

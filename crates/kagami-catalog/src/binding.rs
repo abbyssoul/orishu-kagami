@@ -473,9 +473,18 @@ impl CatalogProjection {
 
     /// Evaluate a binding to its canonical SI magnitude.
     pub fn value(&self, reference: BindingRef) -> Result<f64, VariablesError> {
-        self.variables
-            .value(self.variable_ids[reference.0])
+        self.quantity(reference)
             .map(|quantity| quantity.magnitude())
+    }
+
+    /// Evaluate without discarding the dimension derived from authored units.
+    /// A dimensionless value can still mean the component's canonical SI unit;
+    /// a dimensioned expression must agree with the selected declaration.
+    pub fn quantity(
+        &self,
+        reference: BindingRef,
+    ) -> Result<orishu_variables::quantity::Quantity, VariablesError> {
+        self.variables.value(self.variable_ids[reference.0])
     }
 
     /// The variable environment the catalog publishes into, for a caller

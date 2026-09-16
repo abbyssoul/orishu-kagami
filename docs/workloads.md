@@ -19,6 +19,12 @@ workload = compute definition
 The workload is the input to a run. It is not the running cluster state and it
 is not the results produced by that run.
 
+The worker assigns each execution a separate [immutable run descriptor](run-descriptor-v1.md)
+binding formation identity, the verified workload digest and an owner-allocated
+workload epoch. Executing the same exported bytes again does not change their
+workload identity; it produces another run identity. This runtime-produced record
+is not inserted into the submitted workload closure.
+
 ## What a workload contains
 
 | Part | Meaning |
@@ -30,7 +36,9 @@ is not the results produced by that run.
 | Requirements | The runtime lifecycle, numerical/determinism profile, hardware needs, resource limits, and compatibility rules workers must satisfy. |
 
 The manifest is written in the
-[shared resource envelope](resource-envelope.md) — `apiVersion: orishu.dev/v2`,
+[shared resource envelope](resource-envelope.md) — `apiVersion: orishu.dev/v2`
+for the existing format or `orishu.dev/v3` for the
+[composed scientific extension](workload-v3.md),
 `kind: Workload` — which makes it familiar to read and inspect alongside every
 other resource. Workload identity, however, is not generic resource metadata;
 see [The schema](#the-schema) and
@@ -165,7 +173,7 @@ missing input blobs.
 
 ## The schema
 
-A workload is `apiVersion: orishu.dev/v2`, `kind: Workload`, in the
+The stable v2 schema below is `apiVersion: orishu.dev/v2`, `kind: Workload`, in the
 [shared resource envelope](resource-envelope.md). It is implemented by
 `crates/orishu-workload`, which is deliberately the only definition: Kagami's
 compilation and Orishu's admission will both consume these exact types, so no
@@ -260,6 +268,13 @@ discretisation, unit-typed rather than canonical-SI quantities, and the
 expression-bearing fields described under
 [the client protocol](protocol-client.md). A manifest carries resolved
 magnitudes until the variables integration lands.
+
+The [v3 composed extension](workload-v3.md) keeps the graph and immutable identity
+rules, but pins selected/captured scientific descriptors instead of v2's global
+domain/discretization shape. Its structural codec, fixed scientific-profile
+compiler/verifier and actual shared runtime admission are implemented. Kagami's
+Unix [headless captured-document export](workload-bundle-v1.md) now packages the
+exact closure; window controls and worker/product adoption remain open.
 
 ## Canonical encoding and identity
 
@@ -391,8 +406,10 @@ workloads, while a full bundle preserves the “copy one file and run it” user
 experience.
 
 ADR 0010 accepts this separation and allows multiple distribution formats. The
-first portable archive encoding remains an implementation choice to be measured
-against OCI Image Layout rather than part of workload identity. See
+first [portable archive encoding](workload-bundle-v1.md) is now a strict stored ZIP
+with a canonical root and exact blob closure, selected after a framing-size
+comparison with OCI Image Layout. Unix `kagami export` implements this path for
+captured fixed-membership experiments; worker upload/run endpoints remain open. See
 [ADR 0010](./adr/0010-content-addressed-workload-closure-and-portable-bundles.md).
 
 ## Identity and provenance

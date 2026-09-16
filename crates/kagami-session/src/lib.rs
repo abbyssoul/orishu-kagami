@@ -112,6 +112,7 @@
 
 pub mod authority;
 pub mod command;
+pub mod container;
 pub mod default_view;
 pub mod document;
 pub mod identity;

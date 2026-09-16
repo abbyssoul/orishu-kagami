@@ -593,8 +593,15 @@ fn setup_edits_are_ordinary_commands() {
     );
 
     let snapshot = experiment.snapshot();
-    assert_eq!(snapshot.setup().time_step.seconds(), 1.0e-9);
-    assert!(snapshot.setup().plugins.is_enabled(&plugin()));
+    assert_eq!(snapshot.setup().time_step().seconds(), 1.0e-9);
+    assert!(
+        snapshot
+            .setup()
+            .legacy()
+            .unwrap()
+            .plugins
+            .is_enabled(&plugin())
+    );
 
     let (experiment, _) = commit(
         &experiment,
@@ -603,7 +610,15 @@ fn setup_edits_are_ordinary_commands() {
             enabled: false,
         }],
     );
-    assert!(experiment.snapshot().setup().plugins.is_empty());
+    assert!(
+        experiment
+            .snapshot()
+            .setup()
+            .legacy()
+            .unwrap()
+            .plugins
+            .is_empty()
+    );
 }
 
 #[test]

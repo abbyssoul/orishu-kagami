@@ -1,0 +1,125 @@
+package orishu:simulation@1.0.0;
+
+/// Portable execution ABI, distinct from plugin-owned scientific schemas.
+/// These errors carry no arbitrary guest-controlled allocation or diagnostic text.
+interface types {
+    enum kernel-error {
+        invalid-input,
+        incompatible-state,
+        inadmissible-timestep,
+        limit-exceeded,
+        unsupported,
+        numerical-failure,
+    }
+
+    /// A guest-local session token, never persisted as scientific state.
+    type session = u64;
+
+    /// All IDs are supplied and bounded by the runtime, never selected by guests.
+    record step-context {
+        workload: string,
+        run: string,
+        epoch: u64,
+        boundary: u64,
+        invocation: u64,
+        partition: string,
+        coverage: string,
+        time-seconds: f64,
+        dt-seconds: f64,
+    }
+
+    /// Advice cannot change the workload timestep. Absence is not an upper bound.
+    record timestep-advice {
+        upper-bound-seconds: option<f64>,
+        recommended-seconds: option<f64>,
+    }
+    variant admissibility {
+        admissible(option<timestep-advice>),
+        rejected(kernel-error),
+    }
+}
+
+/// No ambient filesystem, clock, random source, network, logging or guest lookup.
+/// Resources are host-created, borrowed and bound to one invocation. Payload
+/// formats and physical units come from the admitted descriptor, not the handle.
+interface buffers {
+    /// Fixed physical frame bounds canonical lifting before any host callback.
+    /// Only the explicit prefix length is data; remaining bytes are padding.
+    type write-frame = list<u8, 65536>;
+    enum access-error {
+        invalid-handle,
+        out-of-bounds,
+        limit-exceeded,
+        finished,
+        incomplete,
+    }
+    record descriptor {
+        schema: string,
+        byte-length: u64,
+        value-count: u64,
+    }
+    resource input {
+        describe: func() -> descriptor;
+        read-chunk: func(offset: u64, length: u32) -> result<list<u8>, access-error>;
+    }
+    resource output {
+        /// True: describe gives the required exact extent. False: it gives
+        /// independent byte/value ceilings; finish supplies the actual extent.
+        /// The host chooses this policy, never the guest.
+        is-exact: func() -> bool;
+        describe: func() -> descriptor;
+        write-chunk: func(offset: u64, length: u32, bytes: write-frame) -> result<_, access-error>;
+        /// Writes must cover exactly the length passed to finish. Exact grants
+        /// additionally require their entire declared extent; bounded grants may
+        /// finish below either ceiling. A successful finish makes a
+        /// candidate eligible for host validation, never publishes a boundary.
+        finish: func(byte-length: u64, value-count: u64) -> result<_, access-error>;
+    }
+}
+
+interface common {
+    use types.{session, kernel-error, admissibility};
+    use buffers.{input, output};
+    /// Context includes exact artifact/contribution/state-format/profile/limits.
+    /// Config contains resolved immutable parameters. Setup is disposable only.
+    setup: func(context: borrow<input>, config: borrow<input>) -> result<session, kernel-error>;
+    load: func(session: session, state: borrow<input>) -> result<_, kernel-error>;
+    /// Inputs include authored dt, completed experiment and relevant projections.
+    validate: func(session: session, inputs: borrow<input>) -> admissibility;
+    checkpoint: func(session: session, state: borrow<input>, output: borrow<output>) -> result<_, kernel-error>;
+    restore: func(session: session, state: borrow<input>) -> result<_, kernel-error>;
+    close: func(session: session) -> result<_, kernel-error>;
+}
+
+interface field-kernel {
+    use types.{session, kernel-error, step-context};
+    use buffers.{input, output};
+    /// Deliberately has no coupled entities: constructs natural initial state.
+    initialize: func(session: session, domain: borrow<input>, output: borrow<output>) -> result<_, kernel-error>;
+    advance: func(session: session, context: step-context, prior: borrow<input>, entities: borrow<input>, field: borrow<output>, forces: borrow<output>) -> result<_, kernel-error>;
+    /// Host instantiates an isolated guest with a leased committed snapshot.
+    /// Query contains points/channels; output is flat values/validity/quality.
+    sample: func(session: session, query: borrow<input>, snapshot: borrow<input>, output: borrow<output>) -> result<_, kernel-error>;
+}
+
+interface dynamics-kernel {
+    use types.{session, kernel-error, step-context};
+    use buffers.{input, output};
+    initialize-history: func(session: session, entities: borrow<input>, history: borrow<output>) -> result<_, kernel-error>;
+    transition-entities: func(session: session, context: step-context, births: borrow<input>, deaths: borrow<input>, prior-history: borrow<input>, history: borrow<output>) -> result<_, kernel-error>;
+    integrate: func(session: session, context: step-context, entities: borrow<input>, forces: borrow<input>, prior-history: borrow<input>, next-entities: borrow<output>, history: borrow<output>) -> result<_, kernel-error>;
+}
+
+/// Exact WIT spelling for the logical orishu:simulation/field@1 contract.
+world field {
+    import buffers;
+    export common;
+    export field-kernel;
+}
+
+/// Exact WIT spelling for the logical orishu:simulation/dynamics@1 contract.
+world dynamics {
+    import buffers;
+    export common;
+    export dynamics-kernel;
+}

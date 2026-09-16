@@ -20,6 +20,24 @@ kagami-document    this crate                    <- pure, sans-IO
 
 ## What it owns
 
+`Setup` is now an explicit `Legacy` or `Scientific` variant. Scientific setup
+retains exact selected declarations and immutable captured field/history buffers.
+`AdoptScientificSetup` is a normal atomic edit; final configuration expressions and
+history-source object projections are validated with the candidate. A parameter
+or dynamic-object change needing new capture must include that replacement in
+the same batch. Undo restores shared bytes without invoking kernels.
+
+`kagami-session` now persists scientific setup through its
+[v4 blob container](../../docs/experiment-container-v4.md); bare legacy JSON encoding
+still refuses it rather than dropping blobs. Model wire version 3
+provides metadata/digest read projections, while capture results intentionally
+have no ordinary JSON command representation. The effect adapter, document-identity
+guard and pending-effect/IO reservations remain integration work. `ScientificRetention`
+provides a transient shared-allocation tally for the session's aggregate ceiling,
+using exact buffer lengths and cached canonical metadata weight, not a total-RSS
+measurement or a persisted allocation identity.
+Numerical validity and permission to execute remain runtime obligations.
+
 | Module | Responsibility |
 | --- | --- |
 | `id` | stable identities, and the counters that mint them |
@@ -56,6 +74,18 @@ persistence, transports, presentation state, or any part of a run.
   affected entity or property path, and a human explanation, because an
   automation client has to repair its input and cannot parse prose to do it.
 
+## Numerical projection
+
+The `projection` module now derives fixed-profile numerical packets from one
+scientific snapshot using retained exact plugin declarations, not component names
+or installation defaults. It resolves authored quantities, preserves static objects,
+checks output budgets before packet allocation and shares captured field/history
+buffers. Exact selected component/property intent is compiled into a shared scene
+artifact alongside numerical packets, including additive data and retained source
+evidence. Unknown providers/properties and incompatible Dynamics are refused.
+Code availability/whole-workload/runtime admission remain separate; emitters and
+dynamic membership still require their explicit schema/profile extension.
+
 ## Units, and what is deferred
 
 An authored quantity names its unit *beside* the expression rather than inside
@@ -76,3 +106,15 @@ explicit `expression_unresolved` rejection, never a silent zero.
 - [Kagami document programme](../../docs/tasks/kagami/README.md) — this crate is
   task K1; the document server, persistence, variables, catalog instantiation
   and app adoption follow.
+
+## Benchmarks
+
+```sh
+cargo bench -p kagami-document --bench document
+```
+
+The benchmark measures the validated `update` transition over synthetic
+`CreateObject` batches: one shape applies a whole batch to an empty experiment,
+the other adds a single object to an experiment that already holds many, so a
+per-edit cost that grows with document size is visible. Sizes are overridable via
+`KAGAMI_DOCUMENT_BENCH_BATCH` and `KAGAMI_DOCUMENT_BENCH_EXISTING`.

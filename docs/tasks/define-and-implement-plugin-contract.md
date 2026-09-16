@@ -1,7 +1,13 @@
 # Define and implement the shared plugin contract
 
 Roadmap ID: **X-PLUGIN**. Status: **Concrete contract accepted 2026-09-16;
-slice 1 implemented (review pending); slices 2–6 and ABI/integration evidence pending**.
+slice 1 implemented; slice 2 resolution implemented with review pending;
+slice 3's bundle codec and initial Unix source/inventory/CLI implemented;
+remaining slice-3 hardening/parity and slices 4–6 plus ABI/integration evidence pending**.
+
+The active [end-to-end delivery ledger](x-plugin-delivery-ledger.md) tracks the
+requested Kagami management → selected workload export → actual Orishu execution
+outcome. It must not be closed merely because the shared contract resolves providers.
 
 The [accepted concrete v1 contract](../plugin-contract-v1-draft.md) settles R1–R8.
 Produce section 11's conformance artifacts in the owning implementation slices;
@@ -26,10 +32,23 @@ invent the remaining persisted formats or compatibility policies in code.
 Original seam audit: 2026-09-12; declaration/workload ownership rechecked during
 slice-1 implementation on 2026-09-16:
 
-- `crates/kagami-document/src/setup.rs` stores `PluginComposition` as a set of
-  logical catalog `PluginId`s, not immutable releases/contribution selections.
+- `crates/kagami-document/src/setup.rs` now distinguishes legacy logical-plugin/
+  global-domain setup from explicit captured scientific setup. Scientific adoption
+  is a validated, undoable document command; the legacy representation remains
+  the only shape accepted by the existing JSON file codec.
+- Persisted migration of global cell/boundary settings and legacy `DomainSpec`
+  to shared R3 domain/configuration inputs remains open.
+  Explicit version integration must preserve origin and authored boundary/grid
+  intent, rejecting incompatible selections instead of silently dropping settings.
+  Model-specific boundary policies are declared configuration, not global physics.
 - `crates/kagami-catalog/src/schema.rs` owns a component-keyed `SchemaRegistry`
-  whose insertion replaces a schema. It is not a provider-aware plugin inventory.
+  whose insertion replaces a schema. Exact component identities, verified schema
+  projection and scalar/text constraint enforcement are now implemented; Kagami's
+  `PluginStore::resolve_authoring` supplies schemas from the same verified inventory
+  snapshot used for selection. Unix startup now discovers component vocabulary,
+  applies process-only overrides and supplies it to the app's authority; Add uses
+  declared defaults as explicit commands. Dependency-choice dialogs, live reload
+  and open-document leases remain. The registry is not itself the provider inventory.
 - `crates/kagami-document/src/capability.rs` supplies structural capability checks,
   not the accepted exact scientific-contract compatibility protocol.
 - `crates/orishu-workload/src/ids.rs` and catalog types already have identifiers;
@@ -37,8 +56,59 @@ slice-1 implementation on 2026-09-16:
   proof that plugin release identity, packaging or compilation exists.
 - `crates/orishu-plugin` now implements slice 1's pure declarations, bounded
   readers, canonical identities and payload verification. It reuses workload
-  digest/CBOR primitives without changing workload bytes. No resolver, inventory,
-  authoring migration or runtime integration exists in this crate yet.
+  digest/CBOR primitives without changing workload bytes. Pure provider resolution
+  and stored-ZIP byte validation/packing now exist with focused tests. Kagami's
+  app-local Unix adapter supplies source-directory loading, a durable inventory,
+  leases and CLI management. [Current limitations](../plugin-authoring-tools.md)
+  include source-local symbolic compilation, origin capture, management UI/MCP
+  adoption, non-Unix IO and exhaustive crash injection. Exact pins are supported by
+  catalog v2 / experiment JSON v3, with explicit old-format compatibility. Captured
+  candidate initialization is now connected to installed selected artifacts through
+  the app-local worker sandbox adapter, with exact release leases and shared context
+  projection. Atomic document adoption/final configuration-history validation now
+  exists. [Scientific file v4](../experiment-container-v4.md) now persists exact
+  selected declarations and captured blobs through the durable store, with offline
+  reopening and no executable code embedded. Authority retention now spans live
+  captured state, undo/redo and replay receipts, with atomic refusal and disposable
+  replay-prefix eviction. The Unix inspector now reinitializes a captured field
+  through a bounded background job, with document/revision/mode and final
+  inventory guards. The same lane now creates/replaces a whole scientific setup,
+  initializing fields independently and history from current dynamic objects;
+  the Unix form accepts explicit models/domain/grid/timestep and uses declared
+  compute defaults or schema-driven quantity/boolean/text overrides. Copying
+  captured settings retains exact pins/instance IDs/policies without execution.
+  Targeted field-parameter editing, dependency-choice UI and scientific MCP parity,
+  remaining effect/IO reservations, full authoring migration and runtime product
+  integration remain. An internal
+  document numerical projection now resolves exact Dynamics/source/response roles
+  and passes persisted captures plus prepared selected code to the shared compiler.
+  Its v4-reopen-to-runtime test advances real Newtonian/Euler kernels; unsupported
+  components refuse. Scene-bearing execution v2 now includes shared entity
+  composition, additive data and source evidence with independent packet agreement
+  checks. Unix headless `kagami export` now publishes a new self-contained
+  [portable workload](../workload-bundle-v1.md) from captured files; the actual
+  CLI output is admitted/advanced with real kernels without an inventory in tests.
+  Emitter/dynamic-membership support, window export, client submission and public run control
+  remain open; this does not complete the whole application workflow.
+- Worker-side execution is now implemented behind an internal adapter:
+  [O-RUNTIME](implement-single-node-workload-runtime.md) verifies the portable
+  closure, admits the selected Components, retains the fixed-step executor and
+  publishes boundaries through the formation owner. The owner assigns the
+  [immutable run descriptor](../run-descriptor-v1.md), with real bootstrap/restart
+  evidence. A lease-bound async body receiver now verifies announced length,
+  EOF, host byte/deadline limits and expected root before epoch allocation/JIT;
+  a real socket-body test reaches retained execution. An internal bounded Unix
+  [load-receipt journal](../run-load-receipts-v1.md) now persists pending intent and
+  final history, with conservative restart recovery and exact retry/conflict tests.
+  The internal daemon coordinator now composes receipt intent, fenced admission
+  and exact-identity retained run ownership independently of response futures.
+  Explicit `RunningWorker` installation and shutdown/drop revocation are tested.
+  Explicitly enabled serving now installs it and exposes bounded authenticated
+  [load/receipt/current-run routes](../protocol-scientific-load-v1.md).
+  The shared bounded scientific client now submits/looks up/discovers runs with
+  exact receipt correlation and real-worker restart evidence.
+  Public run control/observations, Kagami submission adapters and the complete
+  Kagami-to-daemon workflow remain open.
 - `crates/orishu-workload/src/graph.rs` exposes `ComponentInstance` with a list
   of roles. These are existing API/format names, not proof of the new one-execution-
   contract-per-kernel rule. Reconcile role/phase metadata with a kernel's contract
@@ -191,10 +261,29 @@ security follow-up and post-launch registry work do not block this local MVP.
    selected transitive closure and independently validate it at admission. Preserve
    graph/state ownership and dynamics integration semantics. No worker plugin
    installer and no dependency on Kagami inventory/catalog files at execution.
+   The [pure selected compiler/verifier](../plugin-selected-closure.md) now exists:
+   canonical root evidence, selected-byte closure and exact dependency/role checks.
+   The [v3 root and captured execution descriptor](../workload-v3.md) now provide
+   the versioned seam, with exact selected-context checks, fixed-profile graph
+   compilation/verification and actual Component admission into the shared runtime.
+   Tests export independent vocabulary/solver releases and execute the selected
+   Newtonian/Euler kernels in a fresh runtime without an inventory. This is partial
+   slice delivery. Shared scene composition/source evidence now also survives
+   captured-document compilation and independent admission. Unix headless portable
+   export now feeds that path from actual saved files. Window export controls,
+   worker endpoints/delivery, emitter/dynamic-membership adoption and runtime
+   hardening remain required.
 6. **Product adapters and external-author journey.** Generic host-owned authoring
    controls, inventory UI/MCP parity, CLI documentation and an external plugin
    example using the same validation path as built-ins. No custom visual extension
    system. Track any deferred remote publication/management in a bounded follow-up.
+
+   The [reference packaging example](../../plugins/reference/README.md) now builds
+   independently compiled Newtonian/Euler local bundles using public release and
+   archive contracts. Real Kagami CLI installation/list/disable/enable is verified
+   in an isolated inventory. Generic bounded natural field/history capture is also
+   implemented; capacity is not a host-owned scientific layout. These do not close
+   document registry/export, UI/MCP parity or worker delivery/execution adapters.
 
 M1 owns specification/pure contract gates; M2 owns inventory and authoring/admission
 integration. Actual simulation proof also depends on O-WASM/O-RUNTIME and the
@@ -266,6 +355,19 @@ fixture, but a fixture must not be reported as a working physics plugin.
   use the pinned kernel and capture valid field state in one atomic revision.
   Test multi-field failure rollback and exact undo/redo without kernel reexecution;
   presentation changes and loading/export do not trigger reinitialization.
+  **Implemented subset:** the Unix inspector's single captured-field reset uses
+  the shared initializer and guarded document adoption. It preserves untouched
+  fields/history and refuses stale/cancelled work. Whole-setup replacement now
+  prepares every field/history before atomic adoption, with exact kernel/domain/
+  grid/timestep controls. Tests cover real Components, rollback after a later
+  initialization refusal, existing dynamic/static objects, save and portable
+  export. The complete-setup form now edits schema-driven parameters, copies
+  captured settings with exact pins, and passes retained inputs to the shared
+  compiler. It explicitly resets all initial fields/history on Apply. Targeted
+  parameter edits preserving unrelated field state, dependency-choice dialogs,
+  scientific MCP and history regeneration after entity edits remain outstanding. More than
+  one simultaneous field is supported by the adapter but not yet covered by a
+  real multi-field GUI integration fixture.
 
 - Field creation before/after entity creation produces the same initial setup
   given identical final authored values. Test a non-zero natural default, no

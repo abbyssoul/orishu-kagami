@@ -14,9 +14,19 @@ cargo-fuzz = true
 libfuzzer-sys = "=0.4.13"
 serde = "1"
 serde_json = "1"
+# CBOR decode for the resource discriminator target; pinned to the workspace version.
+ciborium = "=0.2.2"
 orishu-membership = { path = "../crates/orishu-membership" }
 orishu-worker = { path = "../apps/orishu-worker" }
 orishu = { path = "../crates/orishu" }
+orishu-identity = { path = "../crates/orishu-identity" }
+orishu-resource = { path = "../crates/orishu-resource" }
+orishu-variables = { path = "../crates/orishu-variables" }
+orishu-workload = { path = "../crates/orishu-workload" }
+orishu-plugin = { path = "../crates/orishu-plugin" }
+kagami-catalog = { path = "../crates/kagami-catalog" }
+kagami-document = { path = "../crates/kagami-document" }
+kagami-session = { path = "../crates/kagami-session" }
 
 [profile.release]
 debug = 1
@@ -46,6 +56,76 @@ bench = false
 [[bin]]
 name = "worker_catchup"
 path = "fuzz_targets/worker_catchup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "identity_types"
+path = "fuzz_targets/identity_types.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "resource_header"
+path = "fuzz_targets/resource_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "variables_expression"
+path = "fuzz_targets/variables_expression.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "workload_canonical"
+path = "fuzz_targets/workload_canonical.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plugin_declarations"
+path = "fuzz_targets/plugin_declarations.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plugin_bundle"
+path = "fuzz_targets/plugin_bundle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plugin_execution"
+path = "fuzz_targets/plugin_execution.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "document_wire"
+path = "fuzz_targets/document_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session_wire"
+path = "fuzz_targets/session_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "catalog_documents"
+path = "fuzz_targets/catalog_documents.rs"
 test = false
 doc = false
 bench = false

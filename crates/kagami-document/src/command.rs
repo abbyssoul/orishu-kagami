@@ -35,6 +35,10 @@ use crate::variable::{VariableId, VariableSpec};
 /// One authoring intent.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExperimentCommand {
+    /// Atomically adopt an explicitly chosen scientific setup and its captures.
+    /// Initialization is an external effect; the session must guard its document
+    /// identity and expected revision before submitting this ordinary edit.
+    AdoptScientificSetup(std::sync::Arc<crate::scientific::ScientificSetup>),
     /// Add an object. Its identity is minted by the model, not supplied.
     ///
     /// Boxed because a spec carries its initial components and is far larger
@@ -151,6 +155,7 @@ impl ExperimentCommand {
     /// A short name for this edit, in the user's terms.
     pub const fn label(&self) -> &'static str {
         match self {
+            Self::AdoptScientificSetup(_) => "Configure scientific setup",
             Self::CreateObject(_) => "Add object",
             Self::RemoveObject(_) => "Remove object",
             Self::RenameObject { .. } => "Rename object",

@@ -18,6 +18,9 @@ description = "The immutable Orishu workload manifest, its content-addressed art
 # them. `tests/dependencies.rs` asserts this against the resolved graph rather
 # than against the import list.
 [dependencies]
+# Installs `dhat`'s counting allocator for `examples/profile_workload.rs`.
+# Optional and never enabled by the library itself.
+dhat = { workspace = true, optional = true }
 orishu-resource = { workspace = true }
 serde = { workspace = true }
 # Identity. SHA-256 is the first (and currently only) digest algorithm, and the
@@ -33,3 +36,13 @@ serde_yaml = { workspace = true }
 
 [dev-dependencies]
 cargo_metadata = "0.23"
+criterion = { workspace = true }
+
+[features]
+# Installs `dhat`'s counting allocator for `examples/profile_workload.rs`.
+# Never enabled by the library itself.
+dhat = ["dep:dhat"]
+
+[[bench]]
+name = "workload"
+harness = false

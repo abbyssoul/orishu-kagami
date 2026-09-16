@@ -104,22 +104,13 @@ impl WorkerCredentials {
     /// not permission to regenerate identity. Only one worker may own a directory.
     #[cfg(unix)]
     pub fn load_or_create(path: &Path) -> Result<Self, CredentialError> {
-        use rustix::fs::{FlockOperation, Mode, OFlags};
+        use rustix::fs::FlockOperation;
         use std::io::{Read, Write};
         use std::os::unix::fs::DirBuilderExt;
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true).mode(0o700);
         builder.create(path)?;
-        let directory = rustix::fs::open(
-            path,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map_err(std::io::Error::from)?;
-        let stat = rustix::fs::fstat(&directory).map_err(std::io::Error::from)?;
-        if stat.st_uid != rustix::process::geteuid().as_raw() || stat.st_mode & 0o077 != 0 {
-            return Err(CredentialError::UnsafePath);
-        }
+        let directory = open_private_directory(path)?;
         let lock = open_private(&directory, "instance.lock", true)?;
         rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive)
             .map_err(std::io::Error::from)?;
@@ -184,6 +175,22 @@ impl WorkerCredentials {
 }
 
 #[cfg(unix)]
+pub(crate) fn open_private_directory(path: &Path) -> Result<rustix::fd::OwnedFd, CredentialError> {
+    use rustix::fs::{Mode, OFlags};
+    let directory = rustix::fs::open(
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(std::io::Error::from)?;
+    let stat = rustix::fs::fstat(&directory).map_err(std::io::Error::from)?;
+    if stat.st_uid != rustix::process::geteuid().as_raw() || stat.st_mode & 0o077 != 0 {
+        return Err(CredentialError::UnsafePath);
+    }
+    Ok(directory)
+}
+
+#[cfg(unix)]
 fn checked_file(fd: rustix::fd::OwnedFd) -> Result<std::fs::File, CredentialError> {
     let stat = rustix::fs::fstat(&fd).map_err(std::io::Error::from)?;
     if stat.st_uid != rustix::process::geteuid().as_raw()
@@ -197,7 +204,7 @@ fn checked_file(fd: rustix::fd::OwnedFd) -> Result<std::fs::File, CredentialErro
 }
 
 #[cfg(unix)]
-fn open_private(
+pub(crate) fn open_private(
     directory: &rustix::fd::OwnedFd,
     name: &str,
     create: bool,
@@ -218,7 +225,7 @@ fn open_private(
 }
 
 #[cfg(unix)]
-fn create_private(
+pub(crate) fn create_private(
     directory: &rustix::fd::OwnedFd,
     name: &str,
 ) -> Result<std::fs::File, CredentialError> {

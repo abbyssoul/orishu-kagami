@@ -216,8 +216,22 @@ impl Serialize for ArtifactDigest {
 
 impl<'de> Deserialize<'de> for ArtifactDigest {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = <&str>::deserialize(deserializer)?;
-        text.parse().map_err(serde::de::Error::custom)
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = ArtifactDigest;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a sha256 digest")
+            }
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Self::Value, E> {
+                // Support borrowed and scratch-backed JSON/YAML/CBOR strings
+                // without allocating attacker-sized diagnostics or retaining text.
+                if text.len() > 71 {
+                    return Err(E::custom("digest exceeds textual byte limit"));
+                }
+                text.parse().map_err(E::custom)
+            }
+        }
+        deserializer.deserialize_str(Visitor)
     }
 }
 
@@ -382,5 +396,36 @@ mod tests {
             serde_json::from_str::<ArtifactDigest>(&json).expect("it decodes"),
             digest
         );
+    }
+
+    #[test]
+    fn deserialization_accepts_owned_and_scratch_backed_strings() {
+        let digest = ArtifactDigest::sha256_of(b"owned");
+        assert_eq!(
+            serde_json::from_value::<ArtifactDigest>(serde_json::json!(digest.to_string()))
+                .unwrap(),
+            digest
+        );
+        // An escaped string uses the parser's scratch buffer, not a borrowed
+        // slice of the original source. Its canonical output stays unchanged.
+        let json = format!("\"\\u0073{}\"", &digest.to_string()[1..]);
+        assert_eq!(
+            serde_json::from_str::<ArtifactDigest>(&json).unwrap(),
+            digest
+        );
+        assert_eq!(
+            serde_yaml::from_str::<ArtifactDigest>(&json).unwrap(),
+            digest
+        );
+    }
+
+    #[test]
+    fn oversized_deserialized_digest_does_not_echo_untrusted_text() {
+        let text = "z".repeat(4096);
+        let error = serde_json::from_value::<ArtifactDigest>(serde_json::json!(text))
+            .unwrap_err()
+            .to_string();
+        assert!(error.len() < 128);
+        assert!(!error.contains(&"z".repeat(128)));
     }
 }

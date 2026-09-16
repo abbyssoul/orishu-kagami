@@ -24,10 +24,14 @@ use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::name::CatalogName;
-use crate::name::{ComponentTypeId, HelperName, ParameterName, PropertyName, TemplateName};
+use crate::name::{
+    ComponentName, ComponentTypeId, HelperName, ParameterName, PropertyName, TemplateName,
+};
 
 /// The only document format version this crate reads or writes.
 pub const API_VERSION: &str = "kagami.catalog/v1";
+/// Explicit template profile supporting immutable component contribution pins.
+pub const PINNED_API_VERSION: &str = "kagami.catalog/v2";
 
 /// The only document kind this crate reads or writes.
 pub const KIND: &str = "ObjectTemplate";
@@ -65,7 +69,16 @@ pub type TemplateDocument = Resource<MetadataDocument, SpecDocument, NoStatus, D
 
 /// Build a document with this crate's format version and kind.
 pub fn new(metadata: MetadataDocument, spec: SpecDocument) -> TemplateDocument {
-    TemplateDocument::new(api_version(), kind(), metadata, spec)
+    let version = if spec
+        .components
+        .iter()
+        .any(|c| c.component_type.contribution().is_some() || c.name.is_some())
+    {
+        ApiVersion::from_static(PINNED_API_VERSION)
+    } else {
+        api_version()
+    };
+    TemplateDocument::new(version, kind(), metadata, spec)
 }
 
 /// A template's identity and human-facing metadata.
@@ -160,6 +173,9 @@ pub struct ComponentDocument {
     /// The plugin-qualified component type.
     #[serde(rename = "type")]
     pub component_type: ComponentTypeId,
+    /// Optional template-local expression alias (v2). Never a provider selector.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<ComponentName>,
     /// Authored property values, keyed by property name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub properties: BTreeMap<PropertyName, PropertyValueDocument>,

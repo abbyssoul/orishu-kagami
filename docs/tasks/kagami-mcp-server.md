@@ -265,6 +265,80 @@ authenticated Orishu client session for cluster runs.
   boundary and time-range surface so an agent can sense the simulated scene
   without camera access or a private resampling path.
 
+## Delivered (slices 1–7)
+
+Slices 1–7 are implemented, app-local to `apps/kagami/src/mcp/` (`session`,
+`server`, `transport`, `embed`) with the UI in `apps/kagami/src/view/mcp.rs` and
+the lifecycle woven through `model`/`update`/`subscription`/`message`. Slices
+8–9 are **not** delivered and **not** stubbed: no authoring or run-control tool
+exists, and nothing is wired to the orphan demo scene tree.
+
+**Session seam (honest, not duplicated).** `kagami_status` reports the *actual*
+live session, not a placeholder or a second model. The shared
+`Arc<std::sync::Mutex<SessionState>>` holds only a serializable projection of
+`Document`'s authoritative `SessionView` (revision, dirty, target, object count,
+workspace mode, undo/redo), rewritten from the live document after every
+`update`. The document authority, the `Workspace` mode gate, and the
+client-owned presentation/default-view state are untouched; the projection holds
+no `Experiment`, `ObjectId`, camera, or process-local pointer. For this task the
+MCP path is read-only — the write path routing typed commands through
+`Document::submit` is slice 8.
+
+**SDK decision.** The task referenced `rmcp` 3.2.0; **3.3.0** is the current
+compatible release and the one adopted (Field CAD used 3.1.0). Its Streamable
+HTTP server API (`StreamableHttpService`, loopback-default `allowed_hosts`,
+`max_request_body_bytes`), session-table visibility (`LocalSessionManager`
+`sessions` `RwLock`), Host-header/DNS-rebind protection, cancellation-token
+integration, and the `#[tool]`/`#[tool_router]`/`#[tool_handler]` macros were
+verified against its vendored source before adoption. Transport is app-local;
+HTTP-only (no stdio, no Unix socket, no standalone binary). Deps
+(`rmcp`, `tokio`, `tokio-util`, `axum` pinned to rmcp's own pin, `uuid`, `serde`,
+`serde_json`) are attached to `apps/kagami` alone; `Cargo.lock` is committed.
+
+**Test evidence** (all in `apps/kagami`; `cargo test -p kagami` green — 29 lib +
+8 wire):
+
+- *No port when disabled / loopback-only* —
+  `transport::binding_a_non_loopback_address_is_refused`,
+  `mcp_wire::a_non_loopback_bind_leaves_mcp_disabled_with_a_reason`.
+- *Fresh token per enable; rotation* — `transport::tokens_are_fresh_per_call`,
+  `mcp_wire::re_enabling_rotates_the_credential` (old token → 401 on the new
+  server).
+- *Bearer accept/reject* — `transport::constant_time_eq_matches_only_equal_bytes`,
+  `mcp_wire::a_missing_or_wrong_token_is_rejected`.
+- *Connection count 0→1 on a real handshake* — `transport::a_fresh_connection_table_counts_zero`,
+  `mcp_wire::a_real_session_is_counted`.
+- *Disable cuts off further requests* — `mcp_wire::disabling_cuts_off_further_requests`.
+- *Wire smoke, mandatory* —
+  `mcp_wire::the_full_handshake_calls_kagami_status_over_real_http`
+  (`initialize → notifications/initialized → tools/list → tools/call` over real
+  HTTP with the bearer token).
+- *Hostile input, bounded and non-fatal* —
+  `mcp_wire::malformed_json_is_a_bounded_error_and_does_not_wedge_the_server`,
+  `mcp_wire::an_oversized_body_is_refused_and_does_not_crash_the_server`.
+- *Projection reflects the live session* —
+  `session::a_fresh_session_projects_an_empty_authoring_document`,
+  `server::kagami_status_returns_the_session_as_a_json_text_block`.
+
+`make lint`, `make docs`, and `make docs-check` pass. `cargo fmt` on `kagami` is
+clean; the workspace `make fmt-check` currently also reports pre-existing,
+uncommitted `crates/orishu-plugin` (X-PLUGIN) drift that is outside this task and
+was left untouched.
+
+**Manual UI verification still required** (CI cannot drive the window):
+
+- Enable/disable from **Settings → MCP server**; confirm disabled/running/failed
+  states render, and the masked token + copy action.
+- The connected-client count updating live (including the explicit zero) and the
+  disable-with-clients confirmation naming how many lose access.
+- An agent driving the live session: point an MCP client at
+  `http://127.0.0.1:8642/mcp` with the bearer token and call `kagami_status`
+  while editing in the window, confirming the reported revision/dirty/mode track
+  the UI.
+- The `--mcp` startup path printing the endpoint and token to the console.
+- That enabling/disabling leaves an open experiment and (once run authorities
+  exist) a running simulation untouched.
+
 ## Acceptance criteria
 
 - With MCP disabled (the default), no port is bound and no request can reach

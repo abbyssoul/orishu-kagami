@@ -25,13 +25,22 @@ description = "Kagami's authoritative experiment model: objects, commands, the v
 # - orishu-variables: the one expression parser and evaluator in the product
 #                     (ADR 0007). A second one would be a defect.
 # - serde:            the persisted model shape `kagami-session` encodes.
+# - orishu-plugin / orishu-workload: exact scientific vocabulary/contexts and
+#                     digest identities for captured setup; never the sandbox.
 # - thiserror:        structured rejection and construction errors.
 [dependencies]
 kagami-catalog = { workspace = true }
 orishu-variables = { workspace = true }
+orishu-plugin = { workspace = true }
+orishu-workload = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 cargo_metadata = "0.23"
+criterion = { workspace = true }
 serde_json = { workspace = true }
+
+[[bench]]
+name = "document"
+harness = false

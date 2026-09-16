@@ -26,6 +26,8 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("orishu", "Orishu domain and client interfaces"),
     ("orishu-membership", "cluster membership"),
     ("orishu-identity", "cluster identity"),
+    ("orishu-runtime", "scientific execution"),
+    ("wasmtime", "Wasm execution engine"),
     // The MCP server is an adapter *over* this crate. If it ever appears
     // here, the direction of the dependency has inverted and the authority
     // has become a transport.
@@ -117,13 +119,12 @@ fn the_document_server_has_no_transport_ui_or_runtime_dependency() {
 
 #[test]
 fn the_dependency_graph_stays_small_enough_to_audit() {
-    // Beyond `kagami-document`'s own graph this crate adds one thing: a JSON
-    // codec, for the experiment file (task K4). A jump past this bound means
-    // something with a genuinely new *capability* arrived — a transport, a
-    // runtime — rather than another leaf of the same encoding.
+    // The pure plugin/workload contracts now supply exact provider pins.
+    // JSON is already in that closure: 37 document dependencies plus the
+    // document crate itself. Still no execution engine or transport.
     let resolved = runtime_dependency_names();
     assert!(
-        resolved.len() <= 36,
+        resolved.len() <= 38,
         "the document server resolved {} runtime dependencies, which is more than can be \
          reviewed by hand: {resolved:?}",
         resolved.len()

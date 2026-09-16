@@ -20,6 +20,11 @@ behaviour.
 One file holds one or more `---`-separated documents. One catalog identity does
 not imply one file, and one file may publish into several catalogs.
 
+Legacy templates use `kagami.catalog/v1`. Templates with exact plugin pins or
+explicit component aliases use `kagami.catalog/v2`; v1 cannot carry those fields.
+Old templates retain their logical references and canonical fingerprints. No
+installed provider is silently selected when reading them.
+
 Each document uses the
 [shared resource envelope](../../docs/resource-envelope.md), the same
 `apiVersion`/`kind`/`metadata`/`spec` shape Orishu's resources use. Only the
@@ -57,14 +62,28 @@ spec:
 - **`helpers`** are template-local intermediates, private unless declared
   `visibility: public`.
 - **`components`** name plugin-qualified component types. A component may
-  appear once per template, because its name is the namespace its properties
-  are published under.
+  appear once per template. Each component also has a unique template-local
+  expression alias; the alias is not its scientific/provider identity.
 - **`properties`** are `{quantity: ...}`, `{boolean: ...}`, or `{text: ...}`.
   A quantity may be written as the shorthand `{quantity: "1.5"}` when it needs
   no unit or visibility annotation.
 
 Instance identity, display name, and placement are deliberately absent: they
 belong to the instantiation command, not to reusable content.
+
+In v2, a component's `type` can contain `contribution: {release, extensionPoint,
+localId}`: the complete immutable provider reference. `extensionPoint` must be
+`orishu.model.components/v1`. An optional sibling `name` supplies its local
+expression alias, allowing same-named contributions from different releases.
+Without it, the local contribution ID supplies the alias with hyphens replaced
+by underscores. Plugin property IDs use the same injective spelling in expression
+paths; the original IDs remain in the verified scientific declaration.
+
+`ComponentSchema::from_plugin` projects a verified release's component payload,
+retaining roles, bindings, requirements, defaults and scalar/text constraints.
+Provider availability is a separate inventory decision, not inferred from schema
+construction. Catalog validation and parameterized instantiation enforce the
+constraints; defaults are not silently inserted into missing authored properties.
 
 Every name — catalog, template, component, property, parameter, helper — must
 be a valid variable-name segment (letters, digits, `_`; not starting with a

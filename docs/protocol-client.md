@@ -28,18 +28,18 @@ in `X-Node-Id`.
 The current response is `ApiResponse::Ok` containing
 `ResponseData::ClusterSummary`, not the imported authored-manifest-shaped
 `ClusterManifest`. The shared client and `orishuctl cluster info` consume the
-same typed resource. Its version-1 fields are:
+same typed resource. Its fields are:
 
 | Field | Meaning |
 | --- | --- |
-| `schemaVersion` | `1`; other versions are rejected by the client decoder |
+| `schemaVersion` | `1` for formation-only summaries; `2` when scientific state is published. The shared decoder accepts both and rejects unknown versions |
 | `formationId`, `clusterName` | Immutable formation identity and reusable label, respectively |
 | `sourceNodeId` | Assigned identity of the worker whose model was read |
 | `memberCount`, `aliveCount` | Retained member records and locally observed live members |
 | `membershipLocked` | Locally held replicated lock, not a global fence |
 | `participation` | `standalone`, `joining`, `joinUnresolved`, `catchingUp`, `joined`, `ejected`, or `stopping`; never inferred from member count |
 | `introducerReady` | Whether the local worker can enforce every admission gate |
-| `workload` | `"none"` in this no-compute PoC |
+| `workload` | `"none"`, or `"scientific"` in summary v2 when the owner has published scientific state; occupancy is not proof of a usable/running executor |
 | `view` | `"localAtRequest"`; a current local read, not proof of global convergence |
 
 Config-free startup yields `standalone`, one alive member and
@@ -52,6 +52,15 @@ cached success described as fresh. Identified join/status, issuer inspection,
 lock/unlock and voluntary leave are implemented as specified below. Other
 imported operations are not implied to be supported, and unmatched routes do
 not report successful placeholder operations.
+
+Scientific execution has an experimental, explicitly enabled
+[load/receipt/current-run HTTP profile](protocol-scientific-load-v1.md), backed by
+the [durable daemon coordinator](run-load-receipts-v1.md). It accepts a complete
+portable workload only in the locked standalone profile. Default startup remains
+formation-only. This does not implement the imported workload API sketches below,
+public run control/observations or distributed execution. Summary v1-only clients
+must be upgraded before inspecting an occupied scientific worker; mutation schemas
+and peer capabilities are unchanged.
 
 `joinUnresolved` means an emitted admission attempt exhausted its core retries
 without validated local adoption. Remote insertion may already have happened;
@@ -935,6 +944,14 @@ to reach it:
   "workloadEpoch": <uint64>
 }
 ```
+
+The selected scientific profile now implements this tuple in
+`orishu::model::run::RunIdentity`: workloadId is the exact canonical workload
+digest, not a label or legacy resource uid. The worker assigns its epoch and
+hashes the [immutable descriptor v1](run-descriptor-v1.md) for runtime/sampling
+source identity. The descriptor does not change the submitted workload. Public
+load/control endpoints and RunReference routing remain integration work; legacy
+resource routes are not silently remapped to the new scientific profile.
 
 A shareable `RunReference` carries that identity plus optional discovery hints:
 

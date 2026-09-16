@@ -23,6 +23,7 @@
 //! | [`name`] | human labels, which are not identities |
 //! | [`object`] | objects as entities composed from plugin-contributed components |
 //! | [`setup`] | the numerical domain, time step, and plugin composition |
+//! | [`scientific`] | exact selected models and immutable captured field/history state |
 //! | [`variable`] | named values the experiment's expressions may use |
 //! | [`command`] | the closed set of authoring intents |
 //! | [`mod@update`] | the pure transition, and the candidate it produces |
@@ -115,6 +116,8 @@ pub mod limits;
 pub mod model;
 pub mod name;
 pub mod object;
+pub mod projection;
+pub mod scientific;
 pub mod setup;
 pub mod update;
 pub mod validate;
@@ -135,8 +138,12 @@ pub use name::{DisplayName, MAX_DISPLAY_NAME_BYTES, NameError};
 pub use object::{
     AuthoredValue, ComponentProperties, Object, ObjectComponent, ObjectSpec, PropertyValue,
 };
-pub use setup::{BoundaryCondition, Domain, PluginComposition, Setup, SetupError, TimeStep};
-pub use update::{Candidate, CommitReport, EvaluationWork, resolve_variables, restore, update};
+pub use setup::{
+    BoundaryCondition, Domain, LegacySetup, PluginComposition, Setup, SetupError, TimeStep,
+};
+pub use update::{
+    Candidate, CommitReport, EvaluationWork, resolve_variables, restore, update, variable_context,
+};
 pub use validate::{ComponentPath, PropertyPath, Rejection};
 pub use variable::{Variable, VariableId, VariableSpec};
 pub use wire::{WIRE_VERSION, WireCommand, WireError, WireSnapshot};

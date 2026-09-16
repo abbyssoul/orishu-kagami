@@ -156,15 +156,17 @@ pub struct Helper {
 pub struct ComponentInstance {
     /// The plugin-qualified component type.
     pub type_id: ComponentTypeId,
+    /// Template-local variable namespace; independent of immutable type identity.
+    pub name: ComponentName,
     /// Authored property values, keyed by property name.
     pub properties: BTreeMap<PropertyName, PropertyValue>,
 }
 
 impl ComponentInstance {
     /// The template-local name this component's bindings are published
-    /// under, which is its component type's own name.
+    /// under. Independent of the exact component provider identity.
     pub fn local_name(&self) -> &ComponentName {
-        &self.type_id.name
+        &self.name
     }
 }
 
@@ -198,6 +200,21 @@ impl Template {
         limits: &Limits,
     ) -> Result<Self, Vec<Diagnostic>> {
         let mut diagnostics = Vec::new();
+        if document.api_version().as_str() != crate::document::PINNED_API_VERSION
+            && document
+                .spec
+                .components
+                .iter()
+                .any(|c| c.component_type.contribution().is_some() || c.name.is_some())
+        {
+            diagnostics.push(Diagnostic::at(
+                "apiVersion",
+                InvalidReason::SchemaMismatch {
+                    message: "exact component pins and explicit aliases require kagami.catalog/v2"
+                        .into(),
+                },
+            ));
+        }
         let identity = TemplateIdentity::new(
             document.metadata.catalog.clone(),
             document.metadata.name.clone(),
@@ -272,6 +289,8 @@ impl Template {
                     .iter()
                     .map(|component| ComponentDocument {
                         component_type: component.type_id.clone(),
+                        name: (component.name != component.type_id.local_name())
+                            .then(|| component.name.clone()),
                         properties: component
                             .properties
                             .iter()
@@ -429,18 +448,25 @@ fn validate_spec(
         })
         .collect();
 
-    let mut seen_components: BTreeSet<&ComponentName> = BTreeSet::new();
+    let mut seen_components: BTreeSet<ComponentName> = BTreeSet::new();
+    let mut seen_types = BTreeSet::new();
     let components = document
         .components
         .iter()
         .enumerate()
         .filter_map(|(index, component)| {
             let path = format!("spec.components[{index}]");
-            if !seen_components.insert(&component.component_type.name) {
+            let local_name = component
+                .name
+                .clone()
+                .unwrap_or_else(|| component.component_type.local_name());
+            if !seen_components.insert(local_name.clone())
+                || !seen_types.insert(&component.component_type)
+            {
                 diagnostics.push(Diagnostic::at(
                     path.clone(),
                     InvalidReason::DuplicateComponent {
-                        name: component.component_type.name.to_string(),
+                        name: local_name.to_string(),
                     },
                 ));
                 return None;
@@ -489,6 +515,10 @@ fn validate_component(
         .collect();
     ComponentInstance {
         type_id: document.component_type.clone(),
+        name: document
+            .name
+            .clone()
+            .unwrap_or_else(|| document.component_type.local_name()),
         properties,
     }
 }

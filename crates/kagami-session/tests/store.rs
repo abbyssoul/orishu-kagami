@@ -29,6 +29,7 @@ struct FaultyStore {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Fault {
+    ReadLimit,
     WriteNew,
     SyncFile,
     BackupRename,
@@ -101,6 +102,12 @@ impl FileStore for FaultyStore {
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        if self.fail == Some(Fault::ReadLimit) && !path.extension().is_some_and(|e| e == "bak") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "document budget exceeded",
+            ));
+        }
         self.get(path)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no such file"))
     }
@@ -154,6 +161,20 @@ fn a_first_save_writes_the_document_and_no_backup() {
     assert!(!store.exists(Path::new("/experiments/orbit.kagami.bak")));
     // The temporary is gone: it became the document.
     assert!(!store.exists(Path::new("/experiments/orbit.kagami.tmp0")));
+}
+
+#[test]
+fn a_primary_refused_by_read_budget_is_not_replaced_by_backup_content() {
+    let store = FaultyStore::with(Fault::ReadLimit);
+    let primary = serde_json::to_vec(&document("newer")).unwrap();
+    store.put(target().path(), &primary);
+    store.put(
+        Path::new("/experiments/orbit.kagami.bak"),
+        &serde_json::to_vec(&document("older")).unwrap(),
+    );
+    let error = load(&store, &target()).unwrap_err();
+    assert_eq!(error.code(), "scientific_setup_limit");
+    assert_eq!(store.get(target().path()).unwrap(), primary);
 }
 
 #[test]

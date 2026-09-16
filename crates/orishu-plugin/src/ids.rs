@@ -132,7 +132,7 @@ digest!(
 );
 
 /// Exact scientific identity: all three fields participate in matching.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScientificContractRef {
     /// Scientific name, independent of provider identity.
@@ -144,7 +144,7 @@ pub struct ScientificContractRef {
 }
 
 /// Exact provider-qualified contribution pin.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ContributionRef {
     /// Immutable provider release.

@@ -310,6 +310,8 @@ impl WorkerRuntime {
         };
         (
             RunningWorker {
+                #[cfg(unix)]
+                workload_load: std::sync::Mutex::new(None),
                 process_health: Default::default(),
                 stopping: std::sync::atomic::AtomicBool::new(false),
                 outbound_endpoint: std::sync::Mutex::new(outbound_endpoint),
@@ -376,6 +378,8 @@ pub(crate) fn project_summary(membership: &Membership, participation: Participat
 
 /// IO-facing process state, with no membership mutation access.
 pub struct RunningWorker {
+    #[cfg(unix)]
+    workload_load: std::sync::Mutex<Option<crate::workload_load::DaemonLoadOwner>>,
     #[cfg(feature = "observability")]
     peer_ingress: crate::peer::ingress::IngressMetrics,
     process_health: crate::health::ProcessHealthState,
@@ -1007,7 +1011,73 @@ impl RunningWorker {
 
     /// A stopped owner cannot serve a stale projection as a fresh summary.
     pub fn summary(&self) -> Result<Summary, crate::driver::DriverError> {
-        Ok(self.handle.view()?.summary)
+        let view = self.handle.view()?;
+        let mut summary = view.summary;
+        if view.scientific.is_some() {
+            summary.schema_version = 2;
+            summary.workload = FormationWorkload::Scientific;
+        }
+        Ok(summary)
+    }
+    /// Bind the shared scientific host to this real process owner. An IO
+    /// adapter must authenticate before preparing work, bound input before reading,
+    /// and retain the returned run handle. Constructing this service neither
+    /// enables routes nor advertises execution capability or unlocks membership.
+    pub fn scientific_admission(
+        &self,
+        sandbox: std::sync::Arc<orishu_runtime::Sandbox>,
+        limits: orishu_runtime::AdmissionLimits,
+        archive: orishu_plugin::archive::ArchiveLimits,
+        denied: std::collections::BTreeSet<orishu_workload::ArtifactDigest>,
+    ) -> Result<
+        crate::driver::scientific::AdmissionService,
+        crate::driver::scientific::AdmissionError,
+    > {
+        if self.stopping.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(crate::driver::DriverError::Closed.into());
+        }
+        crate::driver::scientific::AdmissionService::new(
+            self.handle.clone(),
+            sandbox,
+            limits,
+            archive,
+            denied,
+        )
+    }
+    /// Install and retain the scientific coordinator once. Open the private
+    /// receipt journal and construct the sandbox on an IO lane before calling.
+    /// This does not enable public routes or change membership/execution flags.
+    #[cfg(unix)]
+    pub fn install_load_coordinator(
+        &self,
+        receipts: crate::workload_receipts::ReceiptStore,
+        sandbox: std::sync::Arc<orishu_runtime::Sandbox>,
+        policy: crate::workload_load::LoadPolicy,
+    ) -> Result<crate::workload_load::LoadCoordinator, crate::workload_load::LoadError> {
+        use crate::workload_load::{LoadCoordinator, LoadError};
+        let service = self
+            .scientific_admission(sandbox, policy.admission, policy.archive, policy.denied)
+            .map_err(|_| LoadError::Policy)?;
+        let coordinator = LoadCoordinator::new(service, receipts, policy.delivery, policy.timeout)?;
+        let mut installed = self.workload_load.lock().map_err(|_| LoadError::Closed)?;
+        if self.stopping.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(LoadError::Closed);
+        }
+        if installed.is_some() {
+            return Err(LoadError::Busy);
+        }
+        *installed = Some(crate::workload_load::DaemonLoadOwner(coordinator.clone()));
+        Ok(coordinator)
+    }
+    /// Get this daemon's retained coordinator; dropping a request's clone cannot
+    /// discard its admission or accepted run. None until explicitly installed.
+    #[cfg(unix)]
+    pub fn load_coordinator(&self) -> Option<crate::workload_load::LoadCoordinator> {
+        self.workload_load
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|owner| owner.0.clone())
     }
     /// Authenticate against the worker-local operator credential.
     pub fn authorize_operator(&self, candidate: &str) -> bool {
@@ -1017,6 +1087,10 @@ impl RunningWorker {
     pub async fn shutdown(&self) -> Result<(), crate::driver::DriverError> {
         self.stopping
             .store(true, std::sync::atomic::Ordering::Release);
+        #[cfg(unix)]
+        if let Some(coordinator) = self.load_coordinator() {
+            coordinator.shutdown();
+        }
         let reconnect = self
             .join_reconnect_maintenance
             .lock()

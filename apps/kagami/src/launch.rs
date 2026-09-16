@@ -16,4 +16,18 @@ pub struct LaunchOptions {
     pub exit_after: Option<Duration>,
     /// Open this document at startup instead of the built-in demo scene.
     pub open_path: Option<PathBuf>,
+    /// Enable the embedded MCP server from startup (`--mcp`), on the default
+    /// loopback endpoint. The endpoint and token are reported to the console.
+    pub mcp: bool,
+    /// Verified enabled component vocabulary supplied by startup IO. Kept out of
+    /// `Model::new` so model tests never touch a user's installed plugins.
+    pub plugin_schemas: kagami_catalog::SchemaRegistry,
+    /// Bounded startup availability notice, never a silent provider substitution.
+    pub plugin_notice: Option<String>,
+    /// Startup-selected inventory for background scientific authoring effects.
+    #[cfg(unix)]
+    pub scientific_plugins: Option<crate::scientific_effect::ScientificPlugins>,
+    /// Explicit enabled computation choices, not automatically selected kernels.
+    #[cfg(unix)]
+    pub kernel_choices: Vec<crate::plugins::KernelChoice>,
 }

@@ -259,7 +259,7 @@ fn an_edit_message_naming_no_such_object_is_refused_before_the_authority_sees_it
 fn the_document_and_session_representations_stay_separable() {
     // The session's shape wraps the document's rather than restating it, so a
     // command added to the model does not need a second definition here.
-    let command = WireCommand::of(&create("Earth"));
+    let command = WireCommand::of(&create("Earth")).expect("ordinary intent has a wire form");
     let session = WireSessionCommand::Edit {
         commands: vec![command.clone()],
     };

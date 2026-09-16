@@ -33,10 +33,13 @@
 //! expression source**, variable definitions with their identities and
 //! namespaces, the setup, and the enabled plugins.
 //!
-//! Not persisted: resolved magnitudes. Decoding re-derives every one of them
+//! Authored component properties do not persist resolved magnitudes. Hydration re-derives them
 //! from the source, so a file cannot inject an SI value its own expression does
 //! not produce. Nor is any presentation state here beyond ADR 0022's separately
 //! versioned default view, and no run observation or record at all.
+//! Scientific containers additionally retain kernel configuration inputs and
+//! opaque initial state; see [`crate::container`]. Their frozen configuration is
+//! checked against authored source rather than replacing that source.
 //!
 //! # The default view has the opposite version policy, deliberately
 //!
@@ -74,13 +77,15 @@ use crate::default_view::{
 /// The format identifier every document carries.
 pub const FORMAT: &str = "kagami.experiment";
 
-/// The format version this build writes.
+/// The legacy JSON writer and normalized in-memory document version.
 ///
-/// Version 2 added ADR 0022's `defaultView` section. Version 1 still loads,
-/// through its own explicit conversion in [`decode_document`], and converts
-/// *up*: an opened version-1 document is a version-2 value in memory, so a
-/// re-save writes version 2.
-pub const FORMAT_VERSION: u32 = 2;
+/// Version 2 added ADR 0022's `defaultView` section. Version 3 permits exact
+/// provider-qualified component pins. Versions 1 and 2 still load through an
+/// explicit conversion in [`decode_document`], retaining their logical component
+/// references without choosing installed providers. Legacy re-saving writes v3.
+/// Scientific files use [`crate::container::CONTAINER_VERSION`] and stored ZIP;
+/// their decoder normalizes the DTO to this version without changing setup.
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The oldest format version this build still reads.
 pub const MIN_FORMAT_VERSION: u32 = 1;
@@ -88,6 +93,13 @@ pub const MIN_FORMAT_VERSION: u32 = 1;
 /// Why a document could not be decoded.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum DocumentError {
+    /// Scientific container framing/integrity or policy refusal. Unsupported
+    /// archive features and exhausted budgets must not trigger backup fallback.
+    #[error("scientific document container: {source}")]
+    Container {
+        /// Bounded shared archive diagnostic, never an OS path or guest text.
+        source: Box<orishu_plugin::Error>,
+    },
     /// The bytes are not the JSON this format is written in.
     #[error("document is not well-formed JSON: {message}")]
     Malformed {
@@ -126,6 +138,7 @@ impl DocumentError {
     /// A stable identifier for this reason.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Container { .. } => "invalid_document_container",
             Self::Malformed { .. } => "malformed_document",
             Self::WrongFormat { .. } => "wrong_format",
             Self::UnsupportedVersion { .. } => "unsupported_format_version",
@@ -151,6 +164,12 @@ impl DocumentError {
     /// backup before replacing it.
     pub const fn is_damage(&self) -> bool {
         match self {
+            // Only established byte corruption triggers automatic fallback.
+            // Unsupported/future archive layout can look structurally malformed
+            // to this strict reader; do not replace it with an older backup.
+            Self::Container { source } => {
+                matches!(source.code, orishu_plugin::ErrorCode::IntegrityMismatch)
+            }
             Self::Malformed { .. } => true,
             // Well-formed, and a document. This build just will not read it.
             Self::WrongFormat { .. } | Self::UnsupportedVersion { .. } => false,
@@ -287,11 +306,11 @@ pub struct StoredCounters {
 /// The experiment section of the file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct StoredExperiment {
+pub struct StoredExperiment<S = Setup> {
     /// The identity allocation to restore.
     pub counters: StoredCounters,
     /// The numerical setup and plugin composition.
-    pub setup: Setup,
+    pub setup: S,
     /// Variable definitions, in identity order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<StoredVariable>,
@@ -460,7 +479,8 @@ impl StoredDefaultView {
     }
 }
 
-/// A whole `kagami.experiment` document.
+/// A whole normalized `kagami.experiment` document. Legacy values serialize as
+/// JSON; scientific values require the blob container codec, never bare serde.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExperimentDocument {
@@ -516,7 +536,7 @@ impl From<DocumentV1> for ExperimentDocument {
             format: value.format,
             // Converted *up*. Everything above the codec deals with one
             // shape, so a re-save of an opened version-1 document writes
-            // version 2 — which is correct: it now has a view section.
+            // the current version. Logical references remain logical.
             format_version: FORMAT_VERSION,
             metadata: value.metadata,
             experiment: value.experiment,
@@ -529,7 +549,8 @@ impl From<DocumentV1> for ExperimentDocument {
 
 /// Read `bytes` as a document, checking what it is before what it says.
 ///
-/// The one entry point for untrusted bytes. It reads [`FORMAT`] and the
+/// The one entry point for untrusted bytes. Stored ZIP delegates to the scientific
+/// container decoder. Legacy JSON reads [`FORMAT`] and the
 /// version from a permissive header, refuses anything that is not this format
 /// or is newer than this build, and only then interprets the body with the DTO
 /// for that version.
@@ -541,6 +562,14 @@ impl From<DocumentV1> for ExperimentDocument {
 /// [`DocumentError::UnsupportedVersion`] for a version outside
 /// [`MIN_FORMAT_VERSION`]`..=`[`FORMAT_VERSION`].
 pub fn decode_document(bytes: &[u8]) -> Result<ExperimentDocument, DocumentError> {
+    if bytes.starts_with(b"PK") {
+        return crate::container::decode(bytes, crate::container::ContainerLimits::default());
+    }
+    if bytes.len() as u64 > crate::store::MAX_JSON_DOCUMENT_BYTES {
+        return Err(DocumentError::Invalid {
+            source: kagami_document::scientific::ScientificError::Limit.into(),
+        });
+    }
     let header: DocumentHeader =
         serde_json::from_slice(bytes).map_err(|error| DocumentError::Malformed {
             message: error.to_string(),
@@ -553,11 +582,18 @@ pub fn decode_document(bytes: &[u8]) -> Result<ExperimentDocument, DocumentError
     }
 
     match header.format_version {
-        1 => Ok(serde_json::from_slice::<DocumentV1>(bytes)
-            .map_err(|error| DocumentError::Malformed {
+        1 => legacy_document(
+            serde_json::from_slice::<DocumentV1>(bytes)
+                .map_err(|error| DocumentError::Malformed {
+                    message: error.to_string(),
+                })?
+                .into(),
+        ),
+        2 => legacy_document(serde_json::from_slice::<ExperimentDocument>(bytes).map_err(
+            |error| DocumentError::Malformed {
                 message: error.to_string(),
-            })?
-            .into()),
+            },
+        )?),
         FORMAT_VERSION => serde_json::from_slice(bytes).map_err(|error| DocumentError::Malformed {
             message: error.to_string(),
         }),
@@ -566,6 +602,22 @@ pub fn decode_document(bytes: &[u8]) -> Result<ExperimentDocument, DocumentError
             supported: FORMAT_VERSION,
         }),
     }
+}
+
+fn legacy_document(mut document: ExperimentDocument) -> Result<ExperimentDocument, DocumentError> {
+    if document
+        .experiment
+        .objects
+        .iter()
+        .flat_map(|o| &o.components)
+        .any(|c| c.component.contribution().is_some())
+    {
+        return Err(DocumentError::Malformed {
+            message: "exact component pins require document format 3".into(),
+        });
+    }
+    document.format_version = FORMAT_VERSION;
+    Ok(document)
 }
 
 impl ExperimentDocument {

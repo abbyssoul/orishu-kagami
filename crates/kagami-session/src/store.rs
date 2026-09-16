@@ -45,7 +45,11 @@ use crate::persist::DocumentTarget;
 ///
 /// Checked before reading, not after: the point is to not allocate a
 /// gigabyte because something else wrote a gigabyte.
-pub const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
+pub const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Legacy JSON documents keep their original ceiling; only blob containers may
+/// use the larger physical file limit. The pure decoder enforces this as well.
+pub const MAX_JSON_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// How many sibling temporary names a save will try.
 ///
@@ -132,14 +136,40 @@ impl FileStore for RealFileStore {
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
-        let length = std::fs::metadata(path)?.len();
-        if length > MAX_DOCUMENT_BYTES {
+        use std::io::Read;
+        let mut file = std::fs::File::open(path)?;
+        let mut prefix = [0; 2];
+        let mut count = 0;
+        while count < prefix.len() {
+            let n = file.read(&mut prefix[count..])?;
+            if n == 0 {
+                break;
+            }
+            count += n;
+        }
+        let limit = if &prefix[..count] == b"PK" {
+            MAX_DOCUMENT_BYTES
+        } else {
+            MAX_JSON_DOCUMENT_BYTES
+        };
+        let length = file.metadata()?.len();
+        if length > limit {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("document is {length} bytes, over the {MAX_DOCUMENT_BYTES}-byte limit"),
+                format!("document is {length} bytes, over the {limit}-byte limit"),
             ));
         }
-        std::fs::read(path)
+        // Bound the opened handle even if the file grows after metadata was read.
+        let mut bytes = prefix[..count].to_vec();
+        file.take(limit + 1 - count as u64)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "document grew beyond its byte limit",
+            ));
+        }
+        Ok(bytes)
     }
 
     fn exists(&self, path: &Path) -> bool {
@@ -287,10 +317,15 @@ pub fn save(
     target: &DocumentTarget,
     document: &ExperimentDocument,
 ) -> Result<(), SaveError> {
-    let bytes = serde_json::to_vec_pretty(document).map_err(|error| SaveError::Io {
-        step: "encode the document",
-        source: io::Error::other(error),
-    })?;
+    let bytes = if document.experiment.setup.scientific().is_some() {
+        crate::container::encode(document, crate::container::ContainerLimits::default())
+            .map_err(|source| SaveError::NotReadable { source })?
+    } else {
+        serde_json::to_vec_pretty(document).map_err(|error| SaveError::Io {
+            step: "encode the document",
+            source: io::Error::other(error),
+        })?
+    };
 
     // Step 2, before anything is moved: bytes that cannot be read back are
     // not a document, whatever produced them. Verified through the same
@@ -440,8 +475,9 @@ pub fn load(store: &dyn FileStore, target: &DocumentTarget) -> Result<Loaded, Lo
 
 /// Read and decode one candidate.
 ///
-/// `None` means the candidate produced no bytes — it is missing, or too large,
-/// or unreadable. `Some(Err(_))` means it produced bytes this build will not
+/// `None` means the candidate is missing or unreadable. Budget refusal is not
+/// absence and must not automatically recover around an intact large primary.
+/// `Some(Err(_))` means it produced bytes this build will not
 /// interpret, and says why. The two are distinguished because a *missing*
 /// primary and a primary written by a newer build call for different messages.
 ///
@@ -451,7 +487,15 @@ fn try_decode(
     store: &dyn FileStore,
     path: &Path,
 ) -> Option<Result<ExperimentDocument, DocumentError>> {
-    let bytes = store.read(path).ok()?;
+    let bytes = match store.read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+            return Some(Err(DocumentError::Invalid {
+                source: kagami_document::scientific::ScientificError::Limit.into(),
+            }));
+        }
+        Err(_) => return None,
+    };
     Some(decode_document(&bytes))
 }
 

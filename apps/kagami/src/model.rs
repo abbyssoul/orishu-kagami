@@ -25,6 +25,7 @@ use orishu::client::ClusterAddress;
 
 use crate::document::Document;
 use crate::launch::LaunchOptions;
+use crate::mcp::{self, McpState, SessionState};
 
 /// A property field the user is part-way through editing.
 ///
@@ -44,6 +45,15 @@ pub struct PropertyEdit {
 }
 
 pub struct Model {
+    /// One bounded background scientific edit, separate from MCP lifecycle.
+    #[cfg(unix)]
+    pub scientific_effects: crate::scientific_effect::ScientificEffects,
+    #[cfg(unix)]
+    pub physics_form: crate::physics_form::PhysicsForm,
+    #[cfg(unix)]
+    pub kernel_choices: Vec<crate::plugins::KernelChoice>,
+    #[cfg(unix)]
+    pub inventory_revision: Option<u64>,
     /// The Orishu endpoint this client will use once the remote adapter is wired.
     pub cluster_address: ClusterAddress,
     /// The experiment, and the only way to change one.
@@ -84,9 +94,15 @@ pub struct Model {
     /// — from `--exit-after`, for automated testing.
     pub exit_deadline: Option<Instant>,
     pub active_tool: Tool,
-    /// Background jobs pending. Always 0 for now — there is no async job
-    /// system yet — but the toolbar already shows it, ready for one.
+    /// Background scientific edits pending, derived from the one-slot controller.
     pub queue_len: usize,
+    /// The embedded MCP server's lifecycle state (ADR 0006).
+    ///
+    /// `Disabled` by default: no port is bound and no request can reach the
+    /// session until the user enables it or `--mcp` is passed. Holding it on
+    /// the model is what lets the UI show disabled/running/failed and the
+    /// connected-client count.
+    pub mcp: McpState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,16 +121,52 @@ pub enum Tool {
 
 impl Model {
     pub fn new(options: LaunchOptions) -> Self {
-        let mut document = Document::new(bundled_schemas(), Limits::DEFAULT);
+        // Historical demo schemas retain their legacy IDs. Installed immutable
+        // contributions are additional exact types, never replacements by name.
+        let mut schemas = bundled_schemas();
+        for schema in options.plugin_schemas.schemas() {
+            schemas.insert(schema.clone());
+        }
+        let mut document = Document::new(schemas, Limits::DEFAULT);
         if let Some(path) = options.open_path {
             // A fresh session has nothing to lose, so opening needs no
             // decision from anyone.
             document.open(path, true);
         }
+        if let Some(notice) = options.plugin_notice {
+            document.notice = Some(match document.notice.take() {
+                Some(previous) => format!("{previous}\n{notice}"),
+                None => notice,
+            });
+        }
+
+        // `--mcp` enables the server from startup, under the same rules as the
+        // in-app toggle. A failed bind never blocks the app: `enable` returns
+        // `Failed` and the window opens normally. The endpoint and token are
+        // reported to the console so a windowless workflow can hand them to a
+        // client.
+        let mcp = if options.mcp {
+            let state = mcp::enable(SessionState::from_document(&document), mcp::DEFAULT_ADDR);
+            mcp::report_startup(&state);
+            state
+        } else {
+            McpState::Disabled
+        };
 
         Self {
+            #[cfg(unix)]
+            inventory_revision: options.scientific_plugins.as_ref().map(|p| p.revision),
+            #[cfg(unix)]
+            kernel_choices: options.kernel_choices,
+            #[cfg(unix)]
+            physics_form: Default::default(),
+            #[cfg(unix)]
+            scientific_effects: crate::scientific_effect::ScientificEffects::new(
+                options.scientific_plugins,
+            ),
             cluster_address: options.cluster_address,
             document,
+            mcp,
             observing_view: None,
             search_query: String::new(),
             selected: None,

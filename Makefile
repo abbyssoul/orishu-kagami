@@ -25,7 +25,9 @@ test-formation-release-guard:
 
 .DEFAULT_GOAL := build
 
-.PHONY: fuzz-smoke bench-formation
+.PHONY: fuzz-smoke bench-formation \
+	bench bench-workload bench-plugin bench-runtime bench-document \
+	bench-catalog bench-variables bench-membership
 # Two passes per target. The first lets libFuzzer ramp input length; the second
 # pins length at -max_len, because the ramp alone stays far below the one-MiB
 # frame ceiling in a smoke-length campaign and never reaches the oversize paths.
@@ -39,6 +41,38 @@ fuzz-smoke:
 bench-formation:
 	$(CARGO) bench --locked -p orishu-membership --bench membership -- $(ARGS)
 	$(CARGO) bench --locked -p orishu-worker --bench formation -- $(ARGS)
+
+# Every crate microbenchmark. Each is synthetic and IO-free, so results are
+# comparable across commits. Pass Criterion flags via ARGS, for example a
+# filter or a shorter campaign:
+#   make bench ARGS="--warm-up-time 0.5 --measurement-time 2"
+#   make bench-plugin ARGS="read"
+# Per-benchmark sizes are overridable through each crate's own environment
+# variables (see the crate READMEs). The formation benches stay separate under
+# bench-formation, which also runs the worker integration bench.
+bench: bench-workload bench-plugin bench-runtime bench-document \
+	bench-catalog bench-variables bench-membership
+
+bench-workload:
+	$(CARGO) bench --locked -p orishu-workload --bench workload -- $(ARGS)
+
+bench-plugin:
+	$(CARGO) bench --locked -p orishu-plugin --bench plugin -- $(ARGS)
+
+bench-runtime:
+	$(CARGO) bench --locked -p orishu-runtime --bench runtime -- $(ARGS)
+
+bench-document:
+	$(CARGO) bench --locked -p kagami-document --bench document -- $(ARGS)
+
+bench-catalog:
+	$(CARGO) bench --locked -p kagami-catalog --bench catalog -- $(ARGS)
+
+bench-variables:
+	$(CARGO) bench --locked -p orishu-variables --bench variables -- $(ARGS)
+
+bench-membership:
+	$(CARGO) bench --locked -p orishu-membership --bench membership -- $(ARGS)
 
 .PHONY: build test test-docs test-formation test-formation-lost-ack test-formation-issuer-loss test-formation-source-loss test-formation-dead-assignment test-formation-removed-assignment test-formation-blocked-assignment test-formation-excluded-restart test-formation-peer-ejection test-formation-lost-departure test-formation-lost-leave-response check ci fmt fmt-check lint docs docs-check clean \
 	run-kagami run-worker run-ctl run-monitor smoke-kagami coverage deb \

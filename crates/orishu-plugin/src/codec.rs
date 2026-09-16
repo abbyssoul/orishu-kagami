@@ -301,6 +301,15 @@ fn cbor(bytes: &[u8], l: &Limits, max: usize) -> Result<V, Error> {
     check_tree(&value, l, "", 0, &mut remaining)?;
     Ok(value)
 }
+/// Reuse the bounded declaration-shaped tree reader for cold execution metadata.
+/// Its owner must validate relationships and compare its explicit projection.
+pub(crate) fn structured_from_cbor<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    limits: &Limits,
+    max: usize,
+) -> Result<T, Error> {
+    T::deserialize(Value(&cbor(bytes, limits, max)?))
+}
 fn read_release(v: &V, l: &Limits) -> Result<Release, Error> {
     let release = Release::deserialize(Value(v))?;
     release.validate(l)?;

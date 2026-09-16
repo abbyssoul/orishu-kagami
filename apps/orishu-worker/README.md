@@ -20,6 +20,64 @@ Run `orishu-worker --help`
 for the implemented interface. Deployment
 examples live in `etc/`; the root `Dockerfile` produces a non-root worker image.
 
+Scientific execution integration is still in progress. The internal formation
+owner can now reserve one pending scientific admission in a locked single-node
+formation, excluding conflicting topology intents and revoking the reservation
+on shutdown or identity replacement. See [ADR 0028](../../docs/adr/0028-fence-worker-scientific-admission-through-formation-owner.md).
+The internal `driver::scientific::AdmissionService` verifies portable closures and
+admits real Components off-owner, then obtains owner confirmation through reserved
+control capacity. It needs no installed plugins and never reinitializes captured
+fields. Lease revocation cancels guest work; already-running native JIT retains its
+lease until actual completion. The formation owner now allocates a non-reused
+workload epoch and [immutable run descriptor](../../docs/run-descriptor-v1.md)
+after closure verification. Callers cannot supply or rebind execution scope.
+`ValidatedAdmission::start` retains the runtime off-owner for explicit fixed steps,
+terminal stop, bounded immutable field leases and unload. The formation owner
+accepts each complete boundary through a reserved-capacity commit gate; late
+candidates after shutdown/identity changes cannot publish. The internal `RunView`
+reports accepted scope/boundary/time, not a public formation-v1 resource. Lost
+publication coordination terminates the executor rather than allowing divergence.
+`RunningWorker::scientific_admission` connects this path to real process bootstrap,
+with an expected-formation precondition. The opt-in serving adapter below uses
+this path. `PreparedAdmission::receive` accepts one body-bounded async reader
+under that existing reservation, with a positive exact announced length, host
+byte/deadline policy, cancellation and EOF checks. It independently verifies the
+requested workload root before allocating an epoch or compiling code. Default
+delivery limits are 128 MiB and an absolute 30 seconds (also constrained by the
+archive and operation limits). A real Unix-socket test reaches retained execution;
+the receiver itself does not authenticate callers or own HTTP receipts. A
+Unix [durable load-receipt journal](../../docs/run-load-receipts-v1.md) now retains
+bounded intent/outcome history, replays exact requests and recovers interrupted
+Pending records as Indeterminate. `RunningWorker::install_load_coordinator` now
+binds and retains the internal coordinator once: dropped responses do not abandon
+admission/runs, reads use bounded durable-history projections, and exact-identity
+run retrieval survives client-handle loss. Daemon shutdown/drop revokes ownership.
+Explicit scientific enablement now opens the journal/sandbox before serving and
+adds authenticated complete-upload, receipt lookup and retained-run discovery.
+Distributed/reset allocation, public step/stop/unload, continuous control and
+observations remain unwired; distributed execution capability is not advertised.
+
+## Experimental scientific admission
+
+Enable with `--scientific.enabled true`, `ORISHU_SCIENTIFIC_ENABLED=true`, or
+`spec.scientific.enabled: true` in configuration (CLI > environment > file).
+Default is disabled; the durable backend currently requires Unix. Explicitly lock
+a standalone formation before submitting a complete portable workload. Workers
+do not install authoring plugins or fetch arbitrary URLs.
+
+The [scientific-load HTTP profile](../../docs/protocol-scientific-load-v1.md)
+specifies `POST /api/v1/run-loads`, `POST /api/v1/run-loads/lookup` and
+`GET /api/v1/run`. Every route requires the worker-local operator credential,
+including Unix reads. A Pending/202 response is not scientific acceptance;
+reconcile the original request through receipt lookup. Accepted runs remain
+daemon-owned, not HTTP-owned. This surface loads/publishes initial state only;
+it is not yet an end-to-end Kagami run workflow. Summary v2 reports scientific
+occupancy; v1-only summary clients need updating for occupied workers.
+The shared `HttpClusterClient::scientific()` now provides bounded upload, receipt
+lookup and current-run discovery with full request correlation; actual worker
+tests exercise that client through upload and process restart. Kagami command/
+window adapters are still pending.
+
 ## Identity and local inspection
 
 ### Network placement

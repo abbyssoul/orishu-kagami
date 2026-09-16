@@ -229,7 +229,10 @@ blobs/sha256/<64 lowercase hex digits>
 ```
 
 No directory entries, links, absolute paths, `..`, backslashes, encryption,
-duplicate entries, compression, multi-disk or ZIP64 in this profile. Validate local
+duplicate entries, compression, multi-disk or ZIP64 in this profile. The initial
+codec also excludes extra fields, comments and streaming data descriptors; require
+contiguous non-overlapping local records without a prefix or unaccounted bytes.
+Validate local
 and central-directory agreement, CRC and exact sizes; SHA-256 remains content
 authority. Reject extra/undeclared files and missing declared artifacts. Iterate
 bounded entries without extracting attacker-controlled paths. Source pack reads
@@ -251,6 +254,27 @@ Use capability-scoped bounded resources rather than Rust pointers or one callbac
 per particle. The following is an interface inventory for WIT generation; exact
 WIT/package syntax is an acceptance artifact, not implied executable code here:
 
+Implementation checkpoint: concrete [WIT](../crates/orishu-plugin/wit/simulation.wit)
+and generated bindings now exist alongside an isolated field/Dynamics lifecycle host and
+separate actual Component fixtures. The [ABI checkpoint](runtime-component-abi.md) records
+the mapping and remaining security/admission gates; it does not claim full runtime
+or scientific execution. The list below retains the logical contract notation.
+Standard role-bound byte projections and deterministic reduction are now specified
+and implemented in [scientific bulk IO](scientific-bulk-io.md). Shared instance/
+validation envelopes and real Newtonian/Euler adoption now exist; selected workload
+closure admission is implemented in the shared runtime. Generic sampling and a
+[single-partition atomic owner](runtime-fixed-run.md) now exist, without implying
+worker/application integration. Exact context shape alone is not proof of provenance.
+
+Opaque natural-state initialization supports host-owned byte/value ceilings rather
+than requiring host knowledge of a kernel's layout. The WIT output grant explicitly
+reports whether its descriptor is an exact extent or independent ceilings. Kernels
+finish with actual counts; contiguous coverage, ceilings and exactly-once completion
+are enforced before candidate extraction. This never weakens exact grants used for
+known scientific packet layouts. Returned bytes, not unused capacity, are captured
+and hashed. Initialization capacity is policy, not a scientific input: sufficient
+different capacities must produce the same state for the same scientific inputs.
+
 ```text
 common.setup(InstanceContext, ResolvedConfig) -> Session | KernelError
 common.load(Session, StateBundle) -> Result
@@ -271,8 +295,9 @@ dynamics.integrate(Session, StepContext, entities, forces, history, outputs) -> 
 `InstanceContext` binds exact kernel artifact, contribution, state format, runtime
 profile and limits. `StepContext` binds workload/run/epoch, committed boundary,
 simulation time, positive finite SI `dt`, invocation and partition/coverage IDs.
-`DomainDescriptor` carries the shared domain, resolved discretization and relevant
-initial/boundary configuration through declared schemas. `StateBundle` is versioned
+`DomainDescriptor` carries shared geometric bounds and resolved discretization;
+`ResolvedConfig` carries the selected model's declared initial/boundary parameters.
+`StateBundle` is versioned
 opaque portable blocks plus descriptors; it cannot contain host pointers. Writable
 outputs are isolated candidate grants; input grants are immutable and invocation-
 scoped. `Session` is runtime-local, never persisted as a process pointer.
@@ -285,6 +310,15 @@ declared projections read-only; initialization cannot. Results/errors are bounde
 All exports remain sandboxed without ambient filesystem, network, clock or RNG.
 
 ### Numerical admissibility and timestep validation
+
+The implemented [R3 input refinement](scientific-bulk-io.md#resolved-configuration-and-domain)
+defines shared bounded CBOR configuration values (dimensioned quantities, booleans,
+text) and an origin-preserving three-dimensional domain with explicit continuous
+or Cartesian-cell discretization. Authoring resolves defaults/expressions once;
+worker admission validates captured values without regenerating defaults. Physical
+boundary policies/values remain selected-model configuration, not global physics.
+These new input-artifact schemas do not silently migrate legacy workload/document
+formats; their explicit integration remains required.
 
 `ValidationInputs` must include the proposed SI timestep, domain/discretization,
 resolved configuration, selected execution profile and the kernel's declared
@@ -379,6 +413,15 @@ the request's point order. Offsets/ranges cannot overlap illegally or escape gra
 Invalid numeric slots are unspecified and must never be consumed; validity governs
 them. Reuse allocated output capacity rather than allocating per sample/cell.
 
+Implementation checkpoint: the [scientific bulk IO profile](scientific-bulk-io.md#requested-channel-sampling)
+now fixes `OSQ1` request and `OSP1` response framing. Channel descriptors are derived
+from the exact identified request into checked flat ranges rather than duplicated
+inside the response. The response binds the entire request digest; recordings must
+retain request/context alongside response bytes. Pure validation and the actual
+Newtonian Component exercise this profile. The fixed owner now provides bounded
+detached committed-field leases; observation retention and UI/MCP adoption remain
+integration work, not completed R4 delivery.
+
 Successful values also report sampling quality independently of compute precision.
 Proposed flags describe direct evaluation, interpolation and reconstruction, with a
 channel-level default and per-sample overrides where necessary. Combined operations
@@ -455,13 +498,15 @@ failed validation, resource exhaustion or cancellation leaves it unchanged.
 Undo/redo retain before/after state descriptors and their blobs, not a recipe that
 reruns kernels. Save pins a coherent revision and all referenced blobs while writing.
 
-Proposed new self-contained document-container profile: stored ZIP containing
+Implemented self-contained [document-container v4](experiment-container-v4.md): stored ZIP containing
 `document.json` and digest-addressed `blobs/sha256/...`, with the same path safety
 rules as plugin bundles. The versioned document references opaque state by size,
 digest, kernel artifact, model/field contract and state-format identity. Do not
 embed unbounded binary arrays in the existing JSON format or rely on mutable
-external sidecars. This container change requires explicit K4 review/versioning;
-the actual new version identifier must follow an audit of current document versions.
+external sidecars. The version audit reserves v4 for scientific containers and
+preserves JSON v1–v3 readers/writing semantics. Exact release evidence and selected
+declarations are embedded, but executable code is not required to reopen a draft.
+Workload export still requires independent full selected-code verification.
 Existing files remain readable through the existing reader and explicit import.
 
 Default states must satisfy structural bounds; completed scientific validation
@@ -478,17 +523,33 @@ Compilation freezes resolved quantities, exact contribution bindings, field stat
 integrator/history definitions, graph/profile, selected code and runtime inputs.
 No catalog path, installation preference or mutable tag selects executable physics.
 
-Proposal: retain workload v2 bytes unchanged. A new workload profile/version adds
+Retain workload v2 bytes unchanged. The [v3 extension](workload-v3.md) adds
 an identity-bearing plugin-selection descriptor referencing:
 
 ```text
 Selection {
+  roots: ContributionRef[],
   contributions: ContributionRef[],
   bindings: {consumer, requirementSlot, provider, exactContract}[],
   kernelInstances: {instanceId, contribution, executionContract}[],
   releaseEvidence: ArtifactRef[]
 }
 ```
+
+The evidence descriptor and independent selected-byte compiler/verifier are now
+implemented in `orishu_plugin::selected`; see the
+[wire/validation notes and integration limits](plugin-selected-closure.md).
+`roots` records explicit usage before dependency expansion so extra unreachable
+contributions can be rejected. The v3 root/captured-definition codecs and exact
+context checks are implemented, as are fixed scientific-profile assembly and
+independent captured-state admission. Scene-bearing execution v2 now binds shared
+entity composition and source evidence to the numerical packets; see its
+[schema and compatibility rules](workload-v3.md#scene-bearing-execution-v2).
+Unix headless `kagami export` now produces a [portable selected closure](workload-bundle-v1.md)
+from saved captured state and exact installed code, without running initialization.
+Emitter/dynamic-membership support, window export and worker endpoint
+adoption remain integration work; workload-v2 and numeric-only descriptor bytes
+are unchanged.
 
 Each evidence artifact contains the complete canonical root manifest of a selected
 release. Recompute its release digest and verify each selected contribution's
@@ -614,7 +675,12 @@ Source inspected for this draft, not merely task status:
 - As of 2026-09-16, `orishu-plugin` implements the declaration/identity slice.
   See its [schema details and acceptance layers](../crates/orishu-plugin/README.md)
   and [fixed fixtures](../crates/orishu-plugin/tests/fixtures/contract-v1.json).
-  Resolution, package IO and application/runtime integration remain unimplemented.
+  Pure provider resolution and a bounded stored-ZIP byte codec are also implemented,
+  with focused tests; they do not install packages or admit executable code.
+  Kagami now has initial Unix source/package IO and durable inventory/CLI
+  management; [tooling documentation](plugin-authoring-tools.md) records exact
+  source/index formats and limitations. Authoring/UI/MCP and runtime integration,
+  source-local symbolic compilation and full crash-injection evidence remain.
 
 Proposed dependency ownership:
 

@@ -18,6 +18,9 @@ use thiserror::Error;
 /// Why a catalog identifier could not be accepted.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum NameError {
+    /// An exact reference names something other than a component schema.
+    #[error("expected an orishu.model.components/v1 contribution")]
+    NotComponentContribution,
     /// A segment is not a valid variable-name segment.
     #[error(transparent)]
     Segment(#[from] InvalidName),
@@ -180,24 +183,86 @@ impl From<PluginId> for String {
 
 /// The plugin-qualified identity of a component type, as declared by a
 /// simulation plugin's schema and referenced by a template.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct ComponentTypeId(ComponentIdentity);
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct ComponentTypeId {
-    /// The plugin that contributes this component type.
-    pub plugin: PluginId,
-    /// The component's name within that plugin.
-    pub name: ComponentName,
+#[serde(untagged, deny_unknown_fields)]
+enum ComponentIdentity {
+    /// Historical logical reference. Never silently upgraded to installed code.
+    Legacy {
+        /// Logical provider name, not an immutable release.
+        plugin: PluginId,
+        /// Legacy component name.
+        name: ComponentName,
+    },
+    /// Immutable component contribution; scientific content is verified from its
+    /// release/payload, never inferred from a display or expression name.
+    Exact {
+        /// Only the component extension point is accepted by [`ComponentTypeId::exact`].
+        contribution: Box<orishu_plugin::ContributionRef>,
+    },
 }
 
 impl ComponentTypeId {
     /// Build a component type identity from already-validated parts.
     pub fn new(plugin: PluginId, name: ComponentName) -> Self {
-        Self { plugin, name }
+        Self(ComponentIdentity::Legacy { plugin, name })
+    }
+    /// Construct an exact component pin, rejecting other extension points.
+    pub fn exact(contribution: orishu_plugin::ContributionRef) -> Result<Self, NameError> {
+        if contribution.extension_point.as_str() != "orishu.model.components/v1" {
+            return Err(NameError::NotComponentContribution);
+        }
+        // Pins are cold metadata, shared by many command/error paths. Keep the
+        // value no larger than its legacy spelling rather than enlarging every
+        // property path and rejection for the full release digest.
+        Ok(Self(ComponentIdentity::Exact {
+            contribution: Box::new(contribution),
+        }))
+    }
+    /// Exact provider, if this is not an unresolved historical reference.
+    pub fn contribution(&self) -> Option<&orishu_plugin::ContributionRef> {
+        match &self.0 {
+            ComponentIdentity::Exact { contribution } => Some(contribution),
+            _ => None,
+        }
+    }
+    /// Default expression segment. Plugin local IDs exclude underscores, so
+    /// replacing hyphens with underscores is injective, not a scientific rename.
+    pub fn local_name(&self) -> ComponentName {
+        match &self.0 {
+            ComponentIdentity::Legacy { name, .. } => name.clone(),
+            ComponentIdentity::Exact { contribution } => {
+                ComponentName::new(contribution.local_id.as_str().replace('-', "_"))
+                    .expect("plugin identifier has a valid expression spelling")
+            }
+        }
     }
 }
 
 impl fmt::Display for ComponentTypeId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}/{}", self.plugin, self.name)
+        match &self.0 {
+            ComponentIdentity::Legacy { plugin, name } => write!(formatter, "{plugin}/{name}"),
+            ComponentIdentity::Exact { contribution } => write!(
+                formatter,
+                "{}/{}",
+                contribution.release, contribution.local_id
+            ),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ComponentTypeId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        match ComponentIdentity::deserialize(d)? {
+            ComponentIdentity::Legacy { plugin, name } => Ok(Self::new(plugin, name)),
+            ComponentIdentity::Exact { contribution } => {
+                Self::exact(*contribution).map_err(serde::de::Error::custom)
+            }
+        }
     }
 }
 

@@ -58,6 +58,8 @@ use crate::manifest::{
 };
 use crate::value::{FiniteF64, ScalarValue};
 
+pub(crate) mod v3;
+
 /// Why a value could not be canonically encoded or decoded.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CanonicalError {

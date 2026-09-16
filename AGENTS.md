@@ -41,6 +41,9 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
 
 - `apps/kagami`: native Iced authoring and visualization client. Its current
   scene tree is prototype UI state, not the authoritative experiment model.
+  `src/plugins` owns initial Unix local source/package IO, inventory and headless
+  CLI management; shared plugin crates never acquire these filesystem adapters.
+  Plugin authoring-registry and runtime adoption remain separate integration work.
 - `apps/orishu-worker`: cluster node/runtime process.
 - `apps/orishu-ctl`: scriptable cluster operator client; binary name
   `orishuctl`.
@@ -69,9 +72,18 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   `docs/workloads.md`.
 - `crates/orishu-plugin`: pure v1 simulation-plugin declarations, bounded readers,
   canonical identities and payload verification. Reuses workload digest/CBOR and
-  shared variables dimensions; no inventory IO, provider resolver or Wasm engine.
+  shared variables dimensions, with pure revisioned provider resolution and
+  bounded stored-ZIP byte validation/packing (no extraction), and standard
+  scientific Dynamics/coupling/force packet codecs in `execution`. No
+  inventory IO or Wasm engine.
   Raw declarations are not acceptance; use the bounded readers and validators.
   See `crates/orishu-plugin/README.md` for current scope and fixtures.
+- `crates/orishu-runtime`: shared sandbox host foundation (Wasmtime, generated
+  role-specific WIT, bounded grants, deadline/cancellation and isolated field/Dynamics
+  lifecycle, plus reusable deterministic force reduction). Not yet
+  integrated into applications or a scientific run owner; consult
+  `docs/runtime-component-abi.md` for mandatory remaining security gates. The
+  engine dependency must not flow into pure shared contracts.
 - `crates/orishu-membership`: sans-IO functional core for cluster membership —
   admission, SWIM, gossip merge, and anti-entropy. It must never acquire a
   networking, async-runtime, clock, filesystem, TLS, or RNG dependency; a test
@@ -91,6 +103,10 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
 - `crates/kagami-renderer`: Kagami's Iced/wgpu rendering boundary. It owns GPU
   presentation mechanics, never authoritative experiment or simulation state.
 - `docs/adr`: accepted costly-to-reverse decisions.
+- `plugins/reference`: separately locked external-style scientific kernel build
+  workspace. The classical symplectic Euler Component consumes public WIT/packet
+  contracts, never the host runtime. Plugin release/workload integration is pending;
+  it is not part of the host workspace's automatic build/test glob.
 - `docs/tasks`: bounded implementation work derived from accepted design.
 - `docs/user-stories`: user-facing outcomes, not low-level implementation
   specifications.
@@ -246,6 +262,9 @@ public interface that production uses.
 
 - Update `CONTEXT.md` when canonical terminology, ownership, or invariants
   change.
+- Always use ASD-STE100 Technical English Standard for Technical Documentation when writing prose.
+  Avoid idioms, metaphors, and casual phrasing. Use the active voice and present tense. 
+  Keep sentences short and paragraphs focused on one idea.
 - Record costly, cross-cutting decisions in `docs/adr/` with context, options or
   decision rationale, consequences, status, and links from `docs/adr/README.md`.
 - Promote accepted implementation work into `docs/tasks/` with outcome,

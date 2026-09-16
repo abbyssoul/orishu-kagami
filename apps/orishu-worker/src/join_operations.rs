@@ -48,6 +48,11 @@ pub enum OperationError {
 }
 
 impl JoinOperations {
+    /// A reserved join may be doing IO before participation becomes `Joining`.
+    /// Scientific admission must not race that pre-handshake reservation.
+    pub(crate) fn has_active(&self) -> bool {
+        self.active.is_some()
+    }
     /// Explicit local lifecycle exit, not remote rollback. History is retained.
     pub fn end_lifecycle(&mut self) {
         if let Some(id) = self.active.take() {

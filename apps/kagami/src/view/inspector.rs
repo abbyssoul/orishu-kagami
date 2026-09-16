@@ -33,14 +33,69 @@ pub fn view(model: &Model) -> Element<'_, Message> {
         Some((id, object)) => scrollable(view_object(model, id, object))
             .height(Length::Fill)
             .into(),
-        None => text("Nothing selected").into(),
+        None => view_setup(model),
     };
 
-    container(column![content, notice(model)].spacing(8))
+    let content = column![content].spacing(8);
+    #[cfg(unix)]
+    let content = if model.scientific_effects.is_pending() {
+        content
+            .push(text("Scientific edit pending; the authored scene is unchanged.").size(11))
+            .push(
+                button("Cancel scientific edit").on_press(Message::Scientific(
+                    crate::message::ScientificAction::Cancel,
+                )),
+            )
+    } else {
+        content
+    };
+    container(content.push(notice(model)))
         .width(Length::Fixed(300.0))
         .height(Length::Fill)
         .padding(8)
         .into()
+}
+
+fn view_setup(model: &Model) -> Element<'_, Message> {
+    #[cfg(unix)]
+    if let Some(setup) = model.document.snapshot().setup().scientific() {
+        use crate::message::ScientificAction;
+        let busy = model.scientific_effects.is_pending();
+        let mut fields = column![text("Scientific fields").size(16), text("Reinitialize restores the selected kernel's natural state. Undo restores the previous captured bytes.").size(11)].spacing(8);
+        for (id, capture) in setup.captures() {
+            if capture.context.execution_contract != orishu_plugin::ExecutionContractId::Field {
+                continue;
+            }
+            let mut reinitialize = button(text("Reinitialize field").size(12));
+            if model.is_authoring() && !busy && model.scientific_effects.is_configured() {
+                reinitialize = reinitialize.on_press(Message::Scientific(
+                    ScientificAction::Reinitialize(id.clone()),
+                ));
+            }
+            let details = column![
+                text(id.to_string()),
+                text(format!("{} bytes captured", capture.state.len())).size(11),
+            ]
+            .spacing(4);
+            fields = fields.push(if model.is_authoring() {
+                details.push(reinitialize)
+            } else {
+                details
+            });
+        }
+        if model.is_authoring() && model.scientific_effects.is_configured() {
+            fields = fields.push(super::physics::view(model));
+        }
+        return scrollable(fields).height(Length::Fill).into();
+    }
+    #[cfg(unix)]
+    if model.is_authoring() && model.scientific_effects.is_configured() {
+        return scrollable(super::physics::view(model))
+            .height(Length::Fill)
+            .into();
+    }
+    let _ = model;
+    text("Nothing selected").into()
 }
 
 fn view_object<'a>(model: &'a Model, id: ObjectId, object: &'a Object) -> Element<'a, Message> {
@@ -202,7 +257,7 @@ fn view_attachable<'a>(
     object: ObjectId,
     carried: &'a Object,
 ) -> Option<Element<'a, Message>> {
-    let mut buttons = column![].spacing(4);
+    let mut buttons = column![text("Adding authors the plugin's declared defaults. Missing required values are not invented.").size(11)].spacing(4);
     let mut any = false;
     for schema in model.document.schemas().schemas() {
         if carried.components.contains_key(&schema.type_id) {

@@ -3,6 +3,9 @@
 //!
 //! Networking is implemented using reqwest crate.
 
+mod scientific;
+pub use scientific::{ScientificClient, ScientificError};
+
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::Read;
@@ -69,9 +72,10 @@ use crate::{
 /// # Access tiers
 ///
 /// - **Tier 1** — [`ClusterAddress::UnixSocket`] with no credentials:
-///   read-only, no authentication required (same OS user as the node).
-/// - **Tier 2** — any address with [`Credentials::Token`] or [`Credentials::Mtls`]:
-///   full read/write access.
+///   formation reads without authentication (same OS user as the node).
+///   Scientific routes still require the operator token, including reads.
+/// - **Tier 2** — any address with [`Credentials::Token`]: operator-authorized
+///   routes. [`Credentials::Mtls`] remains planned, not a substitute credential.
 ///
 /// # Example
 ///
@@ -102,7 +106,8 @@ pub struct HttpClusterClient {
 #[derive(Debug, Clone, Default)]
 pub struct HttClientOptions {
     /// Credentials to be used for remote server communication.
-    /// No credentials is only valid for local read-only operations (Unix socket, same OS user).
+    /// No credentials is only valid for local formation reads (Unix socket,
+    /// same OS user); scientific reads also require an operator token.
     pub credentials: Option<Credentials>,
 
     /// Optional connection timeout setting for HTTP client.
@@ -145,10 +150,24 @@ impl HttClientOptions {
     }
 }
 
+fn control_transport(builder: ClientBuilder) -> ClientBuilder {
+    // Preserve the exact response representation for bounded decoders, even if
+    // another workspace consumer enables reqwest's optional decompressors.
+    // Identified control adapters own retry decisions; a transport must not
+    // silently replay operations or redirect their credentials/authority.
+    builder
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .no_zstd()
+}
+
 fn build_client(options: HttClientOptions) -> Result<ClientWithMiddleware> {
     // Operator mutations target a particular worker. A redirect must not silently
     // change that authority (or carry a credential to an unintended endpoint).
-    let mut cb = Client::builder().redirect(reqwest::redirect::Policy::none());
+    let mut cb = control_transport(Client::builder());
     if let Some(timeout) = options.timeout {
         cb = cb.connect_timeout(timeout).timeout(timeout);
     }
@@ -180,17 +199,16 @@ fn build_client(options: HttClientOptions) -> Result<ClientWithMiddleware> {
 
 /// Build the transport for a [`ClusterAddress::UnixSocket`] address.
 ///
-/// Unix domain sockets carry the Tier 1 (same OS user, unauthenticated) access path,
-/// so the URL authority is a placeholder: the socket path selects the peer, not DNS.
+/// Unix sockets permit unauthenticated local formation reads; operator operations
+/// and scientific reads still need a token. The URL authority is a placeholder:
+/// the socket path selects the peer, not DNS.
 #[cfg(unix)]
 fn build_unix_socket_client(
     path: PathBuf,
     options: HttClientOptions,
 ) -> Result<(ClientWithMiddleware, Url)> {
     // Create a client configured to use the Unix socket
-    let mut builder = ClientBuilder::new()
-        .unix_socket(path)
-        .redirect(reqwest::redirect::Policy::none());
+    let mut builder = control_transport(ClientBuilder::new().unix_socket(path));
     if let Some(timeout) = options.timeout {
         builder = builder.timeout(timeout);
     }
@@ -224,6 +242,12 @@ fn build_unix_socket_client(
 }
 
 impl HttpClusterClient {
+    /// Bounded immutable-workload admission and receipt discovery. This is not
+    /// the imported authored-workload CRUD API, and never retries an operation.
+    pub fn scientific(&self) -> ScientificClient<'_> {
+        ScientificClient::new(self)
+    }
+
     /// Create a client for the given address and credentials.
     ///
     /// Returns an error for a [`ClusterAddress::UnixSocket`] address on platforms

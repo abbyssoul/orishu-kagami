@@ -31,6 +31,45 @@ make run-kagami ARGS="--exit-after 5"
 make run-worker ARGS="--help"
 ```
 
+## Benchmarks
+
+Each performance-bearing crate has a synthetic, IO-free Criterion benchmark.
+`make bench` runs every crate microbenchmark; each also has an individual target:
+
+| Command | Crate benchmark |
+| --- | --- |
+| `make bench` | All of the microbenchmarks below. |
+| `make bench-workload` | Canonical encode, digest, decode, and closure verification. |
+| `make bench-plugin` | Bulk-IO packet encode, read, and iterate. |
+| `make bench-runtime` | The deterministic `ForceReducer` reduction. |
+| `make bench-document` | The validated `update` transition. |
+| `make bench-catalog` | Catalog parse, resolve, evaluate, and materialise. |
+| `make bench-variables` | Variable definition and expression evaluation. |
+| `make bench-membership` | The membership transition core. |
+
+`make bench-formation` stays separate. It runs the membership benchmark and the
+heavier `orishu-worker` formation integration benchmark.
+
+Use `ARGS` to pass Criterion flags or a benchmark-name filter, for example:
+
+```sh
+make bench-plugin ARGS="read"
+make bench ARGS="--warm-up-time 0.5 --measurement-time 2"
+```
+
+Per-benchmark sizes are overridable through each crate's own environment
+variables, which each crate README documents (for example
+`ORISHU_WORKLOAD_BENCH_COMPONENTS` or `KAGAMI_DOCUMENT_BENCH_BATCH`).
+
+Criterion measures wall-clock time only. To measure allocation counts and bytes,
+run the paired `dhat`-gated profiling example. Each crate that has one documents
+the exact command in its README, for example:
+
+```sh
+cargo run --release -p orishu-workload --example profile_workload --features dhat
+cargo run --release -p orishu-plugin --example profile_plugin --features dhat
+```
+
 ## Change expectations
 
 - Add tests through the module interface for every behavioural change.

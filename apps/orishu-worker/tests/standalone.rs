@@ -16,6 +16,8 @@ struct Worker(Child);
 
 #[path = "support/logging.rs"]
 mod logging;
+#[path = "support/scientific.rs"]
+mod scientific;
 
 #[cfg(feature = "observability")]
 #[path = "support/peer_ingress_metrics.rs"]

@@ -45,7 +45,7 @@ fn annotations(a: Option<&Annotations>, l: &Limits) -> Result<(), Error> {
     }
     Ok(())
 }
-fn properties(p: &[Property], l: &Limits) -> Result<(), Error> {
+pub(crate) fn properties(p: &[Property], l: &Limits) -> Result<(), Error> {
     bound(p.len(), l.max_schema_items, "properties")?;
     unique(p.iter().map(|p| &p.id), "properties")?;
     for p in p {

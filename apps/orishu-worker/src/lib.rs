@@ -18,3 +18,7 @@ pub mod trace_destination;
 pub mod trace_export;
 #[cfg(unix)]
 pub mod unix_socket;
+#[cfg(unix)]
+pub mod workload_load;
+#[cfg(unix)]
+pub mod workload_receipts;

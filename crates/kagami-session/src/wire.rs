@@ -41,6 +41,9 @@ use crate::outcome::{Acceptance, ExperimentChange, ExperimentEvent, SessionRejec
 ///
 /// Distinct from [`kagami_document::WIRE_VERSION`]: the envelope shape and the
 /// command shape are owned by different crates and can move independently.
+/// The current envelope version is paired with model wire version 3 for exact
+/// component pins/scientific read projections; an adapter must support both, not
+/// infer command compatibility solely from this envelope constant.
 ///
 /// Not stamped on every message. A submission and its answer cross one
 /// boundary an adapter establishes once, so the version belongs to that
@@ -107,6 +110,8 @@ impl WireEnvelope {
     /// open a file names the *file* to the shell; the shell reads it, decodes
     /// it through [`crate::document`], and submits the candidate. Encoding it
     /// as anything else here would quietly change what the caller asked for.
+    /// Scientific initialization results likewise have no ordinary JSON command
+    /// form: an effect adapter must transfer bounded blobs with document guards.
     pub fn of(envelope: &ExperimentCommandEnvelope) -> Option<Self> {
         Some(Self {
             command_id: envelope.command_id.clone(),
@@ -115,7 +120,10 @@ impl WireEnvelope {
             gesture: envelope.gesture.map(GestureId::get),
             command: match &envelope.command {
                 SessionCommand::Edit(commands) => WireSessionCommand::Edit {
-                    commands: commands.iter().map(WireCommand::of).collect(),
+                    commands: commands
+                        .iter()
+                        .map(WireCommand::of)
+                        .collect::<Option<_>>()?,
                 },
                 SessionCommand::Undo => WireSessionCommand::Undo,
                 SessionCommand::Redo => WireSessionCommand::Redo,

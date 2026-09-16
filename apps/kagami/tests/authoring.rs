@@ -24,6 +24,8 @@ fn model() -> Model {
         cluster_address: Default::default(),
         exit_after: None,
         open_path: None,
+        mcp: false,
+        ..Default::default()
     })
 }
 

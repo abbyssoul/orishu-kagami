@@ -51,8 +51,17 @@ const ACTOR: &str = "ui";
 /// What this build stamps on a document it writes.
 const GENERATOR: &str = concat!("kagami ", env!("CARGO_PKG_VERSION"));
 
+/// Transient correlation for asynchronous authoring effects. Not persisted and
+/// not authorization: the document still submits a revision-guarded command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthoringGuard {
+    scope: uuid::Uuid,
+    revision: kagami_document::ExperimentRevision,
+}
+
 /// The authority, plus the little the shell needs to talk to it.
 pub struct Document {
+    effect_scope: uuid::Uuid,
     authority: DocumentAuthority,
     /// The projection the window is currently drawing.
     ///
@@ -92,6 +101,7 @@ impl Document {
     pub fn new(schemas: SchemaRegistry, limits: Limits) -> Self {
         let authority = DocumentAuthority::new(schemas, limits);
         Self {
+            effect_scope: uuid::Uuid::new_v4(),
             view: authority.view(),
             authority,
             authoring_view: AuthoringViewState::new(),
@@ -116,6 +126,7 @@ impl Document {
     /// view is what makes the inspector show the new diagnostics without
     /// anything having been edited.
     pub fn adopt_schemas(&mut self, schemas: SchemaRegistry) {
+        self.effect_scope = uuid::Uuid::new_v4();
         self.authority.adopt_schemas(schemas, self.actor.clone());
         self.view = self.authority.view();
     }
@@ -133,6 +144,11 @@ impl Document {
     /// What can be attached, for the inspector to offer.
     pub fn schemas(&self) -> &SchemaRegistry {
         self.authority.schemas()
+    }
+
+    /// The same caller-owned policy used by document validation and effects.
+    pub fn limits(&self) -> &Limits {
+        self.authority.limits()
     }
 
     /// Which components the installed schemas cannot govern.
@@ -163,6 +179,7 @@ impl Document {
     pub fn observe(&mut self, attachment: RunAttachment) -> Result<(), WorkspaceRejection> {
         let outcome = self.workspace.observe(attachment);
         if outcome.is_ok() {
+            self.effect_scope = uuid::Uuid::new_v4();
             self.notice = None;
         }
         outcome
@@ -277,24 +294,65 @@ impl Document {
         self.submit(SessionCommand::Edit(commands))
     }
 
+    /// Capture intent against this document incarnation, revision and mode.
+    /// Camera movement and saving do not invalidate scientific work.
+    pub fn authoring_guard(&self) -> Option<AuthoringGuard> {
+        self.is_authoring().then_some(AuthoringGuard {
+            scope: self.effect_scope,
+            revision: self.view.revision(),
+        })
+    }
+
+    /// Reject completions after edit, replacement, schema change or an intervening
+    /// observation session, even if the window is authoring again by delivery.
+    pub fn accepts_effect(&self, guard: AuthoringGuard) -> bool {
+        self.authoring_guard() == Some(guard)
+    }
+
+    /// Adopt a completed effect as one ordinary undoable, revision-guarded edit.
+    pub fn edit_guarded(
+        &mut self,
+        guard: AuthoringGuard,
+        commands: Vec<ExperimentCommand>,
+    ) -> bool {
+        if !self.accepts_effect(guard) {
+            self.notice = Some("Scientific edit discarded: the document or authoring context changed. Retry explicitly.".into());
+            return false;
+        }
+        self.submit_guarded(SessionCommand::Edit(commands), Some(guard.revision))
+    }
+
     /// Submit one session command.
     ///
     /// The mode gate runs first, before an identity is minted or an envelope
     /// built. This is the only route to the authority, so it is also the only
     /// place the gate has to be.
     pub fn submit(&mut self, command: SessionCommand) -> bool {
+        self.submit_guarded(command, None)
+    }
+
+    fn submit_guarded(
+        &mut self,
+        command: SessionCommand,
+        expected_revision: Option<kagami_document::ExperimentRevision>,
+    ) -> bool {
         if let Err(rejection) = self.workspace.admit(&command) {
             self.notice = Some(rejection.to_string());
             return false;
         }
 
-        let envelope = kagami_session::ExperimentCommandEnvelope::new(
+        let replaces = command.replaces_document();
+        let mut envelope = kagami_session::ExperimentCommandEnvelope::new(
             self.mint(),
             self.actor.clone(),
             command,
         );
+        envelope.expected_revision = expected_revision;
         match self.authority.submit(envelope) {
             Ok(_) => {
+                if replaces {
+                    self.effect_scope = uuid::Uuid::new_v4();
+                }
                 self.view = self.authority.view();
                 self.notice = None;
                 true

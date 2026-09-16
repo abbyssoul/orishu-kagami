@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use super::workload::Manifest as WorkloadManifest;
 
-/// Version-1 synthetic formation projection, never an authored cluster manifest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Synthetic formation projection, never an authored cluster manifest. Version
+/// two adds explicit scientific occupancy; version one remains formation-only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Summary {
     /// Resource schema version, independent of peer ALPN.
-    #[serde(deserialize_with = "summary_version")]
     pub schema_version: u32,
     /// Immutable identity of the locally observed formation.
     pub formation_id: orishu_identity::FormationId,
@@ -32,10 +32,37 @@ pub struct Summary {
     pub participation: Participation,
     /// Whether the local worker can currently enforce every admission gate.
     pub introducer_ready: bool,
-    /// Explicit no-workload state for the formation PoC.
+    /// Owner-published workload occupancy, not a running/available guarantee.
     pub workload: FormationWorkload,
     /// Where this projection came from and what freshness it promises.
     pub view: SummaryView,
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "Summary", rename_all = "camelCase", deny_unknown_fields)]
+struct SummaryWire {
+    schema_version: u32,
+    formation_id: orishu_identity::FormationId,
+    cluster_name: orishu_identity::ClusterName,
+    source_node_id: NodeId,
+    member_count: usize,
+    alive_count: usize,
+    membership_locked: bool,
+    participation: Participation,
+    introducer_ready: bool,
+    workload: FormationWorkload,
+    view: SummaryView,
+}
+impl<'de> Deserialize<'de> for Summary {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = SummaryWire::deserialize(deserializer)?;
+        match (value.schema_version, value.workload) {
+            (1, FormationWorkload::None) | (2, _) => Ok(value),
+            _ => Err(serde::de::Error::custom(
+                "unsupported formation summary version/state",
+            )),
+        }
+    }
 }
 
 /// Bounded caller-chosen retry identity, scoped to one worker and formation.
@@ -159,11 +186,14 @@ pub enum Participation {
     Stopping,
 }
 
-/// Only the formation workload state currently supported by the PoC.
+/// Accepted scientific occupancy is not scheduler state or a client observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FormationWorkload {
     None,
+    /// The formation owner has published scientific state. Version two only;
+    /// query the retained-run API for the exact usable execution descriptor.
+    Scientific,
 }
 
 /// A fresh read of the entry worker's local model, not global convergence proof.
@@ -654,8 +684,24 @@ mod formation_tests {
         assert_eq!(summary.participation, Participation::Joined);
         assert_eq!(serde_json::to_value(&summary).unwrap(), golden);
         let mut invalid = golden.clone();
-        invalid["schemaVersion"] = serde_json::json!(2);
+        invalid["schemaVersion"] = serde_json::json!(3);
         assert!(serde_json::from_value::<Summary>(invalid).is_err());
+        let mut scientific = golden.clone();
+        scientific["workload"] = serde_json::json!("scientific");
+        assert!(
+            serde_json::from_value::<Summary>(scientific.clone()).is_err(),
+            "v1 cannot silently expand its state vocabulary"
+        );
+        scientific["schemaVersion"] = serde_json::json!(2);
+        let decoded: Summary = serde_json::from_value(scientific.clone()).unwrap();
+        assert_eq!(decoded.workload, FormationWorkload::Scientific);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&decoded, &mut bytes).unwrap();
+        assert_eq!(
+            ciborium::from_reader::<Summary, _>(&bytes[..]).unwrap(),
+            decoded
+        );
+        assert_eq!(serde_json::to_value(decoded).unwrap(), scientific);
         let mut invalid = golden.clone();
         invalid["formationId"] = serde_json::json!("not an identity");
         assert!(serde_json::from_value::<Summary>(invalid).is_err());

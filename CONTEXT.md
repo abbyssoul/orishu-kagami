@@ -6,8 +6,85 @@ independent platforms.
 
 The accepted MVP plugin boundary has an implemented dependency-light `orishu-plugin`
 declaration/identity crate for Kagami and Orishu, alongside variables, catalog and
-workload contracts. Provider resolution and application/runtime adoption remain
-planned. These form one coupled product seam; keep dependency ownership
+workload contracts. Pure provider resolution and a stored-ZIP byte codec are implemented.
+Selected-closure compilation/verification and exact context-to-declaration checks
+are implemented. The [v3 workload extension](docs/workload-v3.md) retains the shared
+kernel graph and pins selection/captured-scientific-input descriptors without v2's
+global spatial-step/integrator assumptions. V2 identities are unchanged. Shared
+fixed-profile compilation/verification and actual Component admission are implemented;
+Headless Kagami export now writes a verified portable closure; explicit worker
+scientific enablement exposes bounded authenticated load/receipt/current-run
+routes. The shared scientific HTTP client implements bounded submission and
+correlated receipt/discovery reads without implicit retry or redirects. Kagami
+submission and public run control/observations remain unwired.
+Shared configuration/domain and instance/validation codecs now feed real reference
+Wasm kernels; these alone are not a worker admission authority.
+The shared runtime now has an atomic single-partition fixed-profile state owner,
+complete in-memory portable checkpoints and bounded detached committed-field
+sampling leases. Its raw execution projection alone is not admitted workload
+closure; `orishu_runtime::admit` verifies the complete selected root and scientific
+inputs before constructing it. Hot-store/arena reuse and product adapters remain work.
+Kagami has initial Unix local inventory IO and CLI management; authoring/runtime
+adoption remain partial. Exact component pins now survive catalog-v2 and experiment-v3
+files (older logical references are preserved without provider selection). Verified
+selected component schemas can feed the document authority, preserving constraints,
+defaults and scientific roles. Unix startup now supplies installed component schemas,
+including process-only overrides; Add authors declared defaults through the same
+authority. Dependency-choice dialogs and window export controls remain unwired.
+The app-local preparation path can now retain an exact selected artifact closure
+under release leases and initialize field/history candidates through the shared
+worker sandbox. Shared declaration projection supplies role/channel metadata;
+no reference-kernel layout is assembled by Kagami. The document authority now
+accepts captured scientific setup as one validated, undoable edit. Legacy setup
+and plugin-based setup are distinct variants, never simultaneous domains. Final
+configuration expressions and numerical-history inputs must match the capture;
+changes requiring reinitialization cannot commit stale state. Model wire v3 exposes
+descriptors, not opaque JSON arrays. Scientific file version 4 now stores exact
+declaration evidence and captured state in a bounded stored-ZIP/blob container;
+save/open restores it without executable installation or initialization. Legacy
+JSON v1–v3 semantics remain unchanged. The Unix window now explicitly reinitializes
+captured fields through a single bounded background effect, checking document
+incarnation/revision/mode and exact inventory availability before one atomic edit.
+Creation/configuration flows, dependency controls and MCP scientific parity remain.
+The authority now bounds unique scientific buffers plus canonical metadata weight
+across live state, undo/redo and replay receipts; pressure may evict old receipts,
+never undo history merely to make a capture fit. Field reinitialization separately
+bounds retained pending input/selected bytes/output; cancelled work owns its slot
+until actual exit. Other effect and IO-buffer reservations remain work. Reopening
+does not imply permission to execute.
+Captured-scene workload compilation now emits shared scene composition and source
+evidence through execution descriptor v2. Runtime admission checks exact component
+membership, dimensions and complete agreement with object/coupling packets; source
+expressions are non-executable provenance, never worker-side evaluation. Template
+fingerprints are historical evidence, not catalog locations or fetch edges. See
+[the versioned scene contract](docs/workload-v3.md#scene-bearing-execution-v2).
+The Unix `kagami export` command now freezes exact installed code, compiles a saved
+captured experiment and publishes a new [portable workload file](docs/workload-bundle-v1.md).
+Independent bundle verification/runtime admission needs no plugin inventory.
+Emitter/dynamic-membership integration, window export controls and public run control
+remain open; scene data does not create a second editable document authority.
+The worker's existing formation owner can now issue one generation-fenced
+execution reservation for a locked single-node formation. It excludes competing
+admission/topology intents and revokes on lifecycle exit; off-owner work must
+actually release it before another admission. The internal admission adapter now
+verifies portable closures and admits real Components off-owner, links guest
+cancellation to that lease, and returns an owner-confirmed handoff. The caller
+must retain the lease through runtime disposal. After closure verification the
+formation owner now assigns a non-reused workload epoch and an immutable
+[run descriptor](docs/run-descriptor-v1.md); callers cannot choose or rebind that
+scope. Confirmation and publication recheck the exact owner-issued allocation.
+Its retained executor now publishes boundary zero, explicit fixed steps and
+terminal stop through the formation owner, then serves bounded immutable field
+leases from that accepted state. No guest work or scientific buffers enter the
+formation mailbox. Publication coordination loss terminates the lifetime rather
+than continuing with uncertain state. The internal projection/allocation does not
+advertise distributed execution capability. The separately enabled
+[scientific-load HTTP profile](docs/protocol-scientific-load-v1.md) uses daemon-owned
+admission and durable receipts, not request-owned execution. Default startup remains
+formation-only. Owner-published scientific occupancy uses summary v2 rather than
+misreporting the workload as absent; historical acceptance is not live-run availability.
+See [ADR 0028](docs/adr/0028-fence-worker-scientific-admission-through-formation-owner.md).
+These form one coupled product seam; keep dependency ownership
 acyclic and IO in adapters. The crate layout may be reconsidered after MVP.
 See [ADR 0027](docs/adr/0027-plugin-contributions-and-immutable-releases.md)
 and [X-PLUGIN's design gates](docs/tasks/define-and-implement-plugin-contract.md).
@@ -22,6 +99,12 @@ recommendations do not rewrite authored time controls. Integrator history covers
 entity births/deaths and is checkpointed with membership. Successful samples
 retain evaluation/interpolation/reconstruction quality separately from precision.
 Field brush editing is post-MVP, to revisit only if needed.
+
+Physical boundary policies belong to each selected field model's declared
+configuration, over the shared geometric domain. Captured resolved quantities keep
+their SI dimensions; default expressions are resolved during authoring, not silently
+re-evaluated when loading a workload. Unsupported boundary/discretization requests
+are rejected, not replaced by a kernel's convenient default.
 
 The initial integrator profile consumes current state, accumulated forces,
 declared bounded history and a fixed timestep after one field/force stage.
@@ -75,6 +158,9 @@ Field initialization constructs the kernel's natural default state, which need
 not be zero-filled, independently of scene entities. It may perform bounded
 kernel setup. Completed-experiment validation is separate; field/object creation
 order must not change initial conditions given the same final authored values.
+Natural initialization uses kernel-chosen actual output sizes within explicit host
+byte/value ceilings, not host-owned field layout formulas. Sufficient different
+ceilings must not change scientific output. Completed buffers exclude unused capacity.
 Kagami requests field defaults from its local runtime on field creation and
 captures the scientific output in the experiment. Reopening and submission
 preserve that state; runtime-only setup is reconstructed separately, without
@@ -139,6 +225,7 @@ It does not wait for an interactive prompt or guess a provider.
 | **Workload bundle** | A portable import/export representation carrying a workload manifest and its complete artifact closure; it is transport, not workload identity. |
 | **Distribution format** | A physical file layout, archive encoding, or transfer protocol that carries a workload manifest and artifact bytes without changing their logical identities. Multiple formats may carry the same workload. |
 | **Run** | One execution of a simulation problem: state advanced through accepted fixed steps, published as an ordered stream of computed states. A run is a local Kagami preview or a workload executing on a cluster. |
+| **Run descriptor** | An immutable versioned fact record binding the protocol formation ID, exact workload root and workload epoch. Its canonical CBOR digest is the runtime/sampling run source. Worker allocation belongs to the formation owner; labels, routes, credentials and current state are excluded. |
 | **Run reference** | Shareable identification of one cluster run by cluster formation, workload identity, and workload epoch, plus optional non-authoritative connection hints. It contains no credentials or presentation state. |
 | **Simulation boundary** | A committed simulation time at which workload state is consistent and safe to observe, checkpoint, or transfer. |
 | **Observation** | Versioned output carrying workload, simulation-time, model, numerical, and execution provenance. |
@@ -205,6 +292,14 @@ It does not wait for an interactive prompt or guess a provider.
 - A rendered value identifies the workload, simulation boundary, model,
   precision, domain, and validity that produced it.
 - Editable scene intent never mutates an already loaded workload.
+- Identified workload-load receipts record historical admission, not mutable run
+  status. Durable pending intent precedes execution permission; an interrupted
+  unresolved attempt is indeterminate, never implicit permission to execute again.
+  The daemon retains admission and accepted runs independently of request/response
+  lifetimes. Losing a response cannot unload or replay execution; daemon shutdown
+  or owner drop revokes its active work and run loans.
+  This worker-local history does not provide distributed exactly-once execution
+  or restore scientific state. See [ADR 0030](docs/adr/0030-retain-durable-worker-load-receipts.md).
 - Run observations never mutate editable experiment intent. Adopting computed
   state into an experiment is an explicit, validated authoring command that
   creates a new revision and retains source provenance.

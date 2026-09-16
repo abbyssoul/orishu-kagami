@@ -1,9 +1,26 @@
 # Shared plugin declarations — X-PLUGIN slice 1
 
+The strict `archive` framing reader/writer is shared by `.okplugin` bundles and
+scientific document containers and portable workloads. The reader checks CRC/framing; each semantic
+consumer independently checks its exact SHA-256 closure. `VerifiedDeclarations`
+supports offline document restoration from release evidence and selected payloads,
+but is not a `VerifiedSelection`: workload execution still requires selected code.
+
 Implemented: pure declarations for the six v1 extension points, release and
 scientific identities, bounded JSON/CBOR readers, explicit canonical projections,
 root validation and digest-verified contribution payloads. No filesystem,
-network, UI, inventory, provider selection or guest execution is linked here.
+network, UI, inventory IO or guest execution is linked here. The pure
+`resolution` module now supplies verified release snapshots, exact transitive
+provider selection and revision-bound candidate pagination; it performs no installs.
+The pure `bundle` module validates and packs caller-owned `.okplugin` stored-ZIP
+bytes. This is not source-directory loading, an installer, or Wasm ABI admission.
+The pure `execution` module supplies [standard scientific bulk IO](../../docs/scientific-bulk-io.md):
+bounded borrowed Dynamics/coupling/force packets with explicit SI semantics and
+canonical binary framing. It owns no equation, integrator or entity allocator.
+It also supplies exact instance/validation envelopes, resolved dimensioned
+configuration/domain inputs and requested-channel sampling packets with flat
+values/validity/quality buffers. These are bounded data contracts, not run
+provenance, snapshot lease or workload-admission authorities.
 
 The [accepted contract](../../docs/plugin-contract-v1-draft.md) owns semantics.
 [JSON Schema](schema/plugin-v1.schema.json) supplies the root and six payload
@@ -25,12 +42,45 @@ fixtures are **inert test data**, not a working solver or valid Wasm component.
    `verify_all` checks every declared artifact and matches understood local
    dependency identities, hashing each target's scientific declaration once.
    Unknown payloads are integrity-checked but neither parsed nor activated.
-4. Provider eligibility/resolution, cross-provider compatibility, selected
-   workload closure, Wasm ABI inspection and numerical validation are later slices.
+4. `resolution::Inventory` evaluates exact provider eligibility and produces a
+   complete pinned selection or bounded failure, without mutating authoring intent.
+   Exact cross-provider role checks and selected byte closure are subsequently
+   rechecked by `selected`; Wasm ABI and numerical validation belong to the runtime.
    An exact external requirement is permitted before its provider is installed.
    Local availability cycles are likewise the resolver's dormant state, not
    automatically root corruption. “Known/verified” never means “available” or
    “executable”.
+5. `bundle::read` establishes archive framing, exact root/blob closure, CRCs and
+   digest-verified declarations before returning borrowed blobs and a verified
+   release. `bundle::pack` emits only declared blobs, with deterministic framing;
+   additional blobs in the caller's cache are not exported. `BundleLimits` bounds
+   aggregate archive bytes and physical entry count before work/allocation.
+6. `selected::{compile, verify}` establishes exact selected scientific closure:
+   release evidence, selected payloads, transitive exact bindings and selected code.
+   It excludes unused code/icons/docs, checks dependency roles and required channels,
+   and does not consult installed defaults or activate opaque contributions. See
+   [selected closure](../../docs/plugin-selected-closure.md). This is not workload
+   profile adoption, ABI validation or worker admission.
+   `selected::build_context` projects exact selected vocabulary into instance
+   metadata (coupling roles, dimensions, channels, state format and profile).
+   Callers still supply explicit input identities, precision, bounds and sampling
+   quality allowances; the independent `verify_context` checks the result.
+7. `workload::{compile, verify}` binds a v3 root to the exact fixed scientific graph,
+   selected closure and captured configuration/domain/object/coupling/state inputs.
+   Execution-v2 additionally verifies `SceneDefinition` component values and
+   non-executable authoring evidence against the complete numerical projection.
+   Additional data components survive, unused contributions still refuse, and
+   template fingerprints never become fetch edges. Execution-v1 bytes are unchanged.
+   Actual Component compilation and numerical validation are performed by
+   `orishu_runtime::admit`; see [the profile](../../docs/workload-v3.md). Neither
+   library function implements Kagami document export or worker endpoints.
+
+The initial archive profile also rejects comments, extra fields and streaming data
+descriptors. Central records may be reordered and matching local/central timestamps
+may differ between packages. These details do not affect release identity. Physical
+entries must cover the local area exactly with no prefix, gaps or overlap. Range
+verification precedes CRC scanning to keep malformed overlapping ranges from
+multiplying content work. No archive paths are extracted to a filesystem.
 
 `verify_all` takes borrowed caller-held blobs. It does not fetch, extract or copy
 kernel/input buffers. Verification costs O(declared bytes), plus bounded schema
@@ -88,7 +138,7 @@ requests more; default is 32. Additional structural defaults are 65,536 values,
 4,096 UTF-8 bytes per string, 256 schema list items, 32 fields per object, and shared expression parser
 bounds. These supplement the accepted contract's root/payload/artifact ceilings.
 An aggregate declared-byte budget counts each unique digest once; archive overhead
-is a later packaging-shell bound. Products and sums use checked arithmetic.
+is a separate `BundleLimits` bound. Products and sums use checked arithmetic.
 
 JSON Schema describes structural shape and default ceilings, not every acceptance
 invariant. JSON string lengths count characters, while Rust enforces UTF-8 bytes;
@@ -98,6 +148,12 @@ rejected bytes. Deep serde schema mismatches currently use `$` as their subject;
 adapters must not invent a more precise location. No parser error is run admission.
 
 ## Verification and next slice
+
+`workload::bundle::{pack, read}` now implements the
+[portable workload v1 encoding](../../docs/workload-bundle-v1.md) over a v3
+scientific root and its exact closure. It excludes unrelated cache bytes on pack,
+rejects extra/missing physical blobs on read and verifies independently of any
+installed plugin inventory. No IO or guest execution occurs in this codec.
 
 ```sh
 cargo test --locked -p orishu-plugin --all-targets
@@ -113,7 +169,27 @@ Tests independently decode them with `ciborium` (test-only, already present in t
 workspace lockfile). Runtime dependency tests inspect Cargo's resolved normal/build
 graph, including transitive dependencies.
 
-Next: X-PLUGIN slice 2, deterministic contribution availability and provider
-resolution. Package ZIP validation/repacking, installation transactions, document
-lock/selection representation, authoring projection, selected-workload evidence,
-WIT bindings, guest budgets and real execution proof remain explicitly unimplemented.
+Provider resolution now has focused serialized/public-interface evidence in
+`tests/resolution.rs`. Bundle tests include malformed headers, truncated archives,
+exact closure, CRC/digest corruption, limits, identity-invariant repacking and an
+independent Python `zipfile` golden vector. `tests/selected.rs` checks independent
+selected-byte verification and exclusion of unused artifacts. Initial source and
+inventory IO now lives in Kagami's plugin authority; real WIT/guest execution and
+atomic fixed-profile ownership live in `orishu-runtime`. See the
+[delivery ledger](../../docs/tasks/x-plugin-delivery-ledger.md) for verified progress
+and remaining management hardening, document/selection adoption, versioned workload
+export/admission, reusable runtime storage and worker/product integration.
+
+## Benchmarks
+
+```sh
+cargo bench -p orishu-plugin --bench plugin
+cargo run --release -p orishu-plugin --example profile_plugin --features dhat
+```
+
+The benchmark measures the scientific bulk-IO packet path — `encode_batch`,
+`Batch::read`, and iteration — over synthetic `Force` and `ObjectState` records,
+scaling with the record count (overridable via `ORISHU_PLUGIN_BENCH_COUNTS`).
+The `dhat` example reports the allocation cost of the same phases and confirms
+the crate's contract that reading and iterating a validated packet are
+allocation-free.

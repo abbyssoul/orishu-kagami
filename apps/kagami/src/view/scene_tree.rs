@@ -16,6 +16,17 @@ pub fn view(model: &Model) -> Element<'_, Message> {
     let query = model.search_query.to_lowercase();
 
     let mut rows = column![].spacing(2);
+    let show_physics = snapshot.setup().scientific().is_some();
+    #[cfg(unix)]
+    let show_physics = show_physics || model.scientific_effects.is_configured();
+    if show_physics {
+        rows = rows.push(
+            button(text("Scientific setup / fields").size(13))
+                .on_press(ClientLocal::Select(None).into())
+                .width(Length::Fill)
+                .padding(4),
+        );
+    }
     let mut shown = 0usize;
     for (id, object) in snapshot.objects() {
         if !matches(object, &query) {

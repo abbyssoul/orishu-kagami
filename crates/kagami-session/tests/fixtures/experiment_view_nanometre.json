@@ -1,6 +1,6 @@
 {
   "format": "kagami.experiment",
-  "formatVersion": 2,
+  "formatVersion": 3,
   "metadata": {
     "generator": "kagami 0.1.0",
     "created": "2026-09-07T10:00:00Z",

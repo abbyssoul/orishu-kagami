@@ -1,10 +1,27 @@
 # Implement the WebAssembly component-graph host
 
-Status: **specified**; gated on the S-WORKLOAD graph and component ABI  
+Status: **initial WIT/grant/isolated field and Dynamics lifecycle foundation implemented;
+fixed-profile graph execution/admission implemented; security/product gates remain**.
 Work package: **O-WASM** ([roadmap](../roadmap/README.md))  
 Decisions: [ADR 0009](../adr/0009-execute-workloads-as-sandboxed-portable-programs.md),
 [ADR 0024](../adr/0024-orishu-orchestrates-a-workload-component-graph.md)  
 Protocol: [Workload contract](../protocol-workload.md)
+
+See the [current ABI checkpoint](../runtime-component-abi.md) for actual Component
+execution evidence and remaining gates, notably aggregate/JIT budgets, structured
+attribution, scientific projections/validation, reusable storage and graph commit.
+Fixed-frame pre-lift bounds and per-operation deadline/cancellation are implemented.
+Shared [scientific bulk packets and force reduction](../scientific-bulk-io.md)
+are implemented, including exact instance/validation envelopes. Real classical
+Euler and Newtonian Components consume them through the bound host API with
+coupled numerical and restart-continuation evidence. The [fixed run owner](../runtime-fixed-run.md)
+now commits single-partition fields/objects/history atomically, restores complete
+portable in-memory checkpoints and grants bounded detached field-snapshot leases.
+Shared selected workload-v3 admission now verifies exact releases, scientific
+inputs and graph before compiling and validating actual Components. Reusable
+stores/arenas, variable output sizing,
+membership scheduling and product/recording adapters remain work.
+This foundation does not imply a runnable worker or close O-WASM.
 
 ## Outcome
 
@@ -28,8 +45,9 @@ Map existing component/role names to kernel/kernel-instance semantics without
 silently changing WIT identifiers or persisted workload bytes. ABI/contract
 conformance is not proof of a guest's scientific correctness.
 
-1. Freeze `orishu:simulation/component@1` WIT from the domain interface in the
-   workload protocol. Generate bindings and golden component fixtures for
+1. Reconcile legacy `orishu:simulation/component@1` metadata with the concrete
+   role-specific `field`/`dynamics` worlds in `orishu:simulation@1.0.0`, without
+   reinterpreting existing workload bytes. Generate bindings and golden component fixtures for
    initialization, load/restore, phase execution, checkpoint, observation and
    drop.
 2. Validate `orishu.workload-graph/v1` against the shared workload domain:
@@ -55,7 +73,8 @@ conformance is not proof of a guest's scientific correctness.
    calls, invalid handles/ranges, partial outputs, duplicate finish, undeclared
    channels, stale invocation handles and checkpoint bombs. No case may commit
    partial state or damage the runtime owner.
-8. Prove a minimal field → coupling/projection → Dynamics graph, including a
+8. Prove the accepted first-pass field/force → Dynamics graph (coupling force
+   production belongs to the field kernel, not an extra kernel contract), including a
    failure in each phase, deterministic ordering under varied completion order,
    and equivalent results when instances are co-located. Distributed channel
    transport and placement evidence follow in N-CLUSTER.

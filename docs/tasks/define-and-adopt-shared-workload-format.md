@@ -5,6 +5,16 @@ implemented and accepted. Slice 3's scientific-policy half is
 [deferred](#deferred-and-by-whom) with the validators that decide it, and slices
 4–7 remain. See [Increment record](#increment-record--2026-09-07) and
 [Bounded authoring deserialization](#bounded-authoring-deserialization--2026-09-08).
+The [v3 composed extension](../workload-v3.md) now adds root/canonical/structural
+closure support and captured scientific descriptor types, without changing v2.
+The shared plugin/runtime layers now compile/verify the fixed scientific profile
+and admit actual selected Components with captured inputs. Scene-bearing execution
+v2 now preserves exact entity composition and source evidence, independently
+verified against numerical packets. Unix headless
+[portable export](../workload-bundle-v1.md) is now implemented and independently
+verified from actual CLI output. Worker adoption, window export and
+dynamic-membership/emitter integration remain open;
+v3 does not yet have v2's bounded JSON/YAML authoring adapter.
 Decisions: [ADR 0005](../adr/0005-author-numeric-values-as-unit-aware-expressions.md),
 [ADR 0007](../adr/0007-share-expression-semantics-with-workload-resources.md),
 [ADR 0009](../adr/0009-execute-workloads-as-sandboxed-portable-programs.md),
@@ -183,6 +193,10 @@ manifest.
   first portable bundle encoding. A full bundle must contain the root and
   complete closure, reject path traversal and duplicate entries, and import to
   exactly the same workload digest as thin submission.
+  **Portable sub-slice implemented:** the [v1 encoding](../workload-bundle-v1.md)
+  records the framing-size comparison and actual headless export/independent
+  admission tests. Thin submission, worker import/cache integration and streaming
+  remain open; the current complete-file reader is bounded and buffered.
 - Version distribution codecs independently of the workload schema. Multiple
   codecs may coexist and round-trip the same logical workload.
 - Reuse the cluster's content-addressed chunk and availability concepts where

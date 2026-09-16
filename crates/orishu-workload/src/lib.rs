@@ -131,6 +131,7 @@ pub mod graph;
 pub mod ids;
 pub mod limits;
 pub mod manifest;
+pub mod v3;
 pub mod value;
 
 pub use artifact::{ArtifactDescriptor, ArtifactRole, SchemaCompat};

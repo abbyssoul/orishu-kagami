@@ -1,5 +1,8 @@
 mod inspector;
+mod mcp;
 mod menu;
+#[cfg(unix)]
+mod physics;
 mod scene_tree;
 mod section;
 mod toolbar;
@@ -69,6 +72,7 @@ fn settings_panel(model: &Model) -> Element<'_, Message> {
         column![
             text("Settings").size(16),
             view_settings(model),
+            mcp::view(model),
             text("Show help on startup"),
             text("Show diagnostics on startup"),
             button(text("Close")).on_press(ClientLocal::CloseSettings.into()),

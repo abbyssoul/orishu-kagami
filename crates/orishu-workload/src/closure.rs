@@ -390,6 +390,19 @@ pub enum ClosureError {
         /// The role its artifact declared.
         role: ArtifactRole,
     },
+    /// A v3 root's mandatory input has a role different from its declared slot.
+    #[error("input `{slot}` has role `{role}`, expected `{expected}`")]
+    RequiredInputRole {
+        /// Root field with a required role.
+        slot: &'static str,
+        /// Actual role.
+        role: ArtifactRole,
+        /// Required role.
+        expected: &'static str,
+    },
+    /// Distinct required blob lengths do not fit the portable byte counter.
+    #[error("aggregate required artifact lengths overflow u64")]
+    AggregateSizeOverflow,
     /// Two component instances share an id.
     #[error("component instance id `{instance}` is declared more than once")]
     DuplicateInstance {
@@ -705,6 +718,123 @@ pub fn validate_closure(
     }
 }
 
+/// V3 shares graph/descriptor/hash verification with v2, but does not fabricate
+/// a v2 domain or reinterpret its obsolete global integration selector.
+pub(crate) fn validate_v3_closure(
+    manifest: &crate::v3::WorkloadManifest,
+    blobs: &impl BlobSource,
+    limits: &Limits,
+) -> Result<VerifiedClosure, ClosureReport> {
+    let mut errors = Errors::new(limits);
+    if let Err(error) = manifest.expect(
+        &crate::manifest::ApiVersion::from_static(crate::v3::API_VERSION),
+        &crate::manifest::kind(),
+    ) {
+        errors.push(error.into());
+        return Err(errors.into_report());
+    }
+    // Reject raw oversized descriptor collections before indexing or cloning.
+    let count = manifest
+        .spec
+        .compute
+        .components
+        .len()
+        .checked_add(manifest.spec.artifacts.len())
+        .and_then(|n| n.checked_add(2));
+    check_limit(
+        "the artifact count",
+        count.unwrap_or(usize::MAX),
+        limits.max_artifacts,
+        &mut errors,
+    );
+    if !errors.is_empty() {
+        return Err(errors.into_report());
+    }
+    if let Err(e) = crate::canonical::v3::raw_bounds(manifest, limits) {
+        errors.push(e.into());
+        return Err(errors.into_report());
+    }
+    check_common_scalar_bounds(
+        &manifest.metadata,
+        &manifest.spec.compute,
+        &manifest.spec.requirements,
+        None,
+        limits,
+        &mut errors,
+    );
+    validate_graph(&manifest.spec.compute, limits, &mut errors);
+    for (slot, a, expected) in [
+        (
+            "selection",
+            &manifest.spec.selection,
+            crate::v3::SELECTION_ROLE,
+        ),
+        (
+            "execution",
+            &manifest.spec.execution,
+            crate::v3::EXECUTION_ROLE,
+        ),
+    ] {
+        if a.role.as_str() != expected {
+            errors.push(ClosureError::RequiredInputRole {
+                slot,
+                role: a.role.clone(),
+                expected,
+            });
+        }
+    }
+    let descriptors: Vec<_> = manifest
+        .spec
+        .compute
+        .components
+        .iter()
+        .map(|c| &c.artifact)
+        .chain([&manifest.spec.selection, &manifest.spec.execution])
+        .chain(&manifest.spec.artifacts)
+        .collect();
+    check_limit(
+        "the initial-condition count",
+        descriptors
+            .iter()
+            .filter(|a| a.role.as_str() == ArtifactRole::INITIAL_CONDITIONS)
+            .count(),
+        limits.max_initial_conditions,
+        &mut errors,
+    );
+    for role in [crate::v3::SELECTION_ROLE, crate::v3::EXECUTION_ROLE] {
+        let count = descriptors
+            .iter()
+            .filter(|a| a.role.as_str() == role)
+            .count();
+        if count > 1 {
+            errors.push(ClosureError::DuplicateRole {
+                role: ArtifactRole::new(role).expect("static role"),
+                count,
+            });
+        }
+    }
+    let declared = declared_descriptors(&descriptors, limits, &mut errors);
+    let root = match crate::v3::workload_digest(manifest, limits) {
+        Ok(root) => Some(root),
+        Err(e) => {
+            errors.push(e.into());
+            None
+        }
+    };
+    if !errors.is_empty() {
+        return Err(errors.into_report());
+    }
+    let artifacts = verify_artifacts(&declared, blobs, &mut errors);
+    if errors.is_empty() {
+        Ok(VerifiedClosure {
+            root: root.expect("valid canonical root"),
+            artifacts,
+        })
+    } else {
+        Err(errors.into_report())
+    }
+}
+
 // ── phase one: the manifest alone ───────────────────────────────────────────
 
 /// One distinct blob the manifest declares, with everything it claims about it.
@@ -759,11 +889,19 @@ fn declared_artifacts(
         errors,
     );
 
+    declared_descriptors(&descriptors, limits, errors)
+}
+
+fn declared_descriptors(
+    descriptors: &[&ArtifactDescriptor],
+    limits: &Limits,
+    errors: &mut Errors,
+) -> Vec<DeclaredArtifact> {
     // Role cardinality is counted over declarations, not over distinct blobs:
     // declaring one geometry twice is a manifest mistake even when both
     // declarations name identical bytes.
     let mut role_counts: BTreeMap<&ArtifactRole, usize> = BTreeMap::new();
-    for descriptor in &descriptors {
+    for descriptor in descriptors {
         *role_counts.entry(&descriptor.role).or_default() += 1;
     }
     for (role, count) in role_counts {
@@ -779,7 +917,7 @@ fn declared_artifacts(
     // digest agree about the bytes.
     let mut by_digest: BTreeMap<ArtifactDigest, DeclaredArtifact> = BTreeMap::new();
     let mut conflicted: BTreeSet<ArtifactDigest> = BTreeSet::new();
-    for descriptor in &descriptors {
+    for descriptor in descriptors {
         match by_digest.get_mut(&descriptor.digest) {
             Some(existing) => {
                 if existing.size_bytes != descriptor.size_bytes
@@ -823,7 +961,11 @@ fn declared_artifacts(
                 limit: limits.max_artifact_bytes,
             });
         }
-        aggregate = aggregate.saturating_add(artifact.size_bytes);
+        let Some(next) = aggregate.checked_add(artifact.size_bytes) else {
+            errors.push(ClosureError::AggregateSizeOverflow);
+            return by_digest.into_values().collect();
+        };
+        aggregate = next;
     }
     if aggregate > limits.max_aggregate_declared_bytes {
         errors.push(ClosureError::ClosureTooLarge {
@@ -847,13 +989,31 @@ fn declared_artifacts(
 /// What is left is [`ScalarValue::Text`], which any of these maps may hold and
 /// which nothing else constrains.
 fn check_scalar_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mut Errors) {
+    check_common_scalar_bounds(
+        &manifest.metadata,
+        &manifest.spec.compute,
+        &manifest.spec.requirements,
+        manifest.spec.domain.discretization.integration.as_ref(),
+        limits,
+        errors,
+    );
+}
+
+fn check_common_scalar_bounds(
+    metadata: &crate::WorkloadMeta,
+    compute: &ComputeSpec,
+    requirements: &crate::WorkloadRequirements,
+    integration: Option<&crate::Integration>,
+    limits: &Limits,
+    errors: &mut Errors,
+) {
     check_limit(
         "the label count",
-        manifest.metadata.labels.len(),
+        metadata.labels.len(),
         limits.max_labels,
         errors,
     );
-    if let Some(integration) = &manifest.spec.domain.discretization.integration {
+    if let Some(integration) = integration {
         check_limit(
             "the integration parameter count",
             integration.parameters.len(),
@@ -863,13 +1023,13 @@ fn check_scalar_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mu
     }
     check_limit(
         "the hardware-requirement count",
-        manifest.spec.requirements.hardware.len(),
+        requirements.hardware.len(),
         limits.max_parameter_entries,
         errors,
     );
     check_limit(
         "the execution-profile count",
-        manifest.spec.requirements.execution_profile.len(),
+        requirements.execution_profile.len(),
         limits.max_parameter_entries,
         errors,
     );
@@ -886,7 +1046,7 @@ fn check_scalar_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mu
         }
     };
 
-    for component in &manifest.spec.compute.components {
+    for component in &compute.components {
         for (name, value) in &component.config {
             check(
                 format!("component `{}` config `{name}`", component.instance_id),
@@ -894,7 +1054,7 @@ fn check_scalar_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mu
             );
         }
     }
-    for constraint in &manifest.spec.compute.placement_constraints {
+    for constraint in &compute.placement_constraints {
         for (name, value) in &constraint.parameters {
             check(
                 format!(
@@ -905,15 +1065,15 @@ fn check_scalar_bounds(manifest: &WorkloadManifest, limits: &Limits, errors: &mu
             );
         }
     }
-    if let Some(integration) = &manifest.spec.domain.discretization.integration {
+    if let Some(integration) = integration {
         for (name, value) in &integration.parameters {
             check(format!("integration parameter `{name}`"), value);
         }
     }
-    for (name, value) in &manifest.spec.requirements.hardware {
+    for (name, value) in &requirements.hardware {
         check(format!("hardware requirement `{name}`"), value);
     }
-    for (name, value) in &manifest.spec.requirements.execution_profile {
+    for (name, value) in &requirements.execution_profile {
         check(format!("execution profile `{name}`"), value);
     }
 }

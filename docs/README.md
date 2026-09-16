@@ -29,10 +29,20 @@ Start here:
   dependencies, parallel lanes, and exit criteria.
 - [Simulation plugins](simulation-plugins.md) — how advanced users add physical
   models without extending trusted Kagami or worker code.
+- [Scientific experiment container v4](experiment-container-v4.md) — captured
+  state, offline reopening, exact declaration evidence and durable recovery.
 - [Workload contract](protocol-workload.md) — the portable sandbox boundary and
   lifecycle implemented by client-supplied simulation packages.
 - [What is an Orishu workload?](workloads.md) — the user-facing definition,
   contents, lifecycle, identity, and recommended delivery model.
+- [Portable workload bundle v1](workload-bundle-v1.md) — implemented headless
+  Kagami export, exact closure verification, format choice and remaining limits.
+- [Identified run-load receipts v1](run-load-receipts-v1.md) — shared admission
+  facts, bounded Unix journal and daemon coordinator.
+- [Scientific-load HTTP v1](protocol-scientific-load-v1.md) — opt-in authenticated
+  whole-upload admission, historical receipts and current-run discovery.
+- [Immutable run descriptor v1](run-descriptor-v1.md) — formation/workload/epoch
+  identity, canonical bytes and owner-issued single-node execution provenance.
 - [The shared resource envelope](resource-envelope.md) — the one structural
   shape Orishu resources and Kagami object templates share, and the authority,
   identity, and validation each keeps.

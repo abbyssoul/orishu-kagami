@@ -16,9 +16,9 @@ without sharing a playback cursor or requiring a Kagami relay.
 
 ## Current gap
 
-Orishu exposes a resumable live workload stream and immutable result-artifact
-metadata/downloads. It does not yet expose a finite, time-addressable
-observation view across those artifacts. Kagami therefore cannot efficiently
+The protocol specifies a resumable live workload stream and immutable result-artifact
+metadata/downloads; the production worker does not yet expose those scientific
+adapters or a finite, time-addressable observation view across artifacts. Kagami cannot
 open a run reference at a requested simulation boundary without downloading
 and privately interpreting the whole artifact set.
 
@@ -29,6 +29,10 @@ and privately interpreting the whole artifact set.
 - Define a transport-neutral `RunIdentity` from immutable cluster formation,
   workload identity, and workload epoch. Do not identify a run by display name,
   current endpoint, or whichever workload happens to be loaded.
+  **Implemented prerequisite:** `orishu::model::run::RunIdentity` and
+  [immutable descriptor v1](../run-descriptor-v1.md), including owner-issued
+  single-node epochs. Reuse them; public reference routing/retrieval and distributed
+  or checkpoint-created epochs are not implied by this model/allocator.
 - Define a shareable `RunReference` that combines that identity with optional
   non-authoritative connection hints. Credentials are never embedded; changing
   a host or route does not change run identity.

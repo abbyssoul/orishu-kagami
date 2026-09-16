@@ -791,6 +791,7 @@ spec:
             MetadataDocument::new("planets".try_into().unwrap(), name.try_into().unwrap()),
             SpecDocument {
                 components: vec![ComponentDocument {
+                    name: None,
                     component_type: ComponentTypeId::new(
                         PluginId::new("kagami.mass_sources").unwrap(),
                         ComponentName::new("inertial_mass").unwrap(),

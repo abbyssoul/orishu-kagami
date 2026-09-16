@@ -24,6 +24,8 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("orishu", "Orishu domain and client interfaces"),
     ("orishu-membership", "cluster membership"),
     ("orishu-identity", "cluster identity"),
+    ("orishu-runtime", "scientific execution"),
+    ("wasmtime", "Wasm execution engine"),
     ("tokio", "async runtime"),
     ("quinn", "QUIC transport"),
     ("rustls", "TLS"),
@@ -121,12 +123,12 @@ fn the_document_core_has_no_io_ui_or_runtime_dependency() {
 
 #[test]
 fn the_dependency_graph_stays_small_enough_to_audit() {
-    // This crate adds nothing to `kagami-catalog`'s own graph beyond
-    // `thiserror`, so its budget is the catalog's. A jump past this bound
-    // means something with a genuinely new capability arrived.
+    // Exact pins use the pure plugin/workload contract through the catalog.
+    // The audited closure is the catalog's 36 dependencies plus the catalog
+    // itself. No execution engine or transport is admitted by this change.
     let resolved = runtime_dependency_names();
     assert!(
-        resolved.len() <= 32,
+        resolved.len() <= 37,
         "the document core resolved {} runtime dependencies, which is more than can be reviewed \
          by hand: {resolved:?}",
         resolved.len()

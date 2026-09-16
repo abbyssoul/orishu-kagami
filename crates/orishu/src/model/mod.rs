@@ -18,6 +18,8 @@ pub mod manifest;
 pub mod node;
 pub mod quantity;
 pub mod result;
+pub mod run;
+pub mod run_load;
 pub mod storage;
 pub mod tombstones;
 pub mod workload;
@@ -89,6 +91,12 @@ impl std::fmt::Display for ApiRoute {
 pub const API_ROUTE_SELF_MEMBERSHIP: ApiRoute = ApiRoute::from_static("membership");
 
 pub const API_ROUTE_CLUSTER: ApiRoute = ApiRoute::from_static("cluster");
+/// Experimental complete portable scientific load submission.
+pub const API_ROUTE_RUN_LOADS: ApiRoute = ApiRoute::from_static("run-loads");
+/// Authenticated identified load receipt lookup with a bounded request body.
+pub const API_ROUTE_RUN_LOAD_LOOKUP: ApiRoute = ApiRoute::from_static("run-loads/lookup");
+/// Authenticated usable retained-run descriptor projection.
+pub const API_ROUTE_RETAINED_RUN: ApiRoute = ApiRoute::from_static("run");
 pub const API_ROUTE_CLUSTER_LOCK: ApiRoute = ApiRoute::from_static("cluster/lock");
 pub const API_ROUTE_CLUSTER_EVENTS: ApiRoute = ApiRoute::from_static("cluster/events");
 pub const API_ROUTE_CLUSTER_LOGS: ApiRoute = ApiRoute::from_static("cluster/logs");
@@ -268,6 +276,8 @@ response_enum! {
         NodeInspection(node::Inspection),
         MembershipPage(node::MembershipPage),
         LockReceipt(cluster::LockReceipt),
+        RunLoadReceipt(run_load::LoadReceipt),
+        RetainedRun(Option<run::RunDescriptor>),
         LeaveReceipt(cluster::LeaveReceipt),
         ClusterManifest(cluster::Manifest),
         NodeManifest(node::Manifest),

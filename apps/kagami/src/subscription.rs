@@ -1,4 +1,4 @@
-use crate::message::Message;
+use crate::message::{McpControl, Message};
 use crate::model::Model;
 use iced::event::{self, Event};
 use iced::keyboard::{self, Key};
@@ -12,7 +12,30 @@ pub fn subscription(model: &Model) -> iced::Subscription<Message> {
         iced::Subscription::none()
     };
 
-    iced::Subscription::batch([timer, iced::event::listen_with(exit_shortcut)])
+    // While the server is running, poll it non-blockingly so the displayed
+    // count and liveness stay honest — and so a server that died after binding
+    // moves to `Failed` rather than looking alive.
+    let mcp_poll = if model.mcp.running().is_some() {
+        iced::time::every(Duration::from_millis(500)).map(|_| Message::Mcp(McpControl::Poll))
+    } else {
+        iced::Subscription::none()
+    };
+
+    #[cfg(unix)]
+    let scientific = if model.scientific_effects.is_pending() {
+        iced::time::every(Duration::from_millis(100))
+            .map(|_| Message::Scientific(crate::message::ScientificAction::Poll))
+    } else {
+        iced::Subscription::none()
+    };
+    #[cfg(not(unix))]
+    let scientific = iced::Subscription::none();
+    iced::Subscription::batch([
+        timer,
+        mcp_poll,
+        scientific,
+        iced::event::listen_with(exit_shortcut),
+    ])
 }
 
 /// Ctrl+Q (Cmd+Q on macOS), the standard "quit the app" shortcut.

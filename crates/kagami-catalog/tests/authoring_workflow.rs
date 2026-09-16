@@ -52,6 +52,7 @@ fn moon_document(mass: &str) -> TemplateDocument {
         },
         SpecDocument {
             components: vec![ComponentDocument {
+                name: None,
                 component_type: component("kagami.mass_sources", "inertial_mass"),
                 properties: [(
                     PropertyName::new("mass").unwrap(),

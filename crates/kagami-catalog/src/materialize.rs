@@ -112,6 +112,8 @@ pub enum ObjectPropertyValue {
 pub struct ObjectComponent {
     /// The plugin-qualified component type.
     pub type_id: ComponentTypeId,
+    /// Retained template-local expression alias, never executable identity.
+    pub local_name: crate::ComponentName,
     /// The schema version the values were checked against.
     pub schema_version: SchemaVersion,
     /// Authored property values.
@@ -164,7 +166,7 @@ impl ObjectCandidate {
                 let ObjectPropertyValue::Quantity { source, .. } = value else {
                     continue;
                 };
-                let key = format!("{}.{property}", component.type_id.name);
+                let key = format!("{}.{property}", component.local_name);
                 let resolved =
                     system
                         .eval(source)
@@ -227,6 +229,13 @@ pub enum InstantiationError {
     /// instantiation differs from the one the set was resolved against.
     #[error("component type `{0}` is not installed")]
     UnknownComponentType(ComponentTypeId),
+    /// Resolved instantiation input is refused by the current component schema.
+    /// This is checked after parameter overrides, not only on catalog defaults.
+    #[error("property `{property}` violates the selected component schema")]
+    PropertyConstraint {
+        /// Template-local property address.
+        property: String,
+    },
 }
 
 /// Materialise `request` against one immutable catalog snapshot.
@@ -389,6 +398,11 @@ impl<'a> Closure<'a> {
             if !seen.insert(reference.clone()) {
                 continue;
             }
+            // Unit symbols remain in retained source and are resolved by the
+            // shared evaluator, not copied out of catalog/document namespaces.
+            if orishu_variables::lookup(&reference).is_ok() {
+                continue;
+            }
             match self.set.projection().resolve(&reference, &scope) {
                 Resolution::Visible(binding) => {
                     let projected = self.set.projection().binding(binding);
@@ -521,13 +535,16 @@ struct Definitions {
 }
 
 impl Definitions {
-    fn resolve(&self, source: &str) -> Result<(String, f64), InstantiationError> {
+    fn resolve(
+        &self,
+        source: &str,
+    ) -> Result<(String, orishu_variables::quantity::Quantity), InstantiationError> {
         let rewritten = rewritten(source, &self.renames)?;
         let value = self
             .system
             .eval(&rewritten)
             .map_err(|error| evaluation_error(&rewritten, error))?;
-        Ok((rewritten, value.magnitude()))
+        Ok((rewritten, value))
     }
 }
 
@@ -544,13 +561,21 @@ fn materialize_components(
             let schema = registry.get(&component.type_id).ok_or_else(|| {
                 InstantiationError::UnknownComponentType(component.type_id.clone())
             })?;
+            if let Some(required) = schema
+                .required_properties()
+                .find(|p| !component.properties.contains_key(*p))
+            {
+                return Err(InstantiationError::PropertyConstraint {
+                    property: format!("{}.{required}", component.local_name()),
+                });
+            }
             let properties = component
                 .properties
                 .iter()
                 .map(|(name, value)| {
                     let materialized = match value {
                         PropertyValue::Quantity(quantity) => {
-                            let (source, si_value) =
+                            let (source, resolved) =
                                 definitions.resolve(quantity.si_expression().source())?;
                             let dimension = match schema.properties.get(name).map(|p| &p.kind) {
                                 Some(PropertyKind::Quantity { dimension }) => *dimension,
@@ -559,20 +584,48 @@ fn materialize_components(
                                 // means the caller swapped registries.
                                 _ => Dimension::DIMENSIONLESS,
                             };
+                            if !resolved.is_dimensionless() && resolved.dimension() != dimension {
+                                return Err(InstantiationError::PropertyConstraint {
+                                    property: format!("{}.{name}", component.local_name()),
+                                });
+                            }
                             ObjectPropertyValue::Quantity {
                                 source,
-                                si_value,
+                                si_value: resolved.magnitude(),
                                 dimension,
                             }
                         }
                         PropertyValue::Boolean(value) => ObjectPropertyValue::Boolean(*value),
                         PropertyValue::Text(text) => ObjectPropertyValue::Text(text.clone()),
                     };
+                    use crate::schema::PropertyValueRef;
+                    let resolved = match &materialized {
+                        ObjectPropertyValue::Quantity {
+                            si_value,
+                            dimension,
+                            ..
+                        } => PropertyValueRef::Quantity {
+                            value_si: *si_value,
+                            dimension: *dimension,
+                        },
+                        ObjectPropertyValue::Boolean(value) => PropertyValueRef::Boolean(*value),
+                        ObjectPropertyValue::Text(value) => PropertyValueRef::Text(value),
+                    };
+                    if !schema
+                        .properties
+                        .get(name)
+                        .is_some_and(|p| p.accepts(resolved))
+                    {
+                        return Err(InstantiationError::PropertyConstraint {
+                            property: format!("{}.{name}", component.local_name()),
+                        });
+                    }
                     Ok((name.clone(), materialized))
                 })
                 .collect::<Result<BTreeMap<_, _>, InstantiationError>>()?;
             Ok(ObjectComponent {
                 type_id: component.type_id.clone(),
+                local_name: component.local_name().clone(),
                 schema_version: schema.version,
                 properties,
             })

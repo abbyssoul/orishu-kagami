@@ -8,6 +8,9 @@ repository.workspace = true
 description = "Pure simulation plugin declarations, bounded validation and canonical identity"
 
 [dependencies]
+# Installs `dhat`'s counting allocator for `examples/profile_plugin.rs`.
+# Optional and never enabled by the library itself.
+dhat = { workspace = true, optional = true }
 orishu-resource.workspace = true
 orishu-variables.workspace = true
 orishu-workload.workspace = true
@@ -17,5 +20,15 @@ thiserror.workspace = true
 
 [dev-dependencies]
 cargo_metadata = "0.23"
+criterion = { workspace = true }
 # Independent decoder for canonical fixtures; already resolved through criterion.
 ciborium = "=0.2.2"
+
+[features]
+# Installs `dhat`'s counting allocator for `examples/profile_plugin.rs`.
+# Never enabled by the library itself.
+dhat = ["dep:dhat"]
+
+[[bench]]
+name = "plugin"
+harness = false

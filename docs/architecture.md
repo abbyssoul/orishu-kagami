@@ -196,7 +196,106 @@ A simulation plugin bundles declarative vocabulary and/or computational model
 contributions. Vocabulary and model providers can be independently developed;
 exact scientific contracts connect them, and availability is contribution-level.
 The pure `orishu-plugin` declaration/identity contract is implemented for shared
-Kagami/Orishu consumption; resolver and application/runtime adoption remain planned.
+Kagami/Orishu consumption, with pure revisioned provider resolution and stored-ZIP
+byte validation/packing. Kagami's app-local `plugins` adapter implements initial
+Unix source/package IO, a revisioned durable store, release leases and CLI management.
+Exact-provider schema projection and its authoring-constraint checks are implemented;
+the installed-inventory adapter can supply a verified selected schema snapshot.
+Catalog v2 and experiment JSON v3 preserve exact component pins, with explicit
+legacy reading and no implicit provider upgrade. Unix startup loads exact component
+vocabulary with process-only overrides; the inspector's Add action authors declared
+defaults through the document authority. A retained selected-artifact preparation
+path now feeds the app-local initializer using the shared worker sandbox. It
+captures opaque natural field/history candidates and their exact inputs without
+document mutation; selection metadata comes from shared declarations. A separate
+document command can now atomically adopt coherent captures, with shared immutable
+blobs, undo/redo and final configuration/history checks. Legacy and scientific
+setup are distinct variants. [Scientific file v4](experiment-container-v4.md)
+persists captured blobs and exact declaration evidence through the existing durable
+store, independently of installed executable code. Explicit Unix inspector field
+reinitialization now runs off-window, with a document-incarnation/revision/mode
+guard, one retained pending-job slot and final inventory-revision read lease.
+No inventory lock is held during guest execution; no candidate is adopted after
+intervening authoring/context changes. The same guarded lane now constructs a
+complete explicitly selected setup: independent natural field states and initial
+Dynamics history projected from current objects. Creation and history validation
+share the exact role-bound mass/kinematics projection in `kagami-document`.
+The Unix form supports exact models, domain/grid, fixed timestep and schema-driven
+quantity/boolean/text parameters; no partial candidate is adopted. Explicitly
+copying captured settings preserves instance/provider pins and compute/sampling
+policies without running code. Applying a complete proposal explicitly resets all
+initial fields/history. Targeted edits preserving other fields, dependency-choice
+dialogs, object-edit history regeneration, other pending-effect/IO reservations, window export and worker
+endpoint adoption remain. Authority retention now counts unique scientific buffers
+across current state, undo/redo and replay; over-budget captures refuse atomically
+and only disposable old replay receipts may be evicted for byte pressure. See
+[current tooling scope](plugin-authoring-tools.md). The internal document numerical
+projection now resolves exact role-bound ECS properties and joins prepared selected
+code through the shared workload compiler. A v4-reopen-to-real-runtime test covers
+dynamic/static field coupling without reinitialization. The shared scene-bearing
+execution-v2 descriptor now carries exact component values and location-free
+expression/template evidence, independently checked against numerical packets.
+It includes additive data contributions without inventing physics for them.
+Unix headless `kagami export` now publishes a complete exact portable closure from
+a saved captured experiment. Its [stored-ZIP v1 codec](workload-bundle-v1.md) shares
+the bounded archive reader and verifies independently of installed plugins.
+Emitter closure, window export and worker endpoint adoption remain open.
+The worker's existing formation owner now supplies an
+[exclusive execution reservation](adr/0028-fence-worker-scientific-admission-through-formation-owner.md)
+for pending single-node admission, serialized with topology changes and reliably
+released under mailbox pressure. The admission adapter verifies portable closures
+and admits real Components off-owner, links lease revocation to guest cancellation,
+and returns an owner-confirmed handoff through reserved control capacity. Native JIT
+retains the slot until actual completion even after caller cancellation. Run identity
+is now [allocated by the formation owner](run-descriptor-v1.md) after closure
+verification, using a distinct non-reused epoch and canonical immutable descriptor.
+Confirmation/publication verify that exact scope. Its retained execution adapter routes initial/step/stop
+publication through that formation owner and exposes bounded immutable field leases
+only from accepted state. A trusted FixedRun commit gate connects off-owner
+computation to the serialized publication decision; uncertain coordination terminates
+execution. The prepared admission now receives a complete body through bounded
+async IO under the same lease, checks exact announced length and body EOF, and
+rejects a mismatched expected root before epoch allocation/JIT. The owned input
+buffer moves into off-owner verification; stalled input observes absolute
+deadlines, cancellation and formation revocation. This is an internal transport
+adapter, not a new unauthenticated workload route. A worker-private
+[durable load-receipt journal](run-load-receipts-v1.md) now reserves intent before
+execution permission and preserves historical outcomes across restarts; interrupted
+pending records become Indeterminate rather than reexecuting. It is an off-owner
+IO shell, not another formation authority or persisted scientific state. The
+internal daemon coordinator now retains admission tickets and exact-identity run
+handles independently of client responses, publishes bounded read-only receipt
+history and survives a final receipt write failure without claiming false refusal.
+Daemon shutdown/drop revokes its runs and pending work. Explicit installation on
+`RunningWorker` is implemented; explicitly enabled startup now installs the
+journal/sandbox and [authenticated load/receipt/current-run routes](protocol-scientific-load-v1.md).
+Default startup remains formation-only. The shared HTTP client now submits and
+retrieves these bounded facts, verifies full receipt identity and never silently
+retries, follows redirects or infers acceptance from HTTP success. Public run
+control/observations, Kagami submission adapters, distributed/reset allocation
+and continuous control remain open.
+Admission confirmation alone is not permission for unfenced steps.
+The shared `orishu-runtime` host has initial WIT, bounded resource grants,
+deadline/cancellation and isolated field/Dynamics lifecycle evidence using separate
+actual Component artifacts. Its [fixed-profile run owner](runtime-fixed-run.md)
+now validates captured state, commits single-partition object/field/history
+boundaries atomically and provides complete in-memory portable checkpoints and
+bounded detached field-snapshot leases. Shared [v3 scientific-profile admission](workload-v3.md)
+now constructs the owner from independently checked selected closures and captured
+inputs. Application integration and reusable hot-path storage remain open; see its
+[security/integration gates](runtime-component-abi.md).
+The shared contract also supplies bounded [scientific bulk packets](scientific-bulk-io.md)
+for Dynamics, distinct coupling slots and forces. The runtime's reusable reducer
+validates complete response/field coverage and sums forces in selected-field order;
+real classical Euler and Newtonian Components consume the packets through bounded
+instance/validation envelopes with coupled numerical/restart evidence. The fixed
+owner, selected workload admission and generic sampling use that path; durable
+adapters and application wiring still need to complete product execution.
+Shared resolved configuration/domain codecs are now consumed by both reference
+kernels, but existing document/workload formats still require explicit integration.
+Natural field/history capture now supports kernel-chosen sizes within host byte/value
+ceilings. Reference vocabulary and Newtonian/Euler bundles can be packaged and
+managed by Kagami's CLI; that does not yet connect them to document authoring.
 The target keeps IO in adapters and exports only selected transitive contributions
 in workloads.
 See [ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md) for immutable

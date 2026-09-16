@@ -221,7 +221,7 @@ pub fn resolve(
         if !status.is_invalid() && !status.is_unavailable() {
             check_values(template, &projection, status);
         }
-        check_schemas(template, registry, status);
+        check_schemas(template, registry, &projection, status);
     }
 
     propagate_unavailability(&templates, &mut statuses);
@@ -340,6 +340,11 @@ fn quantities(template: &Template) -> Vec<Quantity<'_>> {
 fn check_references(template: &Template, projection: &CatalogProjection, status: &mut Status) {
     for quantity in quantities(template) {
         for reference in quantity.value.expression().variables() {
+            // The shared evaluator owns unit symbols. They are not missing
+            // catalog dependencies and must not be captured as mutable values.
+            if orishu_variables::lookup(&reference).is_ok() {
+                continue;
+            }
             match projection.resolve(&reference, &template.identity) {
                 Resolution::Visible(target) => {
                     let owner = &projection.binding(target).identity.template;
@@ -426,7 +431,12 @@ fn check_values(template: &Template, projection: &CatalogProjection, status: &mu
 /// The split matters: an *absent* schema leaves the entry unavailable, since
 /// installing the plugin fixes it without an edit. A *present* schema the
 /// value contradicts is an authoring defect only the file can fix.
-fn check_schemas(template: &Template, registry: &SchemaRegistry, status: &mut Status) {
+fn check_schemas(
+    template: &Template,
+    registry: &SchemaRegistry,
+    projection: &CatalogProjection,
+    status: &mut Status,
+) {
     for (index, component) in template.spec.components.iter().enumerate() {
         let Some(schema) = registry.get(&component.type_id) else {
             status
@@ -446,6 +456,52 @@ fn check_schemas(template: &Template, registry: &SchemaRegistry, status: &mut St
                 continue;
             };
             check_property(&path, property, value, &declared.kind, status);
+            if declared.plugin_declaration().is_some() {
+                use crate::schema::PropertyValueRef;
+                let resolved = match value {
+                    PropertyValue::Quantity(_) => {
+                        let identity = crate::binding::BindingIdentity {
+                            template: template.identity.clone(),
+                            kind: BindingKind::Property {
+                                component: component.local_name().clone(),
+                                property: property.clone(),
+                            },
+                        };
+                        match (
+                            &declared.kind,
+                            projection.resolve(
+                                &identity.canonical_name().to_string(),
+                                &template.identity,
+                            ),
+                        ) {
+                            (PropertyKind::Quantity { dimension }, Resolution::Visible(target)) => {
+                                projection.quantity(target).ok().map(|value| {
+                                    PropertyValueRef::Quantity {
+                                        value_si: value.magnitude(),
+                                        dimension: if value.is_dimensionless() {
+                                            *dimension
+                                        } else {
+                                            value.dimension()
+                                        },
+                                    }
+                                })
+                            }
+                            _ => None,
+                        }
+                    }
+                    PropertyValue::Boolean(value) => Some(PropertyValueRef::Boolean(*value)),
+                    PropertyValue::Text(value) => Some(PropertyValueRef::Text(value)),
+                };
+                if resolved.is_some_and(|v| !declared.accepts(v)) {
+                    status.diagnostics.push(Diagnostic::at(
+                        &path,
+                        InvalidReason::SchemaMismatch {
+                            message: "value violates the selected plugin property constraints"
+                                .into(),
+                        },
+                    ));
+                }
+            }
         }
         for required in schema.required_properties() {
             if !component.properties.contains_key(required) {

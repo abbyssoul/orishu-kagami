@@ -113,11 +113,35 @@ and never selects executable physics on a worker. See
 [Simulation plugins](../simulation-plugins.md).
 
 Support multiple versioned distribution formats over the same manifest and
-closure. The first portable bundle encoding is deferred until prototype
-measurements compare a minimal Orishu layout with reuse of OCI Image Layout.
+closure. The first portable bundle encoding is now the
+[strict stored-ZIP v1 layout](../workload-bundle-v1.md), selected in the refinement
+below after comparing a minimal Orishu layout with an OCI-shaped layout.
 Any selected encoding must be deterministic, streamable with declared bounds,
 safe from path traversal, and able to verify content before installation.
 Whole-stream gzip is not the canonical identity or storage unit.
+
+### First encoding refinement — 2026-09-16
+
+Choose a fixed `workload.cbor` root plus exactly required `blobs/sha256/<digest>`
+entries using the existing strict stored-ZIP codec. The actual two-object
+Newtonian/Euler export is 1,328,386 bytes (24 blobs, 5,204-byte root). An OCI-shaped
+wrapper with the same scientific bytes and ZIP framing is 1,328,974 bytes. The
+[reproducible comparison](../workload-bundle-v1.md#encoding-choice-and-evidence)
+models framing only, checks that model against the actual archive, and is not a
+throughput or complete OCI implementation benchmark.
+
+The 588-byte difference is insignificant; prefer minimal framing for reuse of the
+bounded codec, one explicit root and exact-closure semantics. An OCI index would
+introduce another layer without initial registry/image-tool interoperability: the
+root is Orishu CBOR, not a container image. OCI remains a possible additional
+distribution adapter, not rejected as an identity or storage architecture.
+
+Kagami's Unix headless exporter and the pure reader now implement this complete
+portable path. The initial APIs buffer the bounded archive; stored entries permit
+future streaming/range adapters but do not claim those adapters exist today. Thin
+submission, worker delivery/cache adoption and large-input streaming remain work.
+The workload-v3 canonical root, older workload identities and plugin/experiment
+container encodings are unchanged.
 
 ## Consequences
 

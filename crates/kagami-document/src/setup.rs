@@ -1,13 +1,14 @@
 //! The numerical setup an experiment declares, and which plugins model it.
 //!
-//! Deliberately the smallest thing an experiment needs in order to be
-//! *describable*. The authoritative discretization schema belongs to the
-//! shared workload format, and per-plugin configuration belongs to the
-//! simulation-plugin contract; neither exists yet, and inventing a placeholder
-//! schema here would create a second definition that has to be reconciled
-//! later. What is here is what an authoring UI must be able to show and edit
-//! before either lands, and it is versioned with the document like everything
-//! else.
+//! Legacy and explicitly selected scientific setup are distinct variants.
+//! The legacy persisted authoring shape predates the shared execution
+//! inputs now defined in `orishu-plugin::execution`. It is not itself a compiled
+//! workload domain. Selection/export integration must explicitly reconcile the
+//! document/workload versions and preserve the lower/upper corners, cell choices
+//! and boundary intent. In particular, it must not silently convert periodic
+//! intent to isolated gravity or discard grid choices when selecting a continuous
+//! model. Per-field physical boundary configuration belongs to the selected
+//! computational contribution; see `docs/scientific-bulk-io.md`.
 
 use std::collections::BTreeSet;
 
@@ -234,13 +235,95 @@ impl PluginComposition {
 /// The experiment's numerical setup and plugin composition.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Setup {
+#[serde(deny_unknown_fields)]
+pub struct LegacySetup {
     /// The region and grid.
     pub domain: Domain,
     /// The fixed time step.
     pub time_step: TimeStep,
     /// The enabled simulation plugins.
     pub plugins: PluginComposition,
+}
+
+/// Exactly one authoritative scientific setup. Legacy global boundary/grid
+/// intent is never implicitly converted into plugin-specific configuration.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Setup {
+    /// Pre-plugin authoring setup, preserved exactly when loading old files.
+    Legacy(LegacySetup),
+    /// Explicit selected models and captured scientific inputs/state.
+    Scientific(std::sync::Arc<crate::scientific::ScientificSetup>),
+}
+impl Default for Setup {
+    fn default() -> Self {
+        Self::Legacy(LegacySetup::default())
+    }
+}
+impl Setup {
+    /// Legacy data if this experiment has not explicitly adopted plugin setup.
+    pub fn legacy(&self) -> Option<&LegacySetup> {
+        match self {
+            Self::Legacy(value) => Some(value),
+            Self::Scientific(_) => None,
+        }
+    }
+    /// Plugin-based state if explicitly adopted, without a second legacy domain.
+    pub fn scientific(&self) -> Option<&crate::scientific::ScientificSetup> {
+        match self {
+            Self::Scientific(value) => Some(value),
+            Self::Legacy(_) => None,
+        }
+    }
+    /// Fixed authored time step, independent of the active setup representation.
+    pub fn time_step(&self) -> TimeStep {
+        match self {
+            Self::Legacy(v) => v.time_step,
+            Self::Scientific(v) => v.time_step(),
+        }
+    }
+    pub(crate) fn set_time_step(&mut self, value: TimeStep) {
+        match self {
+            Self::Legacy(v) => v.time_step = value,
+            Self::Scientific(v) => std::sync::Arc::make_mut(v).set_time_step(value),
+        }
+    }
+}
+// Legacy JSON stays byte-compatible. Scientific capture must use the new
+// container codec; never silently omit opaque blobs from an old-format save.
+impl Serialize for Setup {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Legacy(value) => value.serialize(serializer),
+            Self::Scientific(_) => Err(serde::ser::Error::custom(
+                "scientific setup requires the document blob container",
+            )),
+        }
+    }
+}
+impl<'de> Deserialize<'de> for Setup {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        LegacySetup::deserialize(deserializer).map(Self::Legacy)
+    }
+}
+
+/// Outbound/read-only description, which cannot hydrate scientific state from
+/// metadata alone. Legacy shape is unchanged; scientific shape has a discriminator.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SetupDescription {
+    /// Legacy global domain/boundary setup.
+    Legacy(LegacySetup),
+    /// Selected scientific metadata with external blob identities.
+    Scientific(Box<crate::scientific::ScientificDescription>),
+}
+impl SetupDescription {
+    /// Describe setup without copying opaque state bytes or initializing kernels.
+    pub fn of(setup: &Setup) -> Self {
+        match setup {
+            Setup::Legacy(v) => Self::Legacy(v.clone()),
+            Setup::Scientific(v) => Self::Scientific(Box::new(v.describe())),
+        }
+    }
 }
 
 #[cfg(test)]

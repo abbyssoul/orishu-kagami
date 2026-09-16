@@ -4,8 +4,17 @@ Status: **slices 1–3, 5 and 6 implemented**, including slice 2's view-revision
 half and slice 5's default-view revision, which landed with
 [K11](implement-kagami-viewport-workflows.md) slice 2. Slice 4 (interactive
 gestures) is now *unblocked* — the viewport publishes drags — but is still not
-implemented; the schema registry remains a bundled stand-in until X-PLUGIN's
-inventory exists  
+implemented. X-PLUGIN now supplies verified installed component schemas at Unix
+startup, including process-only overrides and declared-default attachment; legacy
+demo schemas remain separately named. Dependency-choice dialogs, live refresh and
+open-document leases remain integration work. X-PLUGIN's Unix captured-field
+reinitialization now reaches the inspector through a guarded, one-job background
+adapter. The same lane now creates/replaces complete scientific setups through
+an exact-model/domain/grid/timestep form with schema-driven parameters and an
+explicit, non-executing copy of captured settings/pins. Targeted field-parameter
+edits, dependency-choice dialogs, object-edit history regeneration and
+scientific MCP parity remain open.
+
 Work package: **K-DOCUMENT** ([roadmap](../../roadmap/README.md))  
 Decisions: [ADR 0004](../../adr/0004-separate-authoring-commands-from-run-observations.md),
 [ADR 0006](../../adr/0006-mcp-ui-equivalence.md),
@@ -134,7 +143,9 @@ Five decisions are worth carrying forward:
 - **The inspector branches on nothing.** It walks the registry, so a component
   type this build has never heard of renders and is offered for attachment
   with no change here. `Model::bundled_schemas` is the one place component
-  types are named, and it is *data* standing in for X-PLUGIN's inventory.
+  types are named for historical demo data. X-PLUGIN startup adds independently
+  verified exact component schemas through `LaunchOptions`; the inspector's Add
+  command authors declared defaults without inventing missing physical values.
 - **Slice 4 is honestly not done.** Gestures need a viewport that produces
   drags, which K11 owns; the authority's `BeginInteractiveEdit` bracket is
   already there for it. Property editing is text committed on submit rather

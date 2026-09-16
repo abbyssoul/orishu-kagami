@@ -221,7 +221,7 @@ fn every_command_survives_a_round_trip_through_the_representation() {
     ];
 
     for command in commands {
-        let encoded = WireCommand::of(&command);
+        let encoded = WireCommand::of(&command).expect("ordinary intent has a wire form");
         let json = serde_json::to_string(&encoded).expect("encodes");
         let decoded: WireCommand = serde_json::from_str(&json).expect("decodes");
         assert_eq!(decoded, encoded, "the JSON form must round-trip");

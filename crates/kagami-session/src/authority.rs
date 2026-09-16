@@ -57,6 +57,7 @@ use std::sync::Arc;
 
 use kagami_catalog::materialize::{InstantiationRequest, ObjectCandidate, materialize};
 use kagami_catalog::{CatalogSet, SchemaRegistry};
+use kagami_document::scientific::{ScientificError, ScientificRetention};
 use kagami_document::{
     AuthoredValue, CapabilityReport, CommitReport, ComponentProperties, EditHistory, Experiment,
     ExperimentCommand, ExperimentRevision, ExperimentSnapshot, GestureId, Limits, ObjectSpec,
@@ -70,6 +71,40 @@ use crate::outcome::{Acceptance, EventSeq, ExperimentChange, ExperimentEvent, Se
 use crate::persist::{DocumentTarget, SaveAcknowledgement};
 use crate::view::{HistoryStatus, SessionView};
 
+fn receives_scientific_state(command: &SessionCommand) -> bool {
+    match command {
+        SessionCommand::Edit(commands) => commands
+            .iter()
+            .any(|c| matches!(c, ExperimentCommand::AdoptScientificSetup(_))),
+        SessionCommand::Open { experiment, .. } => {
+            experiment.snapshot().setup().scientific().is_some()
+        }
+        _ => false,
+    }
+}
+
+fn include_command(
+    tally: &mut ScientificRetention,
+    command: &SessionCommand,
+) -> Result<(), ScientificError> {
+    match command {
+        SessionCommand::Edit(commands) => {
+            for command in commands {
+                if let ExperimentCommand::AdoptScientificSetup(setup) = command {
+                    tally.include(setup)?;
+                }
+            }
+        }
+        SessionCommand::Open { experiment, .. } => {
+            if let Some(setup) = experiment.snapshot().setup().scientific() {
+                tally.include(setup)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// How many accepted submissions are remembered for idempotent replay.
 pub const MAX_COMMAND_HISTORY: usize = 256;
 
@@ -80,7 +115,8 @@ pub const MAX_COMMAND_HISTORY: usize = 256;
 /// that the request is the same one; and a batch may carry
 /// [`Limits::max_commands_per_batch`] commands. Counting submissions alone
 /// would let an MCP caller pin that product in memory, so eviction runs until
-/// *both* bounds hold.
+/// *both* count bounds hold. Scientific captures additionally obey the authority's
+/// retained-byte ceiling, which may evict an older replay prefix sooner.
 pub const MAX_REPLAY_COMMANDS: usize = 4_096;
 
 /// How many change events are retained for catch-up.
@@ -174,15 +210,33 @@ impl DocumentAuthority {
         if let Some(recorded) = self.replay(&envelope)? {
             return Ok(recorded);
         }
-
-        if let Some(expected) = envelope.expected_revision
-            && expected != self.experiment.revision()
-        {
-            return Err(SessionRejection::RevisionConflict {
-                expected,
-                current: self.experiment.revision(),
-            });
+        self.check_batch_size(&envelope)?;
+        if receives_scientific_state(&envelope.command) {
+            self.check_revision(&envelope)?;
+            // Cold capture/Open path only. Keep all state, history, receipts and
+            // gesture events private until aggregate retention admission passes.
+            // Ordinary gestures/edits do not clone the authority's metadata.
+            let mut next = self.fork_for_admission();
+            let accepted = next.submit_inner(envelope)?;
+            if !accepted.replayed {
+                next.bound_scientific_retention()
+                    .map_err(kagami_document::Rejection::from)?;
+                *self = next;
+            }
+            return Ok(accepted);
         }
+        self.submit_inner(envelope)
+    }
+
+    fn submit_inner(
+        &mut self,
+        envelope: ExperimentCommandEnvelope,
+    ) -> Result<Acceptance, SessionRejection> {
+        if let Some(recorded) = self.replay(&envelope)? {
+            return Ok(recorded);
+        }
+
+        self.check_revision(&envelope)?;
 
         // Resolve the gesture *before* anything is applied, so a stale
         // identity is a refusal rather than a silent coalescence into a
@@ -233,6 +287,42 @@ impl DocumentAuthority {
         &self,
         envelope: &ExperimentCommandEnvelope,
     ) -> Result<CommitReport, SessionRejection> {
+        self.check_batch_size(envelope)?;
+        self.check_revision(envelope)?;
+        if matches!(envelope.command, SessionCommand::Edit(_))
+            && receives_scientific_state(&envelope.command)
+        {
+            let mut next = self.fork_for_admission();
+            let accepted = next.submit_inner(envelope.clone())?;
+            if !accepted.replayed {
+                next.bound_scientific_retention()
+                    .map_err(kagami_document::Rejection::from)?;
+            }
+            let ExperimentChange::Edited { report } = accepted.change else {
+                unreachable!("edit preflight")
+            };
+            return Ok(report);
+        }
+        self.preflight_edit(&envelope.command)
+    }
+
+    fn check_batch_size(
+        &self,
+        envelope: &ExperimentCommandEnvelope,
+    ) -> Result<(), SessionRejection> {
+        if let SessionCommand::Edit(commands) = &envelope.command
+            && commands.len() > self.limits.max_commands_per_batch
+        {
+            return Err(kagami_document::Rejection::BatchTooLarge {
+                found: commands.len(),
+                limit: self.limits.max_commands_per_batch,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn check_revision(&self, envelope: &ExperimentCommandEnvelope) -> Result<(), SessionRejection> {
         if let Some(expected) = envelope.expected_revision
             && expected != self.experiment.revision()
         {
@@ -241,7 +331,11 @@ impl DocumentAuthority {
                 current: self.experiment.revision(),
             });
         }
-        match &envelope.command {
+        Ok(())
+    }
+
+    fn preflight_edit(&self, command: &SessionCommand) -> Result<CommitReport, SessionRejection> {
+        match command {
             SessionCommand::Edit(commands) => {
                 if commands.is_empty() {
                     return Err(SessionRejection::EmptyBatch);
@@ -276,6 +370,74 @@ impl DocumentAuthority {
     /// The revision in force.
     pub fn revision(&self) -> ExperimentRevision {
         self.experiment.revision()
+    }
+
+    /// Unique scientific buffer bytes plus canonical metadata retention weight,
+    /// across current state, undo/redo and accepted request receipts. This is not
+    /// total heap usage and does not include shell-owned pending effects/saves.
+    pub fn scientific_retained_bytes(&self) -> Result<usize, ScientificError> {
+        let mut tally = self.scientific_baseline(usize::MAX)?;
+        for record in &self.accepted {
+            include_command(&mut tally, &record.envelope.command)?;
+        }
+        Ok(tally.bytes())
+    }
+
+    fn scientific_baseline(&self, limit: usize) -> Result<ScientificRetention, ScientificError> {
+        let mut tally = ScientificRetention::new(limit);
+        if let Some(setup) = self.experiment.snapshot().setup().scientific() {
+            tally.include(setup)?;
+        }
+        for setup in self.history.scientific_setups() {
+            tally.include(setup)?;
+        }
+        Ok(tally)
+    }
+
+    fn bound_scientific_retention(&mut self) -> Result<(), ScientificError> {
+        // Never trim undo/redo merely to make a scientific edit fit. The normal
+        // explicit history-depth policy already ran as part of the transition.
+        let mut tally = self.scientific_baseline(self.limits.scientific.retained_bytes)?;
+        let mut drop_count = 0;
+        for i in (0..self.accepted.len()).rev() {
+            if include_command(&mut tally, &self.accepted[i].envelope.command).is_err() {
+                // Even the newest receipt must fit: do not accept a command and
+                // immediately forget its idempotence evidence.
+                if i + 1 == self.accepted.len() {
+                    return Err(ScientificError::Retention);
+                }
+                drop_count = i + 1;
+                break;
+            }
+        }
+        for _ in 0..drop_count {
+            let record = self.accepted.pop_front().expect("counted receipt");
+            self.retained_commands -= record.weight();
+        }
+        Ok(())
+    }
+
+    // Only scientific capture/Open use this transaction copy. Snapshot/blob
+    // ownership stays shared; bounded registry/receipt metadata is copied on
+    // this cold path. It is intentionally not a public Clone/fork authority API.
+    fn fork_for_admission(&self) -> Self {
+        Self {
+            experiment: self.experiment.clone(),
+            schemas: self.schemas.clone(),
+            catalog: self.catalog.clone(),
+            capabilities: self.capabilities.clone(),
+            limits: self.limits,
+            history: self.history.clone(),
+            accepted: self.accepted.clone(),
+            retained_commands: self.retained_commands,
+            events: self.events.clone(),
+            next_event: self.next_event,
+            open_gesture: self.open_gesture,
+            next_gesture: self.next_gesture,
+            clean_revision: self.clean_revision,
+            acknowledged_revision: self.acknowledged_revision,
+            target: self.target.clone(),
+        }
     }
 
     /// The session as an adapter sees it now.
@@ -672,6 +834,11 @@ impl DocumentAuthority {
     ) -> Result<ExperimentChange, SessionRejection> {
         if self.is_dirty() && !discard_unsaved {
             return Err(SessionRejection::UnsavedChanges);
+        }
+        if let Some(setup) = experiment.snapshot().setup().scientific() {
+            setup
+                .check_limits(self.limits.scientific)
+                .map_err(kagami_document::Rejection::from)?;
         }
 
         self.experiment = experiment.adopted_after(self.experiment.revision());

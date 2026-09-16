@@ -1,10 +1,12 @@
 # Simulation plugins
 
 Accepted concrete specification (2026-09-16): [X-PLUGIN v1](plugin-contract-v1-draft.md).
-That document separates proposed wire/package details from accepted decisions
-here and in ADR 0027; it is not yet an approved or implemented contract.
+That document records accepted decisions here and in ADR 0027; acceptance does
+not mean all runtime/wire implementation has been delivered.
 
-This document describes the planned contract, not delivered plugin management.
+This document describes the complete target contract. Initial Unix source/package
+and CLI management are now implemented; see [local tooling](plugin-authoring-tools.md)
+for exact delivered scope and remaining gaps.
 [ADR 0027](adr/0027-plugin-contributions-and-immutable-releases.md) records accepted
 decisions and alternatives; [X-PLUGIN](tasks/define-and-implement-plugin-contract.md)
 tracks remaining design gates and implementation slices.

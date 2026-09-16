@@ -11,6 +11,7 @@ pub use logging::LoggingConfig;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeConfig {
+    pub scientific: ScientificConfig,
     pub logging: LoggingConfig,
     pub tracing: TracingConfig,
     pub observability: ObservabilityConfig,
@@ -27,6 +28,13 @@ pub struct RuntimeConfig {
     pub accepts_peers: Option<bool>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+}
+
+/// Opt-in fixed-profile scientific API; not distributed execution readiness.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScientificConfig {
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -75,6 +83,9 @@ impl RuntimeConfig {
     }
 
     pub fn finalize(mut self) -> Result<Self, String> {
+        if self.scientific.enabled == Some(true) && !cfg!(unix) {
+            return Err("scientific serving requires the Unix private receipt backend".into());
+        }
         self.logging.validate()?;
         self.tracing.validate()?;
         if self.observability.enabled == Some(true) {
@@ -222,6 +233,8 @@ struct ClusterConfig {
 #[derive(Debug, Default, Deserialize)]
 struct WorkerSpec {
     #[serde(default)]
+    scientific: ScientificConfig,
+    #[serde(default)]
     logging: LoggingConfig,
     #[serde(default)]
     tracing: TracingConfig,
@@ -295,6 +308,7 @@ fn parse_config_str(contents: &str, source: &Path) -> Result<RuntimeConfig, Stri
     }
 
     Ok(RuntimeConfig {
+        scientific: parsed.spec.scientific,
         logging: parsed.spec.logging,
         tracing: parsed.spec.tracing,
         observability: parsed.spec.observability,

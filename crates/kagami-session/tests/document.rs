@@ -423,6 +423,65 @@ fn a_version_one_document_loads_through_its_explicit_conversion() {
 }
 
 #[test]
+fn version_two_files_remain_readable_without_choosing_plugin_providers() {
+    for name in ["experiment_v2", "experiment_empty_v2"] {
+        let document = decode_document(&std::fs::read(fixture_path(name)).unwrap()).unwrap();
+        assert_eq!(document.format_version, FORMAT_VERSION);
+        assert!(
+            document
+                .experiment
+                .objects
+                .iter()
+                .flat_map(|o| &o.components)
+                .all(|c| c.component.contribution().is_none())
+        );
+        document
+            .into_experiment(&schemas(), &Limits::DEFAULT)
+            .unwrap();
+    }
+}
+
+#[test]
+fn exact_component_pins_roundtrip_without_logical_fallback_and_require_new_format() {
+    let mut document = document_of(&authored());
+    let exact: kagami_catalog::ComponentTypeId = serde_json::from_str(&format!(
+        r#"{{"contribution":{{"release":"sha256:{}","extensionPoint":"orishu.model.components/v1","localId":"mass"}}}}"#,
+        "a".repeat(64),
+    )).unwrap();
+    document.experiment.objects[0].components[0].component = exact.clone();
+    let bytes = serde_json::to_vec(&document).unwrap();
+    let reopened = decode_document(&bytes)
+        .unwrap()
+        .into_experiment(&schemas(), &Limits::DEFAULT)
+        .unwrap();
+    let snapshot = reopened.snapshot();
+    let object = snapshot.objects().values().next().unwrap();
+    assert!(object.components.contains_key(&exact));
+    // A logical schema with the same scientific purpose must not resolve a pin.
+    assert!(
+        object.components[&exact]
+            .properties
+            .values()
+            .any(|v| !v.is_priced())
+    );
+    let saved = document_of(&reopened);
+    assert_eq!(saved.experiment.objects[0].components[0].component, exact);
+    for version in [1, 2] {
+        let mut value = serde_json::to_value(&document).unwrap();
+        value["formatVersion"] = serde_json::json!(version);
+        if version == 1 {
+            value.as_object_mut().unwrap().remove("defaultView");
+        }
+        assert_eq!(
+            decode_document(&serde_json::to_vec(&value).unwrap())
+                .unwrap_err()
+                .code(),
+            "malformed_document"
+        );
+    }
+}
+
+#[test]
 fn a_version_one_document_may_not_carry_a_field_version_one_never_had() {
     // The reason each version gets its own DTO: a producer that added the view
     // section without advancing the version would otherwise have it silently

@@ -25,6 +25,8 @@ const FORBIDDEN: &[(&str, &str)] = &[
     ("orishu", "Orishu domain and client interfaces"),
     ("orishu-membership", "cluster membership"),
     ("orishu-identity", "cluster identity"),
+    ("orishu-runtime", "scientific execution"),
+    ("wasmtime", "Wasm execution engine"),
     ("tokio", "async runtime"),
     ("quinn", "QUIC transport"),
     ("rustls", "TLS"),
@@ -115,11 +117,12 @@ fn the_dependency_graph_stays_small_enough_to_audit() {
     // Larger than the sans-IO membership core's budget because a
     // hand-authored file format needs a YAML parser, and `serde_yaml` brings
     // its own scanner plus `indexmap`. Everything in the graph should still
-    // be a serde, hashing, or YAML crate; a jump past this bound means
-    // something with a genuinely new capability arrived.
+    // be a shared value contract, serde, hashing, or YAML crate. Exact provider
+    // identities add orishu-plugin/orishu-workload and their bounded codecs;
+    // the audited closure is now 36, with no execution or networking capability.
     let resolved = runtime_dependency_names();
     assert!(
-        resolved.len() <= 32,
+        resolved.len() <= 36,
         "the catalog domain resolved {} runtime dependencies, which is more than can be reviewed \
          by hand: {resolved:?}",
         resolved.len()
@@ -133,6 +136,7 @@ fn the_expected_direct_dependencies_are_present() {
     let resolved = runtime_dependency_names();
     for expected in [
         "orishu-variables",
+        "orishu-plugin",
         "serde",
         "serde_yaml",
         "serde_path_to_error",

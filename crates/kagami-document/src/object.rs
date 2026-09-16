@@ -150,6 +150,23 @@ pub enum PropertyValue {
 }
 
 impl PropertyValue {
+    pub(crate) fn schema_value(&self) -> Option<kagami_catalog::schema::PropertyValueRef<'_>> {
+        use kagami_catalog::schema::PropertyValueRef;
+        match self {
+            Self::Quantity {
+                si_value,
+                dimension,
+                ..
+            } => Some(PropertyValueRef::Quantity {
+                value_si: *si_value,
+                dimension: *dimension,
+            }),
+            Self::Boolean(value) => Some(PropertyValueRef::Boolean(*value)),
+            Self::Text(value) => Some(PropertyValueRef::Text(value)),
+            Self::Unresolved { .. } => None,
+        }
+    }
+
     /// A short name for this value's kind, for diagnostics.
     ///
     /// An unpriced value still reports `quantity`: what it is missing is a

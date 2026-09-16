@@ -3,8 +3,11 @@
 //! Raw declarations are serializable authoring data, not proof of acceptance.
 //! [`Release::validate`] checks a root; [`ValidatedRelease::verify_payload`] checks
 //! one declared contribution's bytes and scientific schema without executing it.
-//! Complete package IO, provider resolution, Wasm inspection and run admission
-//! belong to later slices. In particular a verified declaration is not runnable.
+//! [`resolution`] provides deterministic exact provider selection, and [`bundle`]
+//! validates/packs caller-owned stored-ZIP bytes without extraction. [`selected`]
+//! compiles and independently verifies exact selected declaration/code closure.
+//! Package IO, Wasm inspection and run admission belong to consuming owners. A
+//! verified declaration or resolved selection is not runnable.
 //!
 //! JSON is an authoring representation. Identity uses explicit projections and
 //! the existing workload deterministic-CBOR codec, never serde field layout.
@@ -30,11 +33,17 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod archive;
+pub mod bundle;
 mod codec;
+pub mod execution;
 mod ids;
 mod model;
 mod projection;
+pub mod resolution;
+pub mod selected;
 mod validation;
+pub mod workload;
 
 pub use codec::{payload_from_cbor, payload_from_json, release_from_cbor, release_from_json};
 pub use ids::*;

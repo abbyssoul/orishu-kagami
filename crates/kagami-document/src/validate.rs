@@ -111,6 +111,9 @@ impl fmt::Display for PropertyPath {
 /// enough to point at the offending field without guessing.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum Rejection {
+    /// Scientific capture/parameters cannot be adopted as one coherent setup.
+    #[error(transparent)]
+    Scientific(#[from] crate::scientific::ScientificError),
     /// The batch held more commands than the limits allow.
     #[error("batch of {found} commands exceeds the limit of {limit}")]
     BatchTooLarge {
@@ -208,6 +211,12 @@ pub enum Rejection {
         expected: &'static str,
         /// The kind that was supplied.
         found: &'static str,
+    },
+    /// The resolved value exceeds a selected plugin's declared constraints.
+    #[error("{path} violates the component's property constraints")]
+    PropertyConstraint {
+        /// The constrained property.
+        path: PropertyPath,
     },
     /// The expression's own dimension is not the one the schema declares.
     ///
@@ -425,6 +434,7 @@ impl Rejection {
     /// on it and a translated message cannot change its meaning.
     pub const fn code(&self) -> &'static str {
         match self {
+            Self::Scientific(reason) => reason.code(),
             Self::BatchTooLarge { .. } => "batch_too_large",
             Self::TooManyObjects { .. } => "too_many_objects",
             Self::UnknownObject { .. } => "unknown_object",
@@ -436,6 +446,7 @@ impl Rejection {
             Self::PropertyNotDeclared { .. } => "property_not_declared",
             Self::RequiredPropertyMissing { .. } => "required_property_missing",
             Self::PropertyKindMismatch { .. } => "property_kind_mismatch",
+            Self::PropertyConstraint { .. } => "property_constraint",
             Self::ExpressionDimensionMismatch { .. } => "expression_dimension_mismatch",
             Self::UnitDeclaredTwice { .. } => "unit_declared_twice",
             Self::UnitDimensionMismatch { .. } => "unit_dimension_mismatch",
@@ -470,9 +481,16 @@ pub(crate) fn resolve_property(
     variables: &VariablesSystem,
     limits: &Limits,
 ) -> Result<PropertyValue, Rejection> {
-    match (&schema.kind, authored) {
+    let result = match (&schema.kind, authored) {
         (PropertyKind::Quantity { dimension }, AuthoredValue::Quantity { expression, unit }) => {
-            resolve_quantity(path, *dimension, expression, *unit, variables, limits)
+            resolve_quantity(
+                path.clone(),
+                *dimension,
+                expression,
+                *unit,
+                variables,
+                limits,
+            )
         }
         (PropertyKind::Boolean, AuthoredValue::Boolean(value)) => {
             Ok(PropertyValue::Boolean(*value))
@@ -488,11 +506,15 @@ pub(crate) fn resolve_property(
             Ok(PropertyValue::Text(value.clone()))
         }
         (expected, found) => Err(Rejection::PropertyKindMismatch {
-            path,
+            path: path.clone(),
             expected: expected.label(),
             found: found.kind_label(),
         }),
+    }?;
+    if !result.schema_value().is_some_and(|v| schema.accepts(v)) {
+        return Err(Rejection::PropertyConstraint { path });
     }
+    Ok(result)
 }
 
 fn resolve_quantity(
@@ -629,11 +651,16 @@ pub(crate) fn validate_structure(
             limit: limits.max_objects,
         });
     }
-    if state.setup.plugins.len() > limits.max_enabled_plugins {
+    if let Some(legacy) = state.setup.legacy()
+        && legacy.plugins.len() > limits.max_enabled_plugins
+    {
         return Err(Rejection::TooManyEnabledPlugins {
-            found: state.setup.plugins.len(),
+            found: legacy.plugins.len(),
             limit: limits.max_enabled_plugins,
         });
+    }
+    if let Some(scientific) = state.setup.scientific() {
+        scientific.check_limits(limits.scientific)?;
     }
 
     for (id, object) in state.objects.iter() {

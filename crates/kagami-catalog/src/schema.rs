@@ -14,6 +14,7 @@
 
 use std::collections::BTreeMap;
 
+pub use orishu_plugin::execution::PropertyValueRef;
 use serde::{Deserialize, Serialize};
 
 use crate::name::{ComponentTypeId, PropertyName};
@@ -77,6 +78,10 @@ pub struct PropertySchema {
     pub kind: PropertyKind,
     /// When `true`, a template that omits this property is not usable.
     pub required: bool,
+    /// Complete plugin declaration, including retained defaults and constraints.
+    /// Absent only for the legacy hand-registered schema API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plugin: Option<orishu_plugin::PropertyType>,
 }
 
 impl PropertySchema {
@@ -85,6 +90,7 @@ impl PropertySchema {
         Self {
             kind,
             required: false,
+            plugin: None,
         }
     }
 
@@ -93,12 +99,56 @@ impl PropertySchema {
         Self {
             kind,
             required: true,
+            plugin: None,
         }
+    }
+
+    /// Project a property from a validated scientific declaration, retaining
+    /// constraints and defaults. This is not declaration/provider validation;
+    /// callers must establish those before accepting plugin metadata.
+    pub fn from_plugin(property: &orishu_plugin::Property) -> Self {
+        use orishu_plugin::PropertyType;
+        let kind = match &property.schema {
+            PropertyType::Quantity { dimension, .. } => PropertyKind::Quantity {
+                dimension: *dimension,
+            },
+            PropertyType::Boolean { .. } => PropertyKind::Boolean,
+            PropertyType::Text { .. } => PropertyKind::Text,
+        };
+        Self {
+            kind,
+            required: property.required,
+            plugin: Some(property.schema.clone()),
+        }
+    }
+
+    /// Defaults are suggestions to author, not silently inserted during loading
+    /// or validation. The source is retained exactly as the plugin declared it.
+    pub fn plugin_declaration(&self) -> Option<&orishu_plugin::PropertyType> {
+        self.plugin.as_ref()
+    }
+
+    /// One constraint check for catalog materialization and document commands.
+    /// Workload validation uses the same shared plugin predicate independently.
+    pub fn accepts(&self, value: PropertyValueRef<'_>) -> bool {
+        let kind_matches = match (&self.kind, value) {
+            (
+                PropertyKind::Quantity { dimension },
+                PropertyValueRef::Quantity {
+                    value_si,
+                    dimension: actual,
+                },
+            ) => value_si.is_finite() && *dimension == actual,
+            (PropertyKind::Boolean, PropertyValueRef::Boolean(_))
+            | (PropertyKind::Text, PropertyValueRef::Text(_)) => true,
+            _ => false,
+        };
+        kind_matches && self.plugin.as_ref().is_none_or(|p| p.accepts(value))
     }
 }
 
 /// One component type's declaration.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentSchema {
     /// The plugin-qualified component type this declares.
     pub type_id: ComponentTypeId,
@@ -106,6 +156,8 @@ pub struct ComponentSchema {
     pub version: SchemaVersion,
     /// The properties this component contributes, keyed by name.
     pub properties: BTreeMap<PropertyName, PropertySchema>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plugin: Option<Box<orishu_plugin::ComponentSchema>>,
 }
 
 impl ComponentSchema {
@@ -115,6 +167,7 @@ impl ComponentSchema {
             type_id,
             version,
             properties: BTreeMap::new(),
+            plugin: None,
         }
     }
 
@@ -132,13 +185,60 @@ impl ComponentSchema {
             .filter(|(_, schema)| schema.required)
             .map(|(name, _)| name)
     }
+
+    /// Project one verified component payload under its exact provider pin.
+    /// This checks integrity, not installation enablement or transitive
+    /// availability: the inventory resolver must authorize use separately.
+    /// Other contribution kinds (including opaque future slots) are refused.
+    /// A registry remains caller-supplied authoring data, not an admission token;
+    /// export/runtime admission must independently verify the exact release.
+    pub fn from_plugin(
+        release: &orishu_plugin::resolution::VerifiedRelease,
+        local: &orishu_plugin::LocalContributionId,
+    ) -> Result<Self, crate::name::NameError> {
+        let Some(orishu_plugin::Payload::Components(declaration)) =
+            release.payloads().get(local).and_then(|p| p.payload())
+        else {
+            return Err(crate::name::NameError::NotComponentContribution);
+        };
+        let reference = release
+            .contribution_ref(local)
+            .ok_or(crate::name::NameError::NotComponentContribution)?;
+        let type_id = ComponentTypeId::exact(reference)?;
+        let properties = declaration
+            .scientific
+            .properties
+            .iter()
+            .map(|p| Ok((property_name(&p.id)?, PropertySchema::from_plugin(p))))
+            .collect::<Result<_, crate::name::NameError>>()?;
+        Ok(Self {
+            type_id,
+            version: SchemaVersion(declaration.scientific.version.get()),
+            properties,
+            plugin: Some(Box::new(declaration.scientific.clone())),
+        })
+    }
+
+    /// Original scientific role, bindings, requirements and property IDs.
+    /// Expression aliases never replace the exact names used by workload export.
+    pub fn plugin_declaration(&self) -> Option<&orishu_plugin::ComponentSchema> {
+        self.plugin.as_deref()
+    }
+}
+
+/// Injective expression spelling for a plugin's local property identifier.
+/// Plugin identifiers exclude underscores; their hyphens map to underscores.
+pub fn property_name(
+    id: &orishu_plugin::LocalContributionId,
+) -> Result<PropertyName, crate::name::NameError> {
+    PropertyName::new(id.as_str().replace('-', "_"))
 }
 
 /// The component schemas installed in this Kagami installation.
 ///
 /// Ordered by component type so every projection, report, and fingerprint
 /// derived from it is deterministic.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SchemaRegistry {
     components: BTreeMap<ComponentTypeId, ComponentSchema>,

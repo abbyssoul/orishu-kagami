@@ -18,7 +18,8 @@ impl Middleware for CborContentMiddleware {
         next: Next<'_>,
     ) -> Result<Response> {
         req.headers_mut()
-            .insert(reqwest::header::CONTENT_TYPE, CBOR_CONTENT_TYPE);
+            .entry(reqwest::header::CONTENT_TYPE)
+            .or_insert(CBOR_CONTENT_TYPE);
         next.run(req, extensions).await
     }
 }

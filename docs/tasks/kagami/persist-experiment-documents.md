@@ -1,5 +1,13 @@
 # Persist and recover experiment documents
 
+Current format note: X-PLUGIN subsequently adds exact component pins in JSON
+envelope version 3, with explicit v1/v2 reading and no provider substitution.
+The version-2 evidence below records K4/K11's historical delivery. Captured opaque
+field/history state now also has a [self-contained v4 document/blob container](../../experiment-container-v4.md)
+and durable store integration under X-PLUGIN. Its exact declaration witness allows
+offline reopen without installed kernels; legacy JSON is not implicitly migrated.
+That later delivery is tracked separately from this task's historical acceptance.
+
 Status: **implemented**; slices 1–5 landed across
 `kagami_session::{document, store}`, `kagami_document::hydrate` and
 `DocumentAuthority`. ADR 0022's `default_view` section landed with

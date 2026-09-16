@@ -2,6 +2,9 @@
 //! inputs; readers consume a published projection without locking membership.
 
 use crate::{credentials::SecretToken, runtime::project_summary};
+pub mod execution;
+pub mod run;
+pub mod scientific;
 use orishu::model::cluster::{
     LeaveReceipt, LeaveRequest, LockReceipt, LockRequest, OperationId, Participation, Summary,
 };
@@ -39,6 +42,8 @@ pub struct Generation(pub u64);
 /// Bounded reader projection, independent of exporter and network dependencies.
 #[derive(Debug, Clone)]
 pub struct View {
+    /// Internal scientific projection; not part of formation-v1's wire summary.
+    pub scientific: Option<run::RunView>,
     /// Last tick actually processed by the serialized owner; never refreshed by
     /// reads or exporters. Absent until the owner starts running.
     pub owner_progress: Option<Instant>,
@@ -452,6 +457,36 @@ enum JoinFault {
 // Keep that fixed memory budget instead of allocating a box per local command.
 #[allow(clippy::large_enum_variant)]
 enum Control {
+    AllocateRun {
+        fence: execution::ExecutionFence,
+        workload: orishu_workload::WorkloadDigest,
+        control: orishu_runtime::OperationControl,
+        reply: std::sync::mpsc::SyncSender<
+            Result<execution::RunAllocation, execution::ExecutionError>,
+        >,
+    },
+    PublishScientific {
+        fence: execution::ExecutionFence,
+        next: run::RunView,
+        control: orishu_runtime::OperationControl,
+        reply: std::sync::mpsc::SyncSender<Result<(), execution::ExecutionError>>,
+    },
+    ConfirmScientificAdmission {
+        fence: execution::ExecutionFence,
+        scope: orishu_runtime::RunScope,
+        control: orishu_runtime::OperationControl,
+        reply: oneshot::Sender<Result<(), execution::ExecutionError>>,
+    },
+    ReserveExecution {
+        generation: Generation,
+        formation: orishu_membership::FormationId,
+        completion: mpsc::OwnedPermit<Control>,
+        reply: oneshot::Sender<Result<execution::ExecutionLease, execution::ExecutionError>>,
+    },
+    ReleaseExecution {
+        generation: Generation,
+        serial: u64,
+    },
     Completed(std::sync::Arc<std::sync::Mutex<Option<Control>>>),
     #[cfg(test)]
     ModelSnapshot(oneshot::Sender<Membership>),
@@ -1492,6 +1527,7 @@ fn spawn_owner(
     summary.introducer_ready =
         introducer_ready(&model, summary.participation, join_token.is_some());
     let view = View {
+        scientific: None,
         owner_progress: None,
         completed_exchanges: 0,
         failed_sends: 0,
@@ -1562,6 +1598,7 @@ fn spawn_owner(
             baseline_result: None,
             admission_baselines: Default::default(),
             join_operations: Default::default(),
+            execution: Default::default(),
             active_join_operation: None,
             outbound_join: None,
             sends: tokio::task::JoinSet::new(),
@@ -1593,6 +1630,8 @@ fn spawn_owner(
                 // Reserved shutdown and due timers cannot sit behind a peer flood.
                 biased;
                 request = stopping.recv() => {
+                    owner.execution.revoke();
+                    owner.view.scientific = None;
                     owner.view.summary.participation = Participation::Stopping;
                     owner.published.send_replace(owner.view.clone());
                     if let Some(reply) = request { let _ = reply.send(()); }
@@ -1664,6 +1703,7 @@ fn spawn_owner(
 }
 
 struct Owner {
+    execution: execution::Slot,
     formation_adopted: std::sync::Arc<tokio::sync::Notify>,
     first_catchup_route: std::sync::Arc<tokio::sync::Notify>,
     #[cfg(feature = "otlp-tracing")]
@@ -2181,6 +2221,64 @@ impl Owner {
 
     fn control(&mut self, control: Control) -> Result<(), DriverError> {
         let control = match control {
+            Control::AllocateRun {
+                fence,
+                workload,
+                control,
+                reply,
+            } => {
+                let result = if control.check().is_err() {
+                    Err(execution::ExecutionError::Unavailable)
+                } else {
+                    self.allocate_run(&fence, workload)
+                };
+                let _ = reply.try_send(result);
+                return Ok(());
+            }
+            Control::PublishScientific {
+                fence,
+                next,
+                control,
+                reply,
+            } => {
+                let result = if control.check().is_err() {
+                    Err(execution::ExecutionError::Unavailable)
+                } else {
+                    self.publish_run_boundary(&fence, next)
+                };
+                // A single response into a capacity-one channel never waits.
+                let _ = reply.try_send(result);
+                return Ok(());
+            }
+            Control::ConfirmScientificAdmission {
+                fence,
+                scope,
+                control,
+                reply,
+            } => {
+                let result = if control.check().is_err() {
+                    Err(execution::ExecutionError::Unavailable)
+                } else {
+                    self.confirm_admission(&fence, &scope)
+                };
+                let _ = reply.send(result);
+                return Ok(());
+            }
+            Control::ReserveExecution {
+                generation,
+                formation,
+                completion,
+                reply,
+            } => {
+                let result = self.reserve_execution(generation, formation, completion);
+                let _ = reply.send(result);
+                return Ok(());
+            }
+            Control::ReleaseExecution { generation, serial } => {
+                self.execution.release(generation, serial);
+                self.publish_scientific();
+                return Ok(());
+            }
             Control::Completed(shared) => {
                 let completed = shared.lock().expect("completion delivery lock").take();
                 return match completed {
@@ -2483,6 +2581,14 @@ impl Owner {
                 completion,
                 reply,
             } => {
+                // Preserve exact receipt replay/conflict checks, but a fresh
+                // join cannot start while scientific admission owns the slot.
+                if self.execution.occupied()
+                    && self.join_operations.get(&request.operation_id).is_none()
+                {
+                    let _ = reply.send(Err(crate::join_operations::OperationError::Busy));
+                    return Ok(());
+                }
                 let result = self
                     .join_operations
                     .reserve(&request, &self.view.summary)
@@ -2715,6 +2821,7 @@ impl Owner {
                 let model = self.model.as_ref().expect("owner holds model");
                 if generation != self.view.generation
                     || &source != model.formation()
+                    || self.execution.occupied()
                     || self.view.summary.participation != Participation::Standalone
                     || model.join_attempt().is_some()
                     || self
@@ -2849,6 +2956,9 @@ impl Owner {
         ) {
             return Err(LockError::Unavailable);
         }
+        if !locked && self.execution.occupied() {
+            return Err(LockError::Unavailable);
+        }
         // Successful submission is not acceptance: inspect the model only after
         // the complete pure transition and its inline effects have finished.
         self.apply(Message::Local(Command::SetMembershipLock(locked)))?;
@@ -2921,6 +3031,9 @@ impl Owner {
             || request.formation_id != self.view.summary.formation_id
         {
             return Err(LeaveError::StaleFormation);
+        }
+        if self.execution.occupied() {
+            return Err(LeaveError::Unavailable);
         }
         if matches!(
             self.view.summary.participation,
@@ -3067,6 +3180,7 @@ impl Owner {
                     .0
                     .checked_add(1)
                     .ok_or(DriverError::Limit)?;
+                self.execution.revoke();
                 self.timers.clear();
                 self.sends.abort_all();
                 self.join_token = None;
@@ -3548,6 +3662,7 @@ impl Owner {
     }
 
     fn eject(&mut self) -> Result<(), DriverError> {
+        self.execution.revoke();
         self.admission_replays = Default::default();
         self.catchup_failed = self.view.summary.participation == Participation::CatchingUp;
         self.view.summary.participation = Participation::Ejected;
@@ -3606,6 +3721,8 @@ impl Owner {
     }
 
     fn publish(&mut self) -> Result<(), DriverError> {
+        self.reconcile_execution();
+        self.view.scientific = self.execution.run_view();
         if self.view.summary.participation == Participation::CatchingUp
             && self
                 .catchup_started

@@ -4,15 +4,29 @@ Terminology refinement: [ADR 0027](adr/0027-plugin-contributions-and-immutable-r
 names the scientific executable a **kernel** and its configured use a **kernel
 instance**. Each independently compiled kernel implements one Orishu-owned
 execution contract (for example field update or dynamics integration) and is
-delivered as a **WebAssembly Component**. Those role-specific contracts still
-require concrete specification alongside the common lifecycle below. They are
+delivered as a **WebAssembly Component**. Initial concrete role-specific WIT and
+executable host evidence are now recorded in the [ABI checkpoint](runtime-component-abi.md),
+alongside explicit remaining admission/security gates. Those contracts are
 distinct from plugin-owned scientific vocabulary such as gravity.
+The [standard scientific bulk IO schemas](scientific-bulk-io.md) define explicit
+Dynamics, per-slot coupling and force packets for this role-specific profile.
+Their codecs, stable-order reducer and atomic fixed-profile owner are implemented.
+The [v3 composed workload root](workload-v3.md), captured execution descriptor and
+selected-context declaration checks are now shared contracts. Fixed scientific-profile
+assembly/verification and actual Component admission into the shared runtime are
+implemented. Its scene-bearing execution-v2 extension now carries exact shared
+entity composition and bounded non-executable source evidence, independently
+checked against numerical object/coupling packets. Numeric-only execution-v1 bytes
+remain unchanged; old readers must refuse the new descriptor. The new headless
+`kagami export` command emits a [portable closure](workload-bundle-v1.md), not a
+submission. Worker endpoints, transfer and window export controls remain work.
 
 The legacy component terminology and literal WIT/wire identifiers below are
-retained for compatibility, not a second scientific abstraction. X-PLUGIN and
-O-WASM must reconcile roles/phases, execution-contract identity and versioning
-before implementation; this documentation change does not alter serialized
-workloads or establish that current structural validation enforces this rule.
+retained for compatibility, not a second scientific abstraction. The concrete v3
+profile reconciles roles/phases and exact execution-contract identities; it does
+not authorize silently routing legacy submissions into that profile. V3 is a separate explicit format extension;
+the legacy contracts below and workload-v2 identities remain unchanged. Structural
+closure validation alone does not establish scientific-profile acceptance.
 
 The workload contract defines the boundary between the worker runtime and
 client-supplied executable simulation code. A workload component is an untrusted,

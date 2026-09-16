@@ -5,8 +5,24 @@ verifiable implementation work. `TODO.md` remains an inbox for unrefined ideas;
 once promoted, an idea links to a task here.
 
 X-PLUGIN's [concrete contract](../plugin-contract-v1-draft.md) was accepted on
-2026-09-16. Pure-contract slice 1 is implemented, pending review; resolver and
-later ABI/persistence/runtime integration evidence remain pending.
+2026-09-16. Declarations, pure resolution, bundle bytes and initial Unix source/
+inventory/CLI management are implemented, pending review. Selected scientific
+compilation/admission, captured-document persistence and Unix headless
+[portable export](../workload-bundle-v1.md) now have real-kernel evidence;
+The worker also has an [off-owner validated admission handoff](../adr/0028-fence-worker-scientific-admission-through-formation-owner.md)
+and retained single-node executor with owner-serialized publication, actual
+Component and cancellation evidence. Unix captured-field reinitialization now
+uses guarded background adoption. Remaining creation/configuration authoring,
+adapter parity, run
+references/distributed allocation and public worker/runtime product integration
+remain pending. Single-node [run-descriptor allocation](../run-descriptor-v1.md)
+is implemented and connected to real worker bootstrap. Explicitly enabled
+[scientific HTTP serving](../protocol-scientific-load-v1.md) now provides complete
+upload, durable receipt lookup and retained-run discovery, with real process,
+restart and TLS evidence. The shared bounded scientific HTTP client now submits
+and retrieves those facts with correlation checks and real-worker proof. Public
+run control/observations and Kagami submission remain open; default worker startup
+is still formation-only.
 
 See the [implementation roadmap](../roadmap/README.md) for milestone order,
 cross-task dependencies, unrefined work packages, and parallel-agent ownership.
@@ -30,11 +46,11 @@ and viewport/app adoption.
 
 | Task | Status |
 | --- | --- |
-| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Concrete contract accepted; pure-contract slice 1 implemented, pending review; slices 2–6 and ABI/integration evidence remain |
+| [Define and implement the shared plugin contract](define-and-implement-plugin-contract.md) (X-PLUGIN) | Declarations, provider resolution, bundle codec, initial Unix source/inventory/CLI and [pure selected closure](../plugin-selected-closure.md) implemented, review pending; [end-to-end delivery](x-plugin-delivery-ledger.md) remains active through complete management, authoring/export and actual execution |
 | [Harden formation parsing and local performance](harden-formation-fuzz-performance.md) | Post-M4 local fuzz and benchmark infrastructure; Raspberry Pi validation follows local review |
 | [Implement staged runtime scaling evidence](implement-staged-runtime-scaling-evidence.md) | Specified: early-M5 lab follow-ups, M5 scientific 1/3/5-worker stages, M8 complete 1/3/5/12/32-worker evidence; services and experiment plans gate execution |
 | [Qualify selected worker deployment profiles](qualify-worker-deployment-profiles.md) | Specified: M5 candidate selection, M8 selected supported-profile qualification; optional Kubernetes/cloud environments not yet selected |
-| [Implement the single-node workload runtime](implement-single-node-workload-runtime.md) | Specified; M2/M3 foundations required by M5; gated on lifecycle contracts and O-WASM |
+| [Implement the single-node workload runtime](implement-single-node-workload-runtime.md) | Fixed-profile atomic owner/checkpoint/field leases, fenced worker admission/publication, durable receipt/retained-run coordination and opt-in HTTP load/retrieval implemented; public run control/observations, reusable storage and client/product integration remain open |
 | [Implement distributed workload execution](implement-distributed-workload-execution.md) | Specified for M5; gated on single-node reference, reviewed distributed protocol and concrete scientific profile |
 | [Implement worker network placement](implement-worker-network-placement.md) | Slices 1-2 delivered: [ADR 0026](../adr/0026-worker-network-interface-placement.md), [namespace wire proof](../measurements/worker-network-placement-2026-09-11.md) and scoped [five-Pi recovery/placement evidence](../measurements/formation-post-m4-five-pi-plan.md). Physical link-loss, multi-interface lists, failover, pod qualification and remote inspection remain planned |
 | [Review worker executor sizing](review-worker-executor-performance.md) | Five-/twenty-worker baselines recorded; sweep pending after the [five-Pi client-error stop](../measurements/formation-post-m4-five-pi-plan.md). No executor policy selected; desktop oversubscription hypothesis remains unverified |
@@ -45,8 +61,8 @@ and viewport/app adoption.
 | [Implement the Kagami object catalog](implement-kagami-object-catalog.md) | Core implemented and accepted; integration gated |
 | [Fix Kagami catalog authority collision and path-containment boundaries](fix-kagami-catalog-authority-boundaries.md) | Implemented and accepted |
 | [Integrate catalog variables and capture them into workloads](capture-catalog-values-in-expressions.md) | Gated on catalog, variables, document, and workload contracts |
-| [Define and adopt the shared workload format](define-and-adopt-shared-workload-format.md) | Ready; foundational priority |
-| [Implement the WebAssembly component-graph host](implement-wasm-component-graph-host.md) | Specified; gated on the S-WORKLOAD graph and component ABI |
+| [Define and adopt the shared workload format](define-and-adopt-shared-workload-format.md) | Partial: accepted v2 foundations; v3 root, fixed scientific-profile compilation/admission and Unix headless portable export implemented, review pending; guarded authoring, worker and thin-transfer adoption remain |
+| [Implement the WebAssembly component-graph host](implement-wasm-component-graph-host.md) | ABI/lifecycle, bounded packets, actual Newtonian/Euler atomic owner and selected admission evidence; [security/integration gates](../runtime-component-abi.md), reusable stores/arenas and product integration remain |
 | [Publish installable Orishu Kagami artifacts](publish-installable-artifacts.md) | In progress: candidate artifacts and gates implemented; supported publication gated by M8 |
 | [Implement resumable observation streaming](implement-resumable-observation-streaming.md) | Ready |
 | [Implement time-addressable run playback](implement-time-addressable-run-playback.md) | Ready |
