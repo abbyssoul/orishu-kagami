@@ -19,7 +19,7 @@ wasmtime = { version = "=48.0.2", default-features = false, features = ["std", "
 
 [dev-dependencies]
 criterion = { workspace = true }
-wat = "=1.254.0"
+wat = "=1.259.0"
 wit-component = "=0.254.0"
 
 [[bench]]
