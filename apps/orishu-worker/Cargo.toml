@@ -60,7 +60,7 @@ orishu-plugin = { workspace = true }
 orishu-workload = { workspace = true }
 orishu-runtime = { workspace = true }
 # Reuse the workspace's existing Quinn/rustls versions and crypto provider.
-quinn = { version = "=0.11.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
 rustls = { version = "=0.23.44", default-features = false, features = ["std", "aws_lc_rs"] }
 # Self-sufficient peer certificate bootstrap; no openssl executable is required.
 rcgen = { version = "=0.14.8", default-features = false, features = ["crypto", "aws_lc_rs", "pem"] }
