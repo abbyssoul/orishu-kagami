@@ -43,6 +43,8 @@ permissions, or authority boundaries. See `docs/simulation-plugins.md`.
   scene tree is prototype UI state, not the authoritative experiment model.
   `src/plugins` owns initial Unix local source/package IO, inventory and headless
   CLI management; shared plugin crates never acquire these filesystem adapters.
+  `src/files` holds the descriptor-relative Unix file primitives that the
+  inventory and other Kagami file adapters share.
   Plugin authoring-registry and runtime adoption remain separate integration work.
 - `apps/orishu-worker`: cluster node/runtime process.
 - `apps/orishu-ctl`: scriptable cluster operator client; binary name

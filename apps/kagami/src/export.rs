@@ -124,13 +124,17 @@ pub fn run(args: ExportArgs) -> ExitCode {
 /// rewritten/recovered from a backup, and no default/alternate provider is chosen.
 #[cfg(unix)]
 pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
-    use crate::plugins::{self, PluginStore, files};
+    use crate::{
+        files,
+        plugins::{self, PluginStore},
+    };
     let local =
         |stage| move |e: plugins::Error| ExportError::new(stage, format!("{:?}", e.code), e);
     let bytes = files::read_file(
         &args.experiment,
         kagami_session::store::MAX_DOCUMENT_BYTES as usize,
     )
+    .map_err(plugins::Error::from)
     .map_err(local("read"))?;
     let document = kagami_session::document::decode_document(&bytes)
         .map_err(|e| ExportError::new("document", e.code(), e))?;
@@ -173,7 +177,9 @@ pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
         Default::default(),
         &Default::default(),
     )?;
-    files::create_file(&args.output, &prepared.bytes).map_err(local("publish"))?;
+    files::create_file(&args.output, &prepared.bytes)
+        .map_err(plugins::Error::from)
+        .map_err(local("publish"))?;
     Ok(prepared.report)
 }
 

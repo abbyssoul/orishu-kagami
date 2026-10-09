@@ -1,8 +1,9 @@
 //! Descriptor-relative local IO. No path from a manifest is opened relative to
 //! process cwd; every component is walked from an already-open directory without
 //! following links. The user-selected root is configuration, not package content.
+//! Shared by the plugin inventory and Kagami's other local file adapters; each
+//! caller maps [`Error`] into its own domain vocabulary.
 
-use super::{Code, Error};
 use rustix::fs::{self, AtFlags, FlockOperation, Mode, OFlags};
 use std::{
     ffi::OsStr,
@@ -12,19 +13,70 @@ use std::{
 };
 
 #[cfg(test)]
-pub(super) mod faults;
+pub(crate) mod faults;
+
+/// Local file failure. Holds no path or file content. The OS error is kept so
+/// that callers can identify conditions such as a full or read-only filesystem.
+#[derive(Debug)]
+pub(crate) enum Error {
+    /// A filesystem call failed before any new content became visible.
+    Io(std::io::Error),
+    /// The path is not one contained component, or the entry is not a regular
+    /// file or directory.
+    NotContained,
+    /// The file is larger than the caller's byte budget.
+    LimitExceeded,
+    /// A required file does not exist.
+    Absent,
+    /// Another holder has the advisory lock.
+    Busy,
+    /// An existing content-addressed entry has different bytes.
+    IntegrityMismatch,
+    /// A create-only publication found an existing name.
+    AlreadyExists,
+    /// The new name is visible, but a later durability step failed. Inspect the
+    /// result before retrying; do not assume a rollback.
+    Uncertain(Box<Error>),
+}
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Io(_) => "local filesystem operation failed",
+            Self::NotContained => "expected a regular contained file or directory",
+            Self::LimitExceeded => "local file byte budget exceeded",
+            Self::Absent => "required local file is absent",
+            Self::Busy => "local lock is held by another operation",
+            Self::IntegrityMismatch => "content-addressed entry differs",
+            Self::AlreadyExists => "output file already exists",
+            Self::Uncertain(_) => {
+                "file publication is visible but its durability is uncertain; inspect it before retrying"
+            }
+        })
+    }
+}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Uncertain(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
 
 fn os(error: rustix::io::Errno) -> Error {
     std::io::Error::from(error).into()
 }
 fn invalid() -> Error {
-    Error::new(
-        Code::Malformed,
-        "expected a regular contained file or directory",
-    )
+    Error::NotContained
 }
 fn limit() -> Error {
-    Error::new(Code::LimitExceeded, "local file byte budget exceeded")
+    Error::LimitExceeded
 }
 
 fn nonempty_parent(path: &Path) -> &Path {
@@ -49,9 +101,9 @@ pub(crate) fn create_file(path: &Path, bytes: &[u8]) -> Result<(), Error> {
 }
 
 #[derive(Debug)]
-pub(super) struct Directory(File);
+pub(crate) struct Directory(File);
 impl Directory {
-    pub(super) fn open(path: &Path) -> Result<Self, Error> {
+    pub(crate) fn open(path: &Path) -> Result<Self, Error> {
         let fd = fs::open(
             path,
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
@@ -60,7 +112,7 @@ impl Directory {
         .map_err(os)?;
         Ok(Self(File::from(fd)))
     }
-    pub(super) fn child(&self, name: &OsStr, create: bool) -> Result<Self, Error> {
+    pub(crate) fn child(&self, name: &OsStr, create: bool) -> Result<Self, Error> {
         single(name)?;
         if create {
             match fs::mkdirat(&self.0, name, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
@@ -93,11 +145,10 @@ impl Directory {
         }
         Err(invalid())
     }
-    pub(super) fn read(&self, path: &Path, max: usize) -> Result<Vec<u8>, Error> {
-        self.read_optional(path, max)?
-            .ok_or_else(|| Error::new(Code::IoFailure, "required local file is absent"))
+    pub(crate) fn read(&self, path: &Path, max: usize) -> Result<Vec<u8>, Error> {
+        self.read_optional(path, max)?.ok_or(Error::Absent)
     }
-    pub(super) fn read_optional(&self, path: &Path, max: usize) -> Result<Option<Vec<u8>>, Error> {
+    pub(crate) fn read_optional(&self, path: &Path, max: usize) -> Result<Option<Vec<u8>>, Error> {
         Ok(self.read_optional_file(path, max)?.map(|(bytes, _)| bytes))
     }
     fn read_optional_file(
@@ -135,7 +186,7 @@ impl Directory {
         }
         Ok(Some((bytes, file)))
     }
-    pub(super) fn lock(&self, name: &str, shared: bool) -> Result<File, Error> {
+    pub(crate) fn lock(&self, name: &str, shared: bool) -> Result<File, Error> {
         single(name.as_ref())?;
         let fd = fs::openat(
             &self.0,
@@ -155,23 +206,17 @@ impl Directory {
         };
         match fs::flock(&file, op) {
             Ok(()) => Ok(file),
-            Err(rustix::io::Errno::WOULDBLOCK) => Err(Error::new(
-                Code::Busy,
-                "local plugin lock is held by another operation",
-            )),
+            Err(rustix::io::Errno::WOULDBLOCK) => Err(Error::Busy),
             Err(e) => Err(os(e)),
         }
     }
     /// Immutable cache write: verify any existing bytes rather than overwriting.
     /// Callers hold the inventory mutation lock and have verified the new bytes.
-    pub(super) fn put(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
+    pub(crate) fn put(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
         single(name.as_ref())?;
         if let Some((existing, file)) = self.read_optional_file(Path::new(name), bytes.len())? {
             if existing != bytes {
-                return Err(Error::new(
-                    Code::IntegrityMismatch,
-                    "content-addressed cache entry differs",
-                ));
+                return Err(Error::IntegrityMismatch);
             }
             // Equality proves content, not persistence. A prior attempt may have
             // renamed this entry but failed its directory flush. Re-establish
@@ -189,10 +234,10 @@ impl Directory {
     /// Flush staged contents, atomically publish on the same filesystem, flush
     /// parent. If the final flush fails the outcome is uncertain: the next reader
     /// must inspect the index, never blindly assume the command was rolled back.
-    pub(super) fn replace(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
+    pub(crate) fn replace(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
         self.publish(name, bytes, true)
     }
-    pub(super) fn create(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
+    pub(crate) fn create(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
         self.publish(name, bytes, false)
     }
     fn publish(&self, name: &str, bytes: &[u8], replace: bool) -> Result<(), Error> {
@@ -227,7 +272,7 @@ impl Directory {
                 fs::linkat(&self.0, temp.as_str(), &self.0, name, AtFlags::empty()).map_err(
                     |e| {
                         if e == rustix::io::Errno::EXIST {
-                            Error::new(Code::InvalidSelection, "output file already exists")
+                            Error::AlreadyExists
                         } else {
                             os(e)
                         }
@@ -250,8 +295,7 @@ impl Directory {
         }
         result.map_err(|error| {
             if visible {
-                Error::new(Code::IoFailure,
-                    "file publication is visible but durability may be uncertain; inspect the output or inventory before retrying")
+                Error::Uncertain(Box::new(error))
             } else {
                 error
             }

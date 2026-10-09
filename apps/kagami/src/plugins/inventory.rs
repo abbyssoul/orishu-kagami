@@ -1,4 +1,5 @@
-use super::{Code, Error, Package, files::Directory, package::BoundedList};
+use super::{Code, Error, Package, package::BoundedList};
+use crate::files::Directory;
 use orishu_plugin::{
     resolution::{self, VerifiedRelease},
     *,
@@ -518,7 +519,7 @@ impl PluginStore {
                 ack_open_references,
             } => {
                 reference_guard = Some(self.dir.lock("references.lock", false).map_err(|e| {
-                    if e.code == Code::Busy { Error::new(Code::Busy, "an open document is reconciling plugin references; wait or retry explicitly") } else { e }
+                    if matches!(e, crate::files::Error::Busy) { Error::new(Code::Busy, "an open document is reconciling plugin references; wait or retry explicitly") } else { e.into() }
                 })?);
                 let entry = index
                     .releases
@@ -540,14 +541,14 @@ impl PluginStore {
                 let leases = self.dir.child("leases".as_ref(), false)?;
                 match leases.lock(&hex(release), false) {
                     Ok(guard) => removal_guard = Some(guard),
-                    Err(error) if error.code == Code::Busy && ack_open_references => (),
-                    Err(error) if error.code == Code::Busy => {
+                    Err(crate::files::Error::Busy) if ack_open_references => (),
+                    Err(crate::files::Error::Busy) => {
                         return Err(Error::new(
                             Code::InUse,
                             "open references retain this release; explicit acknowledgement required",
                         ));
                     }
-                    Err(error) => return Err(error),
+                    Err(error) => return Err(error.into()),
                 }
                 index.releases.0.retain(|e| e.release != release);
             }

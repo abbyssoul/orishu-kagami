@@ -621,7 +621,7 @@ fn read_bundle(
     path: &std::path::Path,
     expected: orishu_workload::WorkloadDigest,
 ) -> Result<Vec<u8>, Failure> {
-    let bytes = crate::plugins::files::read_file(path, MAX_BUNDLE_BYTES).map_err(|_| {
+    let bytes = crate::files::read_file(path, MAX_BUNDLE_BYTES).map_err(|_| {
         Failure::local(
             "bundle",
             "unreadable_bundle",

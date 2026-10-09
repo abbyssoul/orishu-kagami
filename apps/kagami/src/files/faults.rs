@@ -1,5 +1,5 @@
 //! Test-only, per-thread publication barriers. No production environment switch.
-use super::{Code, Error};
+use super::Error;
 use std::{cell::RefCell, io::Write};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,7 +66,7 @@ pub(crate) fn checkpoint(name: &str, phase: Phase) -> Result<(), Error> {
         }
     });
     match action {
-        Some(Action::Fail(_)) => Err(Error::new(Code::IoFailure, "injected publication failure")),
+        Some(Action::Fail(_)) => Err(std::io::Error::other("injected publication failure").into()),
         Some(Action::Pause(_)) => {
             println!("PLUGIN-PUBLICATION-PAUSED");
             std::io::stdout().flush().unwrap();

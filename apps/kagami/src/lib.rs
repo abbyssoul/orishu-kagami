@@ -11,6 +11,8 @@ pub mod catalog_form;
 pub mod component_form;
 pub mod document;
 pub mod export;
+#[cfg(unix)]
+pub(crate) mod files;
 pub mod launch;
 pub mod mcp;
 pub mod message;

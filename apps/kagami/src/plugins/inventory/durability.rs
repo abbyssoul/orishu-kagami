@@ -1,7 +1,7 @@
 //! Real process interruption and injected-IO evidence at publication barriers.
 //! Process death does not simulate loss of the kernel's page cache or power loss.
 use super::*;
-use crate::plugins::files::faults::{self, Action, Event, Phase};
+use crate::files::faults::{self, Action, Event, Phase};
 use std::{
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},

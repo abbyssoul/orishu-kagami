@@ -220,8 +220,8 @@ impl Preparation {
         let work = std::thread::Builder::new()
             .name("kagami-workload-export".into())
             .spawn(move || {
-                crate::plugins::files::create_file(&path, &frozen.bytes)
-                    .map_err(|e| refusal("publish", e))?;
+                crate::files::create_file(&path, &frozen.bytes)
+                    .map_err(|e| refusal("publish", crate::plugins::Error::from(e)))?;
                 Ok(Completed::Exported)
             })
             .map_err(|_| refusal("executor", "Cannot start workload export."))?;

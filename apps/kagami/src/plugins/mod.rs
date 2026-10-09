@@ -10,8 +10,6 @@ pub mod references;
 pub mod window;
 
 #[cfg(unix)]
-pub(crate) mod files;
-#[cfg(unix)]
 mod inventory;
 #[cfg(unix)]
 mod origin;
@@ -141,6 +139,33 @@ impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
     fn from(_: std::io::Error) -> Self {
         Self::new(Code::IoFailure, "local filesystem operation failed")
+    }
+}
+/// Keeps the plugin vocabulary for local file failures stable for CLI and
+/// window reports.
+#[cfg(unix)]
+impl From<crate::files::Error> for Error {
+    fn from(error: crate::files::Error) -> Self {
+        use crate::files::Error as F;
+        match error {
+            F::Io(error) => error.into(),
+            F::NotContained => Self::new(
+                Code::Malformed,
+                "expected a regular contained file or directory",
+            ),
+            F::LimitExceeded => Self::new(Code::LimitExceeded, "local file byte budget exceeded"),
+            F::Absent => Self::new(Code::IoFailure, "required local file is absent"),
+            F::Busy => Self::new(Code::Busy, "local plugin lock is held by another operation"),
+            F::IntegrityMismatch => Self::new(
+                Code::IntegrityMismatch,
+                "content-addressed cache entry differs",
+            ),
+            F::AlreadyExists => Self::new(Code::InvalidSelection, "output file already exists"),
+            F::Uncertain(_) => Self::new(
+                Code::IoFailure,
+                "file publication is visible but durability may be uncertain; inspect the output or inventory before retrying",
+            ),
+        }
     }
 }
 impl From<orishu_plugin::Error> for Error {

@@ -1,4 +1,5 @@
-use super::{Code, Error, LocalOrigin, OriginKind, files::Directory};
+use super::{Code, Error, LocalOrigin, OriginKind};
+use crate::files::Directory;
 use orishu_plugin::{
     bundle::{self, BundleLimits},
     resolution::VerifiedRelease,
@@ -74,7 +75,7 @@ impl Package {
     /// Package to an explicit output path. This refuses an existing target;
     /// publishing a new bundle never silently overwrites another user's file.
     pub fn write_bundle(&self, path: &Path) -> Result<(), Error> {
-        super::files::create_file(path, &self.pack()?)
+        Ok(crate::files::create_file(path, &self.pack()?)?)
     }
     fn source(path: &Path) -> Result<Self, Error> {
         let dir = Directory::open(path)?;
@@ -261,7 +262,7 @@ fn check_path(path: &str, seen: &mut BTreeSet<String>) -> Result<(), Error> {
     Ok(())
 }
 pub(super) fn read_file(path: &Path, max: usize) -> Result<Vec<u8>, Error> {
-    super::files::read_file(path, max)
+    Ok(crate::files::read_file(path, max)?)
 }
 
 #[derive(Deserialize)]
