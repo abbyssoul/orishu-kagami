@@ -322,6 +322,10 @@ run-monitor:
 smoke-kagami:
 	$(CARGO) run --locked -p kagami-renderer --example smoke
 
+.PHONY: test-kagami-workload
+test-kagami-workload:
+	CARGO="$(CARGO)" bash scripts/test-kagami-workload.sh
+
 coverage:
 	$(CARGO) llvm-cov --locked --workspace --all-features --lcov --output-path lcov.info
 

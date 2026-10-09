@@ -23,10 +23,13 @@ fn contract_cannot_acquire_consumer_or_io_dependencies() {
         .iter()
         .find(|p| p.name.as_ref() == "orishu-plugin")
         .unwrap();
+    // Shipped direct dependencies: non-dev and non-optional. An optional
+    // dependency ships only when its feature is enabled, so it is pinned
+    // separately below rather than counted here.
     let direct: BTreeSet<_> = root
         .dependencies
         .iter()
-        .filter(|d| d.kind != DependencyKind::Development)
+        .filter(|d| d.kind != DependencyKind::Development && !d.optional)
         .map(|d| d.name.as_str())
         .collect();
     assert_eq!(
@@ -40,6 +43,17 @@ fn contract_cannot_acquire_consumer_or_io_dependencies() {
             "thiserror"
         ])
     );
+    // The only optional dependency is `dhat`, the profiling allocator behind the
+    // `dhat` feature (for `examples/profile_plugin.rs`). The forbidden list below
+    // still requires it to stay out of the *resolved* graph, so it never reaches
+    // a default build or a consumer.
+    let optional: BTreeSet<_> = root
+        .dependencies
+        .iter()
+        .filter(|d| d.kind != DependencyKind::Development && d.optional)
+        .map(|d| d.name.as_str())
+        .collect();
+    assert_eq!(optional, BTreeSet::from(["dhat"]));
     let mut seen = BTreeSet::new();
     let mut stack = vec![&root.id];
     let mut names = BTreeSet::new();

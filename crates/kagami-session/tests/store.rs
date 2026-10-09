@@ -141,6 +141,72 @@ fn document(saved: &str) -> ExperimentDocument {
     )
 }
 
+#[test]
+fn standalone_provider_intent_uses_v5_durable_save_and_offline_load() {
+    use orishu_plugin::{
+        authoring_lock::{LockLimits, SelectionLock},
+        resolution::Selection,
+    };
+    let mut locked = document("locked");
+    locked.dependencies = Some(std::sync::Arc::new(
+        SelectionLock::new(
+            Selection {
+                roots: vec![],
+                contributions: vec![],
+                bindings: vec![],
+            },
+            LockLimits::default(),
+        )
+        .unwrap(),
+    ));
+    let store = FaultyStore::default();
+    save(&store, &target(), &locked).unwrap();
+    let bytes = store.get(Path::new("/experiments/orbit.kagami")).unwrap();
+    assert!(bytes.starts_with(b"PK"));
+    let restored = kagami_session::decode_document(&bytes).unwrap();
+    assert_eq!(restored, locked);
+    let loaded = load(&store, &target()).unwrap();
+    let restored = loaded
+        .document
+        .into_experiment(&schemas(), &Limits::default())
+        .unwrap();
+    assert!(restored.snapshot().dependencies().is_some());
+
+    // Exercise v5 through the same crash windows, not merely its byte codec.
+    let previous = bytes;
+    let mut attempted = locked.clone();
+    attempted.metadata.saved = "replacement".into();
+    for fault in [
+        Fault::WriteNew,
+        Fault::SyncFile,
+        Fault::BackupRename,
+        Fault::PrimaryRename,
+        Fault::SyncDir,
+    ] {
+        let store = FaultyStore::with(fault);
+        store.put(Path::new("/experiments/orbit.kagami"), &previous);
+        let outcome = save(&store, &target(), &attempted);
+        assert!(outcome.is_err(), "directory-flush failure is also reported");
+        assert!(
+            store.get(Path::new("/experiments/orbit.kagami")).as_ref() == Some(&previous)
+                || store
+                    .get(Path::new("/experiments/orbit.kagami.bak"))
+                    .as_ref()
+                    == Some(&previous)
+        );
+        let recovered = load(&store, &target()).unwrap();
+        assert_eq!(recovered.document.dependencies, locked.dependencies);
+        assert_eq!(
+            recovered.document.metadata.saved,
+            if fault == Fault::SyncDir {
+                "replacement"
+            } else {
+                "locked"
+            }
+        );
+    }
+}
+
 /// The `saved` stamp of whatever is at `path`, if it decodes.
 fn stamp_at(store: &FaultyStore, path: &str) -> Option<String> {
     let bytes = store.get(Path::new(path))?;

@@ -17,8 +17,9 @@ mod run;
 mod sandbox;
 pub use grants::{Buffer, GrantLimits, HostState, InputGrant, OutputGrant, ScientificBufferError};
 pub use run::{
-    CapturedRunState, CommittedState, FieldSnapshot, FixedRun, RunCheckpoint, RunFailure, RunField,
-    RunKernel, RunLimits, RunPhase, RunProgram, RunRejection, RunScope, StateExtent,
+    CapturedRunState, CommittedState, FieldSnapshot, FixedRun, ObjectSnapshot, RunCheckpoint,
+    RunFailure, RunField, RunKernel, RunLimits, RunPhase, RunProgram, RunRejection, RunScope,
+    StateExtent,
 };
 pub use sandbox::{
     CompiledKernel, ContextRejection, DynamicsOperation, DynamicsResult, FieldOperation,

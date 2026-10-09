@@ -1,8 +1,15 @@
+#[cfg(unix)]
+mod catalog;
+#[cfg(unix)]
+mod component_choices;
 mod inspector;
 mod mcp;
 mod menu;
 #[cfg(unix)]
 mod physics;
+#[cfg(unix)]
+mod plugins;
+mod run;
 mod scene_tree;
 mod section;
 mod toolbar;
@@ -15,7 +22,9 @@ use iced::{Element, Length};
 use kagami_session::SceneScale;
 
 pub fn view(model: &Model) -> Element<'_, Message> {
-    let right_panel = if model.settings_open {
+    let right_panel = if model.run.open || model.run.attached() {
+        run::panel(model)
+    } else if model.settings_open {
         settings_panel(model)
     } else if model.is_authoring() {
         inspector::view(model)
@@ -27,10 +36,29 @@ pub fn view(model: &Model) -> Element<'_, Message> {
         observation_panel(model)
     };
 
+    #[cfg(unix)]
+    let right_panel = if model.catalog.open {
+        catalog::panel(model)
+    } else {
+        right_panel
+    };
+
+    #[cfg(unix)]
+    let right_panel = if model.plugin_management.open {
+        plugins::panel(model)
+    } else {
+        right_panel
+    };
+
+    let scene: Element<'_, Message> = if model.run.attached() {
+        run::observation_view(model)
+    } else {
+        row![scene_tree::view(model), viewport::view(model)].into()
+    };
     let base = column![
         menu::view(model),
         toolbar::view(model),
-        row![scene_tree::view(model), viewport::view(model), right_panel].height(Length::Fill),
+        row![scene, right_panel].height(Length::Fill),
     ];
 
     // Always wrap in the same `Stack` shape, menu open or not — the shader
@@ -45,11 +73,9 @@ pub fn view(model: &Model) -> Element<'_, Message> {
 
 /// What the right panel shows while a run is being watched.
 ///
-/// Deliberately thin, and honest about it: playback and observation rendering
-/// belong to K-RUN, K-PREVIEW and V-LIVE, and none of them exists. What this
-/// panel does carry is the two things ADR 0022 requires to be unmistakable —
-/// which run, and that this is not an editable experiment — plus the explicit
-/// way back.
+/// Fallback for attachments without the remote numeric adapter (including future
+/// local previews). Keep the mode and explicit return visible without claiming
+/// that playback or a render projection exists for such an attachment.
 fn observation_panel(model: &Model) -> Element<'_, Message> {
     container(
         column![

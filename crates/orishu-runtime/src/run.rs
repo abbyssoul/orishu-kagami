@@ -10,8 +10,8 @@ use orishu_plugin::{ArtifactDigest, ExecutionContractId, FiniteF64, execution::*
 use orishu_workload::{ComponentInstanceId, WorkloadDigest};
 use std::sync::Arc;
 mod observation;
-pub use observation::FieldSnapshot;
 use observation::SnapshotBudget;
+pub use observation::{FieldSnapshot, ObjectSnapshot};
 
 /// Execution source supplied by the embedding admission authority. The immutable
 /// run descriptor must bind the protocol's formation/workload/epoch identity;
@@ -103,9 +103,10 @@ pub struct RunLimits {
     pub scientific_bytes: usize,
     /// Aggregate cold setup/configuration/domain bytes retained by this owner.
     pub input_bytes: usize,
-    /// Maximum simultaneous observer snapshot leases (one sampling call per lease).
+    /// Maximum simultaneous field/object observer leases; one sampling call may
+    /// use each field lease at a time.
     pub snapshots: usize,
-    /// Maximum sum of field-state bytes retained by observer leases.
+    /// Maximum sum of field-state/object/force bytes retained by observer leases.
     pub snapshot_bytes: usize,
 }
 impl Default for RunLimits {
@@ -252,7 +253,7 @@ impl RunCheckpoint {
 /// attempts preserve all committed data and simulation time; `stop` is terminal.
 ///
 /// This first owner uses disposable guest stores and immutable buffer candidates.
-/// Cold decoding/store reuse and bounded observer leases remain integration work;
+/// Cold decoding/store reuse and observer wire adapters remain integration work;
 /// do not use this path to claim allocation-free stepping or cluster admission.
 pub struct FixedRun {
     sandbox: Arc<Sandbox>,
@@ -331,15 +332,28 @@ impl FixedRun {
             &self.program.fields[index].binding,
             self.committed.fields[index].clone(),
             self.committed.field_identities[index].clone(),
-            SnapshotSource::Committed {
-                workload: self.scope.workload,
-                run: self.scope.run,
-                epoch: self.scope.epoch,
-                boundary: self.committed.boundary,
-                time_seconds: self.committed.time,
-            },
+            self.observation_source(),
             self.snapshots.clone(),
         )
+    }
+    /// Acquire all committed objects and computed forces under the same shared
+    /// count/byte budget as field leases, without copying numerical buffers or
+    /// retaining a borrow of this advancing owner. No kernel invocation occurs.
+    pub fn acquire_objects(&self) -> wasmtime::Result<ObjectSnapshot> {
+        ObjectSnapshot::new(
+            &self.committed,
+            self.observation_source(),
+            self.snapshots.clone(),
+        )
+    }
+    fn observation_source(&self) -> SnapshotSource {
+        SnapshotSource::Committed {
+            workload: self.scope.workload,
+            run: self.scope.run,
+            epoch: self.scope.epoch,
+            boundary: self.committed.boundary,
+            time_seconds: self.committed.time,
+        }
     }
     /// Stop future advances, retaining the last committed state for checkpointing.
     pub fn stop(&mut self) {

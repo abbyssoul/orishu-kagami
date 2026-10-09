@@ -1,4 +1,4 @@
-use super::{Code, Error, files::Directory};
+use super::{Code, Error, LocalOrigin, OriginKind, files::Directory};
 use orishu_plugin::{
     bundle::{self, BundleLimits},
     resolution::VerifiedRelease,
@@ -10,11 +10,14 @@ use std::{
     path::Path,
 };
 
+mod source;
+
 /// Verified owned local package. Verification is declarative, never executable.
 #[derive(Debug)]
 pub struct Package {
     pub(super) release: VerifiedRelease,
     pub(super) blobs: BTreeMap<ArtifactDigest, Vec<u8>>,
+    pub(super) origin: Option<LocalOrigin>,
 }
 impl Package {
     /// Validate a bounded stored ZIP and own its declared blobs.
@@ -24,16 +27,35 @@ impl Package {
         Ok(Self {
             release,
             blobs: blobs.into_iter().map(|(id, b)| (id, b.to_vec())).collect(),
+            origin: None,
         })
     }
     /// Load an explicit source directory or bundle. Source files are never
     /// interpreted as shell/build commands; plugins are built outside Kagami.
     pub fn load(path: &Path) -> Result<Self, Error> {
         if path.is_dir() {
-            Self::source(path)
+            let origin = LocalOrigin::capture(path, OriginKind::LocalSourceDirectory)?;
+            let mut package = Self::source(&origin.path())?;
+            package.origin = Some(origin);
+            Ok(package)
         } else {
-            Self::from_bundle(&read_file(path, BundleLimits::default().max_bytes)?)
+            Self::load_bundle(path)
         }
+    }
+    /// Read only a bundle, recording its bounded user-selected local origin.
+    /// The recorded path never participates in packing or release identity.
+    pub fn load_bundle(path: &Path) -> Result<Self, Error> {
+        let origin = LocalOrigin::capture(path, OriginKind::LocalBundle)?;
+        let mut package = Self::from_bundle(&read_file(
+            &origin.path(),
+            BundleLimits::default().max_bytes,
+        )?)?;
+        package.origin = Some(origin);
+        Ok(package)
+    }
+    /// Local acquisition metadata, absent for byte-only or retained-lease inputs.
+    pub fn origin(&self) -> Option<&LocalOrigin> {
+        self.origin.as_ref()
     }
     /// Verified immutable declarations.
     pub fn release(&self) -> &VerifiedRelease {
@@ -73,7 +95,16 @@ impl Package {
         let mut seen_paths = BTreeSet::new();
         let mut contributions = Vec::new();
         let mut total = 0u64;
+        let mut aliases = BTreeMap::new();
         for artifact in source.artifacts.0 {
+            if let Some(id) = &artifact.local_id
+                && (source.version == SourceVersion::V1 || aliases.contains_key(id))
+            {
+                return Err(Error::new(
+                    Code::Malformed,
+                    "invalid or duplicate source artifact alias",
+                ));
+            }
             check_path(&artifact.path, &mut seen_paths)?;
             if artifact.media_type.len() > limits.max_text_bytes {
                 return Err(source_limit());
@@ -90,6 +121,9 @@ impl Package {
                 .checked_add(bytes.len() as u64)
                 .ok_or_else(source_limit)?;
             let digest = ArtifactDigest::sha256_of(&bytes);
+            if let Some(id) = artifact.local_id {
+                aliases.insert(id, digest);
+            }
             let descriptor = Artifact {
                 digest,
                 size_bytes: bytes.len() as u64,
@@ -105,11 +139,22 @@ impl Package {
             }
             blobs.insert(digest, bytes);
         }
+        // Hold bounded parsed declarations so forward local references are
+        // independent of manifest order. Raw acquisition is charged separately
+        // from canonical release bytes; neither budget substitutes for the other.
+        let mut acquired = total;
+        let mut pending = BTreeMap::new();
         for contribution in source.contributions.0 {
+            if pending.contains_key(&contribution.local_id) {
+                return Err(Error::new(
+                    Code::Malformed,
+                    "duplicate source contribution ID",
+                ));
+            }
             check_path(&contribution.path, &mut seen_paths)?;
             let remaining = limits
                 .max_declared_bytes
-                .checked_sub(total)
+                .checked_sub(acquired)
                 .ok_or_else(source_limit)?;
             let known = KnownPoint::from_id(&contribution.extension_point);
             let input_limit = if known.is_some() {
@@ -121,19 +166,45 @@ impl Package {
                 Path::new(&contribution.path),
                 remaining.min(input_limit) as usize,
             )?;
-            let (bytes, requirements) = if let Some(point) = known {
-                let payload = payload_from_json(point, &source_bytes, &limits)?;
-                let requirements = payload
-                    .requirements()
-                    .iter()
-                    .map(|r| Requirement::Contract {
-                        slot: r.slot.clone(),
-                        contract: r.contract.clone(),
-                    })
-                    .collect();
-                (payload.canonical_bytes(&limits)?, requirements)
-            } else {
-                (source_bytes, Vec::new())
+            acquired = acquired
+                .checked_add(source_bytes.len() as u64)
+                .ok_or_else(source_limit)?;
+            let input = match known {
+                Some(point) if source.version == SourceVersion::V2 => source::Input::Local(
+                    orishu_plugin::source::SourcePayload::read(point, &source_bytes, &limits)?,
+                ),
+                Some(point) => source::Input::Exact(Box::new(payload_from_json(
+                    point,
+                    &source_bytes,
+                    &limits,
+                )?)),
+                None => source::Input::Opaque(source_bytes),
+            };
+            pending.insert(contribution.local_id.clone(), (contribution, input));
+        }
+        let mut contracts = BTreeMap::new();
+        while !pending.is_empty() {
+            let next = source::ready(&pending, &contracts)?;
+            let (contribution, input) = pending
+                .remove(&next)
+                .expect("selected pending contribution");
+            let (bytes, requirements) = match input.compile(&contracts, &aliases, &limits)? {
+                source::Compiled::Exact(payload) => {
+                    contracts.insert(
+                        contribution.local_id.clone(),
+                        payload.contract_ref(&limits)?,
+                    );
+                    let requirements = payload
+                        .requirements()
+                        .iter()
+                        .map(|r| Requirement::Contract {
+                            slot: r.slot.clone(),
+                            contract: r.contract.clone(),
+                        })
+                        .collect();
+                    (payload.canonical_bytes(&limits)?, requirements)
+                }
+                source::Compiled::Opaque(bytes) => (bytes, Vec::new()),
             };
             total = total
                 .checked_add(bytes.len() as u64)
@@ -163,7 +234,11 @@ impl Package {
         );
         let borrowed = blobs.iter().map(|(k, v)| (*k, v.as_slice())).collect();
         let release = VerifiedRelease::verify(root, &borrowed, &limits)?;
-        Ok(Self { release, blobs })
+        Ok(Self {
+            release,
+            blobs,
+            origin: None,
+        })
     }
 }
 fn source_limit() -> Error {
@@ -193,15 +268,17 @@ pub(super) fn read_file(path: &Path, max: usize) -> Result<Vec<u8>, Error> {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Source {
     #[serde(rename = "apiVersion")]
-    _version: SourceVersion,
+    version: SourceVersion,
     metadata: ReleaseMetadata,
     contributions: BoundedList<SourceContribution, 256>,
     artifacts: BoundedList<SourceArtifact, 4096>,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq)]
 enum SourceVersion {
     #[serde(rename = "orishu.plugin-source/v1")]
     V1,
+    #[serde(rename = "orishu.plugin-source/v2")]
+    V2,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -213,6 +290,8 @@ struct SourceContribution {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SourceArtifact {
+    #[serde(default)]
+    local_id: Option<LocalContributionId>,
     path: String,
     media_type: String,
 }

@@ -121,7 +121,13 @@ fn runtime_dependency_names(metadata: &Metadata) -> BTreeSet<String> {
     names
 }
 
-/// The dependencies declared directly, rather than reached through the graph.
+/// The dependencies declared directly and shipped in a default build, rather
+/// than reached through the graph.
+///
+/// Optional dependencies are excluded: they enter neither a default build nor a
+/// consumer's graph unless a feature turns them on. The set of optional
+/// dependencies is pinned separately by
+/// [`the_only_optional_dependency_is_the_profiler`].
 fn direct_runtime_dependency_names(metadata: &Metadata) -> BTreeSet<String> {
     metadata
         .packages
@@ -134,7 +140,27 @@ fn direct_runtime_dependency_names(metadata: &Metadata) -> BTreeSet<String> {
             matches!(
                 dependency.kind,
                 DependencyKind::Normal | DependencyKind::Build
-            )
+            ) && !dependency.optional
+        })
+        .map(|dependency| dependency.name.clone())
+        .collect()
+}
+
+/// The optional dependencies declared directly. These ship only when their
+/// feature is enabled, so they are pinned separately from the default set.
+fn optional_direct_dependency_names(metadata: &Metadata) -> BTreeSet<String> {
+    metadata
+        .packages
+        .iter()
+        .find(|package| package.name.as_ref() == CRATE)
+        .expect("this crate is a workspace member")
+        .dependencies
+        .iter()
+        .filter(|dependency| {
+            matches!(
+                dependency.kind,
+                DependencyKind::Normal | DependencyKind::Build
+            ) && dependency.optional
         })
         .map(|dependency| dependency.name.clone())
         .collect()
@@ -176,6 +202,23 @@ fn the_direct_dependencies_are_the_declared_ones() {
          describing, identifying, and structurally validating a workload. `serde_json` and \
          `serde_yaml` are here for the human authoring path only and must never reach the \
          canonical encoding; see `src/canonical.rs`."
+    );
+}
+
+#[test]
+fn the_only_optional_dependency_is_the_profiler() {
+    // `dhat` is an optional, profiling-only dependency behind the `dhat`
+    // feature. It installs a counting allocator for `examples/profile_workload.rs`
+    // and enters neither a default build nor a consumer's graph; a test above
+    // confirms it stays out of the resolved graph. Any other optional dependency
+    // would be a new capability that ships the moment a feature is flipped, so it
+    // is pinned here rather than left unexamined.
+    let optional = optional_direct_dependency_names(&metadata());
+    assert_eq!(
+        optional,
+        BTreeSet::from(["dhat".to_owned()]),
+        "the only optional dependency is the profiling allocator; a new one is a capability \
+         that ships as soon as its feature is enabled"
     );
 }
 

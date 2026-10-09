@@ -35,6 +35,181 @@ fn issues(result: ResolutionOutcome) -> Vec<ResolutionIssue> {
 }
 
 #[test]
+fn persisted_lock_revalidates_exact_closure_without_default_substitution() {
+    use orishu_plugin::authoring_lock::{LockLimits, SelectionLock};
+    let d = declarations();
+    let old = verified("org.example.vocabulary", &d[..5], &[]);
+    let (mut root, blobs) = release("org.example.vocabulary", &d[..5], &[]);
+    root.0.metadata.version_label = "new".into();
+    let new = VerifiedRelease::verify(root, &borrowed(&blobs), &Limits::default()).unwrap();
+    let solver = verified(
+        "org.example.solver",
+        &d[5..6],
+        &[b"classical-kernel-fixture"],
+    );
+    let initial = Inventory::new(1, &[entry(&old), entry(&solver)], Default::default()).unwrap();
+    let original = selection(initial.resolve(&request(&solver, "classical")).unwrap());
+    let lock = SelectionLock::new(original.clone(), LockLimits::default()).unwrap();
+    let lock = SelectionLock::from_json(
+        &lock.to_json(LockLimits::default()).unwrap(),
+        LockLimits::default(),
+    )
+    .unwrap();
+    let changed = Inventory::new(
+        2,
+        &[
+            InventoryEntry {
+                is_default: false,
+                ..entry(&old)
+            },
+            entry(&new),
+            entry(&solver),
+        ],
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        changed.resolve_lock(&lock, 1).unwrap(),
+        ResolutionOutcome::StaleRevision {
+            expected: 1,
+            actual: 2
+        }
+    );
+    assert_eq!(selection(changed.resolve_lock(&lock, 2).unwrap()), original);
+    for (entries, reason) in [
+        (
+            vec![entry(&new), entry(&solver)],
+            UnavailableReason::MissingRelease,
+        ),
+        (
+            vec![
+                InventoryEntry {
+                    enabled: false,
+                    ..entry(&old)
+                },
+                entry(&solver),
+            ],
+            UnavailableReason::Disabled,
+        ),
+    ] {
+        let unavailable = Inventory::new(3, &entries, Default::default()).unwrap();
+        assert!(
+            issues(unavailable.resolve_lock(&lock, 3).unwrap())
+                .iter()
+                .any(|i| i.reason == reason)
+        );
+        assert_eq!(lock.selection(), &original);
+    }
+    // Structurally closed is not declaration-complete: a reader cannot infer
+    // undeclared authoring intent from the sole provider now installed.
+    let incomplete = SelectionLock::new(
+        Selection {
+            roots: original.roots.clone(),
+            contributions: original.roots.clone(),
+            bindings: vec![],
+        },
+        LockLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        initial.resolve_lock(&incomplete, 1).unwrap_err().code,
+        ErrorCode::InvalidSelection
+    );
+    // Even if a missing edge adds no member (the solver also directly requires
+    // acceleration), every declared same-release binding must be retained.
+    let mut missing_edge = original.clone();
+    missing_edge
+        .bindings
+        .retain(|b| b.requirement.consumer.release != old.id());
+    let missing_edge = SelectionLock::new(missing_edge, LockLimits::default()).unwrap();
+    assert_eq!(
+        initial.resolve_lock(&missing_edge, 1).unwrap_err().code,
+        ErrorCode::InvalidSelection
+    );
+    // A supplied edge with a fictitious slot is not proof of compatibility.
+    let mut wrong_slot = original.clone();
+    wrong_slot.bindings[0].requirement.slot = "not-declared".parse().unwrap();
+    wrong_slot
+        .bindings
+        .sort_by(|a, b| a.requirement.cmp(&b.requirement));
+    let wrong_slot = SelectionLock::new(wrong_slot, LockLimits::default()).unwrap();
+    assert!(
+        issues(initial.resolve_lock(&wrong_slot, 1).unwrap())
+            .iter()
+            .any(|i| i.reason == UnavailableReason::UnusedBinding)
+    );
+    for limits in [
+        ResolutionLimits {
+            max_roots: 0,
+            ..Default::default()
+        },
+        ResolutionLimits {
+            max_bindings: 0,
+            ..Default::default()
+        },
+        ResolutionLimits {
+            max_dependency_depth: 1,
+            ..Default::default()
+        },
+        ResolutionLimits {
+            max_work: 1,
+            ..Default::default()
+        },
+    ] {
+        let bounded = Inventory::new(1, &[entry(&old), entry(&solver)], limits).unwrap();
+        assert_eq!(
+            bounded.resolve_lock(&lock, 1).unwrap_err().code,
+            ErrorCode::LimitExceeded
+        );
+    }
+}
+
+#[test]
+fn component_only_choice_is_lockable_without_fields_kernels_or_initialization() {
+    use orishu_plugin::authoring_lock::{LockLimits, SelectionLock};
+    let d = declarations();
+    let mut component = d[0].clone();
+    let Payload::Components(c) = &mut component.1 else {
+        unreachable!()
+    };
+    c.scientific.requirements.push(ContractRequirement {
+        slot: "constants".parse().unwrap(),
+        contract: d[4].1.contract_ref(&Limits::default()).unwrap(),
+    });
+    let component = verified("org.example.component", &[component], &[]);
+    let a = verified("org.example.constants-a", &d[4..5], &[]);
+    let b = verified("org.example.constants-b", &d[4..5], &[]);
+    let inventory = Inventory::new(
+        1,
+        &[entry(&component), entry(&a), entry(&b)],
+        Default::default(),
+    )
+    .unwrap();
+    let mut req = request(&component, "mass");
+    let questions = issues(inventory.resolve(&req).unwrap());
+    assert_eq!(questions.len(), 1);
+    assert_eq!(questions[0].reason, UnavailableReason::AmbiguousProvider);
+    assert_eq!(questions[0].candidate_count, 2);
+    req.bindings.push(ProviderBinding {
+        requirement: questions[0].requirement.clone().unwrap(),
+        provider: a.contribution_ref(&"constants".parse().unwrap()).unwrap(),
+    });
+    let selected = selection(inventory.resolve(&req).unwrap());
+    assert_eq!(selected.contributions.len(), 2);
+    let lock = SelectionLock::new(selected, LockLimits::default()).unwrap();
+    let bytes = lock.to_cbor(LockLimits::default()).unwrap();
+    let restored = SelectionLock::from_cbor(&bytes, LockLimits::default()).unwrap();
+    assert_eq!(
+        selection(inventory.resolve_lock(&restored, 1).unwrap()),
+        *lock.selection()
+    );
+    assert!(restored.selection().contributions.iter().all(|c| matches!(
+        KnownPoint::from_id(&c.extension_point),
+        Some(KnownPoint::Components | KnownPoint::Constants)
+    )));
+}
+
+#[test]
 fn independent_solver_is_dormant_until_vocabulary_is_available() {
     let d = declarations();
     let a = verified("org.example.vocabulary", &d[..5], &[]);
@@ -455,4 +630,96 @@ fn candidate_pages_cover_every_choice_without_changing_eligibility() {
             actual: 2
         }
     );
+}
+
+#[test]
+fn explicit_browsing_includes_non_defaults_without_changing_automatic_resolution() {
+    let d = declarations();
+    let a = verified("org.example.a", &d[..5], &[]);
+    let (mut root, blobs) = release("org.example.a", &d[..5], &[]);
+    root.0.metadata.version_label = "old".into();
+    let old = VerifiedRelease::verify(root, &borrowed(&blobs), &Limits::default()).unwrap();
+    let disabled = verified("org.example.disabled", &d[..5], &[]);
+    let kernel = verified(
+        "org.example.solver",
+        &d[5..6],
+        &[b"classical-kernel-fixture"],
+    );
+    let entries = [
+        entry(&a),
+        InventoryEntry {
+            is_default: false,
+            ..entry(&old)
+        },
+        InventoryEntry {
+            enabled: false,
+            ..entry(&disabled)
+        },
+        entry(&kernel),
+    ];
+    let inventory = Inventory::new(
+        1,
+        &entries,
+        ResolutionLimits {
+            max_candidates: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut req = request(&kernel, "classical");
+    let key = RequirementKey {
+        consumer: req.roots[0].clone(),
+        slot: "mass".parse().unwrap(),
+    };
+    let before = inventory.resolve(&req).unwrap();
+    let mut all = Vec::new();
+    for offset in 0..2 {
+        let CandidatePageResponse::Page {
+            candidates,
+            total: 2,
+            ..
+        } = inventory
+            .explicit_provider_page(&req, &key, offset)
+            .unwrap()
+        else {
+            panic!("page expected")
+        };
+        assert_eq!(candidates.len(), 1);
+        all.extend(candidates);
+    }
+    assert!(all.iter().any(|c| c.release == old.id()));
+    assert!(!all.iter().any(|c| c.release == disabled.id()));
+    assert_eq!(inventory.resolve(&req).unwrap(), before);
+    let CandidatePageResponse::Page {
+        total: 1,
+        candidates,
+        ..
+    } = inventory.candidate_page(&req, &key, 0).unwrap()
+    else {
+        panic!("automatic candidates")
+    };
+    assert_eq!(candidates[0].release, a.id());
+    req.bindings.push(ProviderBinding {
+        requirement: key.clone(),
+        provider: all.into_iter().find(|p| p.release == old.id()).unwrap(),
+    });
+    assert!(
+        selection(inventory.resolve(&req).unwrap())
+            .bindings
+            .iter()
+            .any(|b| b.requirement == key && b.provider.release == old.id())
+    );
+    assert!(
+        inventory
+            .explicit_provider_page(&req, &key, usize::MAX)
+            .is_err()
+    );
+    let newer = Inventory::new(2, &entries, Default::default()).unwrap();
+    assert!(matches!(
+        newer.explicit_provider_page(&req, &key, 0).unwrap(),
+        CandidatePageResponse::StaleRevision {
+            expected: 1,
+            actual: 2
+        }
+    ));
 }

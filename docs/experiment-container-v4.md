@@ -6,6 +6,10 @@ field reinitialization now uses guarded background adoption; scientific creation
 configuration and MCP parity, other effects and IO-buffer reservations remain work.
 This is not completion of the whole plugin feature.
 
+V4 remains the writer for scientific drafts without a standalone dependency lock.
+[Container v5](experiment-container-v5.md) adds that intent alongside either legacy
+or scientific setup; it reuses v4's captured-state rules without changing v4 bytes.
+
 ## Version and ownership
 
 Legacy experiment JSON v1–v3 remains readable, with legacy setup re-saved as v3.

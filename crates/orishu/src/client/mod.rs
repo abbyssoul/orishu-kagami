@@ -1,4 +1,6 @@
 pub mod address;
+/// Descriptor-checked, bounded explicit operator/join credential-file input.
+pub mod credential_file;
 // TODO: Should be a feature disabled by default
 pub mod http_client;
 

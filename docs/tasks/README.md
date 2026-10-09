@@ -21,8 +21,28 @@ is implemented and connected to real worker bootstrap. Explicitly enabled
 upload, durable receipt lookup and retained-run discovery, with real process,
 restart and TLS evidence. The shared bounded scientific HTTP client now submits
 and retrieves those facts with correlation checks and real-worker proof. Public
-run control/observations and Kagami submission remain open; default worker startup
+complete run rendering remains open; Unix window document preparation/export and
+identified submission are implemented, and headless Kagami
+`workload submit/receipt/current` now uses the shared client. Default worker startup
 is still formation-only.
+Shared [run-command facts and a separate bounded journal](../run-command-receipts-v1.md)
+and explicit internal daemon command coordination are implemented as prerequisites;
+opt-in command startup, serving and shared-client controls are now implemented.
+Kagami headless step/finish/command-receipt/status now use the shared methods;
+initial window manual controls/numeric observation are implemented under
+[K-RUN](implement-kagami-run-workflow.md); sustained history retention remains open.
+Terminal finish is not resumable pause.
+Observation prerequisites now include shared-quota complete-object/force leases
+and independent bounded worker acquisition with command priority/exact-boundary
+checks. The shared [full-object payload](../object-observation-v1.md) now provides
+bounded framing, source/content identity and predecessor-force semantics. Its
+[authenticated HTTP read](../protocol-object-observation-v1.md) and shared client
+now use independent observer budgets through delivery. Bounded
+[field descriptor/query routes](../protocol-field-observation-v1.md) and their
+shared client now reuse that lane and the accepted sampling ABI. Resumable streams,
+Kagami instrument/window/MCP field consumers remain open. Headless `workload field/sample`
+now exposes exact descriptors and typed point readings; headless `workload objects` now
+reports exact committed numeric projections through that shared client.
 
 See the [implementation roadmap](../roadmap/README.md) for milestone order,
 cross-task dependencies, unrefined work packages, and parallel-agent ownership.
@@ -50,7 +70,8 @@ and viewport/app adoption.
 | [Harden formation parsing and local performance](harden-formation-fuzz-performance.md) | Post-M4 local fuzz and benchmark infrastructure; Raspberry Pi validation follows local review |
 | [Implement staged runtime scaling evidence](implement-staged-runtime-scaling-evidence.md) | Specified: early-M5 lab follow-ups, M5 scientific 1/3/5-worker stages, M8 complete 1/3/5/12/32-worker evidence; services and experiment plans gate execution |
 | [Qualify selected worker deployment profiles](qualify-worker-deployment-profiles.md) | Specified: M5 candidate selection, M8 selected supported-profile qualification; optional Kubernetes/cloud environments not yet selected |
-| [Implement the single-node workload runtime](implement-single-node-workload-runtime.md) | Fixed-profile atomic owner/checkpoint/field leases, fenced worker admission/publication, durable receipt/retained-run coordination and opt-in HTTP load/retrieval implemented; public run control/observations, reusable storage and client/product integration remain open |
+| [Implement the single-node workload runtime](implement-single-node-workload-runtime.md) | Fixed-profile atomic owner/checkpoint/field leases, fenced worker admission/publication, durable receipts, opt-in HTTP load/retrieval and manual controls with Kagami headless and initial window adapters implemented; broader lifecycle, streaming, reusable storage and complete product integration remain open |
+| [Connect Kagami authoring, submission and run observation](implement-kagami-run-workflow.md) (K-RUN) | In progress: captured-revision window preparation/export/submission, external-run attachment, numeric observations, bounded 3D position markers and manual controls implemented; durable client recovery, capability negotiation, field visualization, instruments and local/proxy parity remain |
 | [Implement distributed workload execution](implement-distributed-workload-execution.md) | Specified for M5; gated on single-node reference, reviewed distributed protocol and concrete scientific profile |
 | [Implement worker network placement](implement-worker-network-placement.md) | Slices 1-2 delivered: [ADR 0026](../adr/0026-worker-network-interface-placement.md), [namespace wire proof](../measurements/worker-network-placement-2026-09-11.md) and scoped [five-Pi recovery/placement evidence](../measurements/formation-post-m4-five-pi-plan.md). Physical link-loss, multi-interface lists, failover, pod qualification and remote inspection remain planned |
 | [Review worker executor sizing](review-worker-executor-performance.md) | Five-/twenty-worker baselines recorded; sweep pending after the [five-Pi client-error stop](../measurements/formation-post-m4-five-pi-plan.md). No executor policy selected; desktop oversubscription hypothesis remains unverified |

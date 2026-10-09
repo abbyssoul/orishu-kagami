@@ -1,4 +1,6 @@
 use super::*;
+use orishu::model::run_command::*;
+use orishu::model::run_observation::*;
 use orishu::model::{ApiResponse, ResponseData, cluster::LockRequest, run_load::*};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -196,6 +198,17 @@ async fn scientific_api_authenticates_bounds_framing_and_is_opt_in() {
     let mut worker = start_scientific(&state, &socket, false);
     summary(&mut worker, &socket).await;
     assert!(!state.join("workload-load-receipts.cbor").exists());
+    assert!(!state.join("run-command-receipts.cbor").exists());
+    for route in [
+        "/api/v1/run-commands",
+        "/api/v1/run-commands/lookup",
+        "/api/v1/run/status",
+        "/api/v1/run/objects",
+        "/api/v1/run/field",
+        "/api/v1/run/samples",
+    ] {
+        assert_eq!(send(&socket, "POST", route, "", &[], None).await.0, 404);
+    }
     assert_eq!(
         send(&socket, "GET", "/api/v1/run", "", &[], None).await.0,
         404
@@ -208,6 +221,12 @@ async fn scientific_api_authenticates_bounds_framing_and_is_opt_in() {
         "/api/v1/run-loads",
         "/api/v1/run-loads/lookup",
         "/api/v1/run",
+        "/api/v1/run-commands",
+        "/api/v1/run-commands/lookup",
+        "/api/v1/run/status",
+        "/api/v1/run/objects",
+        "/api/v1/run/field",
+        "/api/v1/run/samples",
     ] {
         let method = if route == "/api/v1/run" {
             "GET"
@@ -228,6 +247,76 @@ async fn scientific_api_authenticates_bounds_framing_and_is_opt_in() {
         }
     }
     let request = LoadRequest::new("malformed".parse().unwrap(), formation, root());
+    for route in [
+        "/api/v1/run-commands",
+        "/api/v1/run-commands/lookup",
+        "/api/v1/run/status",
+        "/api/v1/run/objects",
+        "/api/v1/run/field",
+    ] {
+        for (body, extra, announced, expected) in [
+            (vec![], "", Some(4097), 413),
+            (vec![], "", None, 400),
+            (vec![0xff], "", None, 400),
+            (b"\xbf\x61x\x00\x61x\x01\xff".to_vec(), "", None, 400),
+            (vec![0; 2], "Content-Encoding: gzip\r\n", None, 400),
+            (vec![0; 2], "Trailer: x\r\n", None, 400),
+        ] {
+            assert_eq!(
+                send(
+                    &socket,
+                    "POST",
+                    route,
+                    &(headers(&token, "application/cbor") + extra),
+                    &body,
+                    announced
+                )
+                .await
+                .0,
+                expected
+            );
+        }
+        assert_eq!(
+            send(
+                &socket,
+                "POST",
+                route,
+                &headers(&token, "application/json"),
+                &[],
+                None
+            )
+            .await
+            .0,
+            415
+        );
+    }
+    for (body, extra, announced, expected) in [
+        (
+            vec![],
+            "",
+            Some((MAX_FIELD_SAMPLE_BYTES + MAX_OBJECT_REQUEST_BYTES + 5) as u64),
+            413,
+        ),
+        (vec![], "", None, 400),
+        (vec![0; 4], "", None, 400),
+        (vec![255; 5], "", None, 400),
+        (vec![0, 0, 0, 1, 255, 0], "", None, 400),
+        (vec![0; 2], "Content-Encoding: gzip\r\n", None, 400),
+    ] {
+        assert_eq!(
+            send(
+                &socket,
+                "POST",
+                "/api/v1/run/samples",
+                &(headers(&token, FIELD_SAMPLE_REQUEST_MEDIA_TYPE) + extra),
+                &body,
+                announced
+            )
+            .await
+            .0,
+            expected
+        );
+    }
     let upload_headers = headers(&token, "application/vnd.orishu.run-load.v1");
     for (body, extra, announced, expected) in [
         (vec![], String::new(), Some(129 * 1024 * 1024), 413),
@@ -400,6 +489,373 @@ async fn real_scientific_upload_retains_acceptance_and_restart_recovers_pending(
         client.scientific().current().await.unwrap(),
         Some(descriptor.clone())
     );
+    let status_query = RunStatusRequest::new(descriptor.identity().clone());
+    let initial = client
+        .scientific()
+        .status(&status_query)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (initial.boundary(), initial.time_seconds(), initial.phase()),
+        (0, 0.0, RunPhase::Ready)
+    );
+    let step = RunCommandRequest::new(
+        "step-one".parse().unwrap(),
+        descriptor.identity().clone(),
+        0,
+        RunCommand::Step,
+    )
+    .unwrap();
+    let initial_query = ObjectObservationRequest::new(descriptor.identity().clone(), 0);
+    let initial_objects = client
+        .scientific()
+        .objects(&initial_query)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(initial_objects.view().forces().is_none());
+    assert!(!initial_objects.view().objects().is_empty());
+    use orishu_plugin::{FiniteF64, execution::*};
+    let initial_field_query = FieldObservationRequest::new(
+        descriptor.identity().clone(),
+        0,
+        "newtonian".parse().unwrap(),
+    );
+    let initial_field = client
+        .scientific()
+        .field(&initial_field_query)
+        .await
+        .unwrap()
+        .unwrap();
+    let make_query = |field: &FieldObservation| {
+        let metadata = field
+            .request(
+                19,
+                field
+                    .context
+                    .observables
+                    .iter()
+                    .map(|b| b.channel.clone())
+                    .collect(),
+            )
+            .unwrap();
+        let mut query = vec![];
+        encode_sample_request(
+            &metadata,
+            &[
+                SamplePoint {
+                    id: 13,
+                    position_metres: [FiniteF64::new(1.0).unwrap(); 3],
+                },
+                SamplePoint {
+                    id: 14,
+                    position_metres: [FiniteF64::new(0.0).unwrap(); 3],
+                },
+                SamplePoint {
+                    id: 15,
+                    position_metres: [FiniteF64::new(100.0).unwrap(); 3],
+                },
+            ],
+            &mut query,
+            &mut SampleScratch::default(),
+            field_sample_limits(&field.context),
+        )
+        .unwrap();
+        query
+    };
+    let initial_sample = make_query(&initial_field);
+    assert!(
+        client
+            .scientific()
+            .samples(&initial_field_query, &initial_field, &initial_sample)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    // Two authenticated observers stall their bounded metadata reads. They must
+    // exhaust only observation capacity, not status/command admission slots.
+    let mut slow_observers = Vec::new();
+    for (route, media) in [
+        ("objects", "application/cbor"),
+        ("samples", FIELD_SAMPLE_REQUEST_MEDIA_TYPE),
+    ] {
+        // A preceding successful response may still retain its final transport
+        // chunk/permit briefly. Confirm each stall actually entered a body read;
+        // an unobserved early 503 is not a second held observer slot.
+        let stream = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let mut stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
+                stream.write_all(format!("POST /api/v1/run/{route} HTTP/1.1\r\nHost: local\r\nContent-Length: 4096\r\nExpect: 100-continue\r\nAuthorization: Bearer {token}\r\nContent-Type: {media}\r\n\r\n").as_bytes()).await.unwrap();
+                let mut head = vec![];
+                while !head.ends_with(b"\r\n\r\n") {
+                    head.push(stream.read_u8().await.unwrap());
+                    assert!(head.len() <= 8192);
+                }
+                let status = std::str::from_utf8(&head).unwrap().split_whitespace().nth(1).unwrap();
+                if status == "100" { break stream; }
+                assert_eq!(status, "503", "unexpected observer admission response");
+                drop(stream);
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("confirmed observer body admission");
+        slow_observers.push(stream);
+    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match client.scientific().objects(&initial_query).await {
+                Err(orishu::client::http_client::ScientificError::Http {
+                    status: 503,
+                    code,
+                    ..
+                }) if code == "ObserverBusy" => break,
+                Ok(Some(_)) => tokio::task::yield_now().await,
+                _ => panic!("unexpected observer capacity result"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        matches!(client.scientific().field(&initial_field_query).await,
+        Err(orishu::client::http_client::ScientificError::Http { status: 503, code, .. }) if code == "ObserverBusy")
+    );
+    assert!(
+        client
+            .scientific()
+            .status(&status_query)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let stepped = client.scientific().command(&step).await.unwrap();
+    drop(slow_observers);
+    let RunCommandState::Finished(RunCommandOutcome::Applied { status }) = stepped.state() else {
+        panic!("{stepped:?}");
+    };
+    assert_eq!(
+        (status.boundary(), status.time_seconds(), status.phase()),
+        (1, 0.5, RunPhase::Ready)
+    );
+    let object_query = ObjectObservationRequest::new(descriptor.identity().clone(), 1);
+    let objects = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match client.scientific().objects(&object_query).await {
+                Ok(Some(objects)) => break objects,
+                Err(orishu::client::http_client::ScientificError::Http {
+                    status: 503,
+                    code,
+                    ..
+                }) if code == "ObserverBusy" => tokio::task::yield_now().await,
+                _ => panic!("unexpected observation after release"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(objects.view().force_evaluation_boundary(), Some(0));
+    assert!(objects.view().forces().is_some());
+    assert_ne!(objects.digest(), initial_objects.digest());
+    assert_eq!(
+        objects.view().objects().len(),
+        initial_objects.view().objects().len()
+    );
+    assert!(matches!(client.scientific().objects(&initial_query).await,
+        Err(orishu::client::http_client::ScientificError::Http { status: 409, code, .. }) if code == "StaleBoundary"));
+    let field_query = FieldObservationRequest::new(
+        descriptor.identity().clone(),
+        1,
+        "newtonian".parse().unwrap(),
+    );
+    let field = client
+        .scientific()
+        .field(&field_query)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        field.snapshot.state.digest,
+        initial_field.snapshot.state.digest
+    );
+    let query = make_query(&field);
+    let samples = client
+        .scientific()
+        .samples(&field_query, &field, &query)
+        .await
+        .unwrap()
+        .unwrap();
+    let sample_request = SampleRequest::read(
+        &query,
+        &mut SampleScratch::default(),
+        field_sample_limits(&field.context),
+    )
+    .unwrap();
+    let readings = SampleResponse::read(
+        &samples,
+        &sample_request,
+        &field.context,
+        field_sample_limits(&field.context),
+    )
+    .unwrap();
+    for channel in 0..field.context.observables.len() {
+        let Some(SampleCell::Valid {
+            values,
+            quality_flags,
+        }) = readings.cell(0, channel)
+        else {
+            panic!("gravity sample should be valid");
+        };
+        assert_eq!(quality_flags, 1);
+        assert!(values.iter().any(|v| v.get() != 0.0));
+        assert!(matches!(
+            readings.cell(1, channel),
+            Some(SampleCell::Invalid(SampleInvalidity::Singular))
+        ));
+        assert!(matches!(
+            readings.cell(2, channel),
+            Some(SampleCell::Invalid(SampleInvalidity::OutsideDomain))
+        ));
+    }
+    assert!(
+        matches!(client.scientific().samples(&initial_field_query, &initial_field, &initial_sample).await,
+        Err(orishu::client::http_client::ScientificError::Http { status: 409, code, .. }) if code == "StaleBoundary")
+    );
+    // Bypass client preflight: the server must reject exact-boundary queries
+    // with forged state/context, malformed points or duplicate point IDs itself.
+    for case in 0..4 {
+        let mut metadata = sample_request.metadata().clone();
+        if case == 0 {
+            metadata.snapshot.state.digest =
+                orishu_workload::ArtifactDigest::sha256_of(b"forged state");
+        }
+        if case == 1 {
+            metadata.context = orishu_workload::ArtifactDigest::sha256_of(b"forged context");
+        }
+        let points = [
+            SamplePoint {
+                id: 1,
+                position_metres: [FiniteF64::new(1.0).unwrap(); 3],
+            },
+            SamplePoint {
+                id: 2,
+                position_metres: [FiniteF64::new(2.0).unwrap(); 3],
+            },
+        ];
+        let mut bad = vec![];
+        encode_sample_request(
+            &metadata,
+            &points,
+            &mut bad,
+            &mut SampleScratch::default(),
+            field_sample_limits(&field.context),
+        )
+        .unwrap();
+        if case == 2 {
+            bad.pop();
+        }
+        if case == 3 {
+            let end = bad.len();
+            bad[end - 32..end - 24].copy_from_slice(&1_u64.to_le_bytes());
+        }
+        let meta = cbor(&field_query);
+        let mut body = (meta.len() as u32).to_be_bytes().to_vec();
+        body.extend_from_slice(&meta);
+        body.extend_from_slice(&bad);
+        let (status, _) = send(
+            &socket,
+            "POST",
+            "/api/v1/run/samples",
+            &headers(&token, FIELD_SAMPLE_REQUEST_MEDIA_TYPE),
+            &body,
+            None,
+        )
+        .await;
+        assert_eq!(status, if case < 2 { 409 } else { 400 }, "case {case}");
+    }
+    // Sampling neither changes the boundary nor alters the committed field.
+    assert_eq!(
+        client.scientific().field(&field_query).await.unwrap(),
+        Some(field.clone())
+    );
+    assert_eq!(
+        client
+            .scientific()
+            .samples(&field_query, &field, &query)
+            .await
+            .unwrap(),
+        Some(samples.clone())
+    );
+    // Receipt retry never repeats execution, even after the caller discarded a reply.
+    assert_eq!(client.scientific().command(&step).await.unwrap(), stepped);
+    assert_eq!(
+        client.scientific().command_lookup(&step).await.unwrap(),
+        Some(stepped.clone())
+    );
+    assert_eq!(
+        client.scientific().status(&status_query).await.unwrap(),
+        Some(status.clone())
+    );
+    let stale = RunCommandRequest::new(
+        "stale-step".parse().unwrap(),
+        step.run().clone(),
+        0,
+        RunCommand::Step,
+    )
+    .unwrap();
+    assert!(matches!(
+        client.scientific().command(&stale).await.unwrap().state(),
+        RunCommandState::Finished(RunCommandOutcome::Refused {
+            reason: RunCommandRefusal::StaleBoundary { actual: 1 }
+        })
+    ));
+    let conflict_command = RunCommandRequest::new(
+        step.operation_id().clone(),
+        step.run().clone(),
+        1,
+        RunCommand::Step,
+    )
+    .unwrap();
+    assert!(matches!(
+        client.scientific().command(&conflict_command).await,
+        Err(orishu::client::http_client::ScientificError::Http { status: 409, .. })
+    ));
+    let finish = RunCommandRequest::new(
+        "finish-one".parse().unwrap(),
+        step.run().clone(),
+        1,
+        RunCommand::Finish,
+    )
+    .unwrap();
+    let finished_command = client.scientific().command(&finish).await.unwrap();
+    assert_eq!(
+        client.scientific().field(&field_query).await.unwrap(),
+        Some(field.clone())
+    );
+    assert_eq!(
+        client
+            .scientific()
+            .samples(&field_query, &field, &query)
+            .await
+            .unwrap(),
+        Some(samples)
+    );
+    assert_eq!(
+        client
+            .scientific()
+            .objects(&object_query)
+            .await
+            .unwrap()
+            .unwrap()
+            .digest(),
+        objects.digest()
+    );
+    assert!(
+        matches!(finished_command.state(), RunCommandState::Finished(RunCommandOutcome::Applied { status }) if status.boundary() == 1 && status.phase() == RunPhase::Finished)
+    );
+    assert_eq!(
+        client.scientific().command(&finish).await.unwrap(),
+        finished_command
+    );
     let occupied = summary(&mut worker, &socket).await;
     assert_eq!(occupied.schema_version, 2);
     assert_eq!(
@@ -468,6 +924,52 @@ async fn real_scientific_upload_retains_acceptance_and_restart_recovers_pending(
         Some(accepted)
     );
     assert_eq!(client.scientific().current().await.unwrap(), None);
+    assert!(
+        client
+            .scientific()
+            .field(&field_query)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        client
+            .scientific()
+            .samples(&field_query, &field, &query)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        client
+            .scientific()
+            .objects(&object_query)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        client.scientific().status(&status_query).await.unwrap(),
+        None
+    );
+    assert_eq!(
+        client.scientific().command_lookup(&step).await.unwrap(),
+        Some(stepped.clone())
+    );
+    assert_eq!(client.scientific().command(&step).await.unwrap(), stepped);
+    let absent = RunCommandRequest::new(
+        "old-run".parse().unwrap(),
+        step.run().clone(),
+        1,
+        RunCommand::Step,
+    )
+    .unwrap();
+    assert!(matches!(
+        client.scientific().command(&absent).await.unwrap().state(),
+        RunCommandState::Finished(RunCommandOutcome::Refused {
+            reason: RunCommandRefusal::RunUnavailable
+        })
+    ));
     let (_, body) = send(
         &socket,
         "GET",
@@ -557,6 +1059,7 @@ async fn scientific_configuration_precedence_and_invalid_values_are_explicit() {
         );
         summary(&mut worker, &socket).await;
         assert_eq!(state.join("workload-load-receipts.cbor").exists(), enabled);
+        assert_eq!(state.join("run-command-receipts.cbor").exists(), enabled);
         assert_eq!(
             send(&socket, "GET", "/api/v1/run", "", &[], None).await.0,
             if enabled { 401 } else { 404 }
@@ -590,6 +1093,32 @@ async fn scientific_configuration_precedence_and_invalid_values_are_explicit() {
         .unwrap();
     assert!(!output.status.success());
     assert!(!state.exists());
+}
+
+#[tokio::test]
+async fn corrupt_command_history_fails_enabled_startup_without_reset_or_listener() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let state = dir.path().join("state");
+    let socket = dir.path().join("api.sock");
+    orishu_worker::credentials::WorkerCredentials::load_or_create(&state).unwrap();
+    drop(orishu_worker::workload_receipts::CommandReceiptStore::open(&state).unwrap());
+    let history = state.join("run-command-receipts.cbor");
+    std::fs::write(&history, [0xff]).unwrap();
+    let mut worker = start_scientific(&state, &socket, true);
+    let exit = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(exit) = worker.0.try_wait().unwrap() {
+                return exit;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(exit.code(), Some(2));
+    assert_eq!(std::fs::read(history).unwrap(), [0xff]);
+    assert!(!socket.exists());
 }
 
 #[tokio::test]

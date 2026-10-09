@@ -56,7 +56,28 @@ pub fn read_directory(
     };
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut links: Vec<PathBuf> = Vec::new();
-    for entry in read_dir.flatten() {
+    // Bound enumeration itself, including ignored entries and symlinks, before
+    // retaining path/diagnostic collections. On exhaustion refuse the directory,
+    // not a filesystem-order-dependent prefix. Ordinary file truncation below
+    // still selects sorted paths when the scan fits its separate work bound.
+    let scan_limit = limits.max_files.saturating_mul(16);
+    for (index, entry) in read_dir.enumerate() {
+        if index >= scan_limit {
+            return (
+                Vec::new(),
+                vec![CatalogFileError {
+                    file: PathBuf::new(),
+                    reason: InvalidReason::LimitExceeded {
+                        what: "catalog directory entry",
+                        found: index.saturating_add(1),
+                        limit: scan_limit,
+                    },
+                }],
+            );
+        }
+        let Ok(entry) = entry else {
+            continue;
+        };
         let path = entry.path();
         if !is_catalog_file(&path) {
             continue;
@@ -178,6 +199,18 @@ pub struct DocumentStream {
 /// uses to check authored text that is not on disk yet.
 pub fn parse_stream(file: &Path, text: &str, limits: &Limits) -> DocumentStream {
     let mut stream = DocumentStream::default();
+    if text.len() as u64 > limits.max_file_bytes {
+        stream.documents.push(ParsedDocument::invalid(
+            SourceLocation::new(file, DocumentOrdinal::from_index(0)),
+            None,
+            vec![Diagnostic::whole_file(InvalidReason::FileTooLarge {
+                max_bytes: limits.max_file_bytes,
+                actual_bytes: text.len() as u64,
+            })],
+        ));
+        stream.truncated = true;
+        return stream;
+    }
     for (index, document) in serde_yaml::Deserializer::from_str(text).enumerate() {
         if index >= limits.max_documents_per_file {
             stream.truncated = true;
@@ -217,6 +250,26 @@ pub fn parse_value(
 ) -> ParsedDocument {
     if let Err(diagnostic) = check_envelope(value) {
         return ParsedDocument::invalid(source, None, vec![*diagnostic]);
+    }
+    // Apply the receiving graph policy before the full typed document reader.
+    // The YAML value tree already exists here; this prevents a tighter caller
+    // from first constructing a graph under the more permissive serde ceiling.
+    if let Some(lock) = value.get("spec").and_then(|spec| spec.get("dependencies"))
+        && let Err(error) = orishu_plugin::authoring_lock::SelectionLock::deserialize_bounded(
+            lock,
+            limits.dependency_limits(),
+        )
+    {
+        return ParsedDocument::invalid(
+            source,
+            None,
+            vec![Diagnostic::at(
+                "spec.dependencies",
+                InvalidReason::SchemaMismatch {
+                    message: error.to_string(),
+                },
+            )],
+        );
     }
     let document: TemplateDocument = match serde_path_to_error::deserialize(value) {
         Ok(document) => document,
@@ -269,6 +322,7 @@ fn check_envelope(value: &serde_yaml::Value) -> Result<(), Box<Diagnostic>> {
     // at all", and they are different things for a user to do something about.
     if header.api_version() != &document::api_version()
         && header.api_version().as_str() != document::PINNED_API_VERSION
+        && header.api_version().as_str() != document::LOCKED_API_VERSION
     {
         return Err(Box::new(Diagnostic::at(
             "apiVersion",
@@ -432,7 +486,7 @@ spec:
         write(
             directory.path(),
             "future.yaml",
-            "apiVersion: kagami.catalog/v3\nkind: ObjectTemplate\nwhatever: [1, 2]\n",
+            "apiVersion: kagami.catalog/v99\nkind: ObjectTemplate\nwhatever: [1, 2]\n",
         );
         let set = load_directory(directory.path(), &registry(), &Limits::DEFAULT);
         let LoadResult::Invalid { diagnostics } = &set.entries()[0].result else {
@@ -525,6 +579,91 @@ spec:
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn directory_scan_bounds_ignored_entries_before_retaining_an_unbounded_prefix() {
+        let directory = tempfile::tempdir().unwrap();
+        for i in 0..17 {
+            write(directory.path(), &format!("notes-{i}.txt"), "ignored");
+        }
+        let limits = Limits {
+            max_files: 1,
+            ..Limits::DEFAULT
+        };
+        let set = load_directory(directory.path(), &registry(), &limits);
+        assert!(set.entries().is_empty());
+        assert!(matches!(
+            set.file_errors()[0].reason,
+            InvalidReason::LimitExceeded {
+                what: "catalog directory entry",
+                found: 17,
+                limit: 16
+            }
+        ));
+    }
+
+    #[test]
+    fn retained_authority_snapshot_revalidates_without_mutation_or_file_reloads() {
+        use crate::authority::{
+            ActorId, CatalogAuthority, CatalogCommand, CatalogCommandEnvelope, CommandId,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        write(directory.path(), "sun.yaml", SUN);
+        let mut authority =
+            CatalogAuthority::open(directory.path(), SchemaRegistry::new(), Limits::DEFAULT);
+        let original = authority.snapshot();
+        assert!(!original.entries()[0].result.is_available());
+        let fingerprint = original.entries()[0].fingerprint;
+        let repaired = original.revalidate(&registry(), &Limits::DEFAULT);
+        assert!(repaired.entries()[0].result.is_available());
+        assert_eq!(repaired.entries()[0].fingerprint, fingerprint);
+        assert!(!original.entries()[0].result.is_available());
+        let strict = original.revalidate(
+            &registry(),
+            &Limits {
+                max_components_per_template: 0,
+                ..Limits::DEFAULT
+            },
+        );
+        assert!(matches!(
+            strict.entries()[0].result,
+            crate::LoadResult::Invalid { .. }
+        ));
+        let revision = authority.revision();
+        let refresh = CatalogCommandEnvelope::new(
+            CommandId::new("refresh").unwrap(),
+            ActorId::new("test").unwrap(),
+            CatalogCommand::ReloadWithSchemas {
+                schemas: registry(),
+            },
+        );
+        assert!(
+            authority
+                .submit(refresh.clone().guarded_by(revision.next()))
+                .is_err()
+        );
+        assert_eq!(authority.registry(), &SchemaRegistry::new());
+        assert!(!authority.set().entries()[0].result.is_available());
+        authority.submit(refresh.guarded_by(revision)).unwrap();
+        assert!(authority.set().entries()[0].result.is_available());
+        assert_eq!(authority.revision(), revision.next());
+        assert!(!original.entries()[0].result.is_available());
+        std::fs::remove_file(directory.path().join("sun.yaml")).unwrap();
+        assert!(
+            original.revalidate(&registry(), &Limits::DEFAULT).entries()[0]
+                .result
+                .is_available()
+        );
+        authority
+            .submit(CatalogCommandEnvelope::new(
+                CommandId::new("reload").unwrap(),
+                ActorId::new("test").unwrap(),
+                CatalogCommand::Reload,
+            ))
+            .unwrap();
+        assert!(authority.set().entries().is_empty());
+        assert_eq!(original.entries()[0].fingerprint, fingerprint);
     }
 
     #[test]

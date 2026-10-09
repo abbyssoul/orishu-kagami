@@ -20,14 +20,36 @@ kagami-document    model, transition, history    <- pure, sans-IO
 
 ## The envelope contract
 
-The document model's wire version is now 3 (scientific setup descriptors); the
+The document model's wire version is now 4 (scientific descriptors and standalone
+provider intent); the
 session envelope remains version 1. A scientific capture is an in-process edit
 with normal revision, history and refusal semantics, but `WireEnvelope::of`
 returns `None` for it: bounded blob effects are not ordinary JSON intents. The
 future effect adapter must also guard document identity, not just a revision.
-The durable file store now selects the self-contained v4 container for scientific
-setup; direct bare JSON encoding still refuses it. Reopening restores exact captured
+The durable file store selects v5 when standalone provider intent is present,
+otherwise v4 for scientific setup; direct bare JSON encoding refuses either.
+Reopening restores exact captured
 bytes, with no installed executable requirement or initializer invocation.
+
+`DocumentAuthority::submit_with_schemas` is the cold in-process plugin-adoption
+path: it stages a caller-verified capability projection and the ordinary command
+together, including history, events, receipts and retention admission. A refusal
+changes none of them; replay never adopts a new projection. This lets a newly
+resolved schema validate its first component attachment without exposing schema
+changes from a failed edit. The inventory adapter still owns verification, leases
+and availability guards. Schemas remain capabilities, not persisted experiment
+intent or a new wire command; undo restores experiment contents, not installation.
+
+`instantiation::prepare` is the pure shared catalog-to-command bridge used by
+ordinary session instantiation and Kagami's captured-scientific addition effect.
+It takes an explicit immutable catalog, experiment, schemas and receiving limits,
+preserves self-contained definitions/provenance and complete template locks, and
+uses the experiment's real allocation counters without minting or adopting IDs.
+The effect requires an exact fingerprint, independently verifies the complete
+provider graph, regenerates history and submits all commands/captures/schemas
+through normal guarded acceptance. Ordinary session instantiation does not execute
+kernels or bypass captured-history validation. Oversized caller bindings return
+`instantiation_limit_exceeded`; catalog failures retain their structured reasons.
 
 Deliberately the same four properties `kagami-catalog`'s authority already
 established, so an adapter learns one pattern for both:
@@ -67,6 +89,24 @@ buffers with ordered-map lookup; no opaque bytes are copied or rehashed by the
 tally. This bounds authority retention, not allocator overhead, external snapshot
 holders, pending initialization, JIT memory or file-I/O staging.
 
+`DocumentAuthority::plugin_references` is a cold bounded query over current
+objects/scientific selections, undo and redo snapshots, and retained accepted
+request data. It reports exact immutable releases with separate current/history/
+receipt flags; it never resolves a legacy name or consults installed schemas.
+Shared history handles are scanned without copying or decoding opaque captures.
+Caller-owned work and distinct-release limits refuse an incomplete scan rather
+than returning a prefix which could be mistaken for no references. This query
+neither acquires filesystem leases nor discovers unopened documents; it supplies
+the shared reference inventory for the app's removal/lease adapter. It is not a
+new persisted or wire format and must not run on every viewport frame.
+
+`plugin_reference_snapshot` captures shared immutable handles for an off-thread
+scan, including accepted-request bodies held by `Arc`. Capturing is itself bounded;
+later edits cannot change the image. Its reader extends old-state lifetime, so
+the shell must bound pending readers rather than treating receipt eviction as
+immediate process-wide memory reclamation. The native adapter uses one slot and
+guards reference-generation changes before adopting exact release leases.
+
 ## Three decisions worth knowing
 
 - **Undo and redo are commands, not a client stack.** Only the authority can
@@ -95,8 +135,10 @@ Exact pins mislabeled as v1/v2 are refused. The independently versioned default
 view is unchanged. Scientific drafts use the separate
 [stored-ZIP v4 container](../../docs/experiment-container-v4.md), with exact retained
 declarations/configuration/state/history and no embedded executable code. Both
-decoders return the normalized in-memory `ExperimentDocument`; save chooses the
-format by its explicit setup variant. Neither format is a workload export.
+decoders return the normalized in-memory `ExperimentDocument`. Standalone provider
+locks use [container v5](../../docs/experiment-container-v5.md), independently of
+the setup variant, with atomic roots/evidence agreement and history/reference
+retention. Catalog/choice adapter integration remains open. None is a workload export.
 
 The authority accepts an owned schema snapshot from the plugin adapter.
 `PluginStore::resolve_authoring` can supply exact, verified selected component

@@ -3,6 +3,8 @@ use orishu_membership::testing;
 use orishu_runtime::SandboxLimits;
 use std::sync::OnceLock;
 
+#[cfg(unix)]
+mod command_tests;
 mod delivery_tests;
 #[cfg(unix)]
 mod load_tests;
@@ -14,6 +16,17 @@ async fn scientific_test_slot() -> tokio::sync::SemaphorePermit<'static> {
     // Production operation/guest/coordination limits are unchanged.
     static HEAVY: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
     HEAVY.acquire().await.unwrap()
+}
+
+async fn poll_pending<F: std::future::Future>(mut future: std::pin::Pin<&mut F>) {
+    std::future::poll_fn(|cx| {
+        assert!(
+            future.as_mut().poll(cx).is_pending(),
+            "operation should be awaiting the held executor"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
 }
 
 #[path = "../../../../../crates/orishu-runtime/tests/reference_support/admission.rs"]
@@ -409,6 +422,17 @@ async fn retained_run_publishes_steps_stop_and_bounded_independent_observations(
         .await
         .unwrap();
     assert_eq!(run.view().unwrap().boundary(), 0);
+    let objects = run.acquire_objects_at(0).await.unwrap();
+    assert!(objects.forces().is_none());
+    assert!(matches!(
+        objects.source(),
+        SnapshotSource::Committed { boundary: 0, .. }
+    ));
+    assert!(
+        run.acquire_objects_at(0).await.is_err(),
+        "object leases share observer quota"
+    );
+    drop(objects);
     assert_eq!(
         handle.view().unwrap().scientific.unwrap(),
         run.view().unwrap()
@@ -418,11 +442,23 @@ async fn retained_run_publishes_steps_stop_and_bounded_independent_observations(
         .await
         .unwrap();
     assert_eq!(sampled_x(&old), 0.0);
+    for expected in [1, u64::MAX] {
+        assert!(matches!(
+            run.step_at(expected, control()).await,
+            Err(RunError::StaleBoundary { expected: value, actual: 0 }) if value == expected
+        ));
+        assert!(matches!(
+            run.stop_at(expected, control()).await,
+            Err(RunError::StaleBoundary { expected: value, actual: 0 }) if value == expected
+        ));
+    }
+    assert_eq!(run.view().unwrap().boundary(), 0);
+    assert!(!run.view().unwrap().stopped());
     let cancelled = control();
     cancelled.cancel();
     assert!(run.step(cancelled).await.is_err());
     assert_eq!(run.view().unwrap().boundary(), 0);
-    let first = run.step(control()).await.unwrap();
+    let first = run.step_at(0, control()).await.unwrap();
     let descriptor = run.descriptor().clone();
     assert_eq!(first.scope().run, descriptor.digest().unwrap());
     assert_eq!(
@@ -431,13 +467,49 @@ async fn retained_run_publishes_steps_stop_and_bounded_independent_observations(
     );
     assert_eq!(first.boundary(), 1);
     assert_eq!(first.time_seconds(), fixture::n(0.5));
+    // The precondition is checked before reserving publication capacity or
+    // invoking guests, not by a racy view/read in a transport adapter.
+    let mut pressure = vec![];
+    while let Ok(permit) = handle.control.clone().try_reserve_owned() {
+        pressure.push(permit);
+    }
+    assert!(matches!(
+        run.step_at(0, control()).await,
+        Err(RunError::StaleBoundary {
+            expected: 0,
+            actual: 1
+        })
+    ));
+    assert!(matches!(
+        run.stop_at(0, control()).await,
+        Err(RunError::StaleBoundary {
+            expected: 0,
+            actual: 1
+        })
+    ));
+    assert_eq!(run.view().unwrap(), first);
+    drop(pressure);
     // Observer quota refusal does not prevent the next scientific step.
     assert!(
         run.acquire_field("newtonian".parse().unwrap())
             .await
             .is_err()
     );
-    assert_eq!(run.step(control()).await.unwrap().boundary(), 2);
+    assert_eq!(run.step_at(1, control()).await.unwrap().boundary(), 2);
+    assert!(matches!(
+        run.acquire_objects_at(1).await,
+        Err(RunError::StaleBoundary {
+            expected: 1,
+            actual: 2
+        })
+    ));
+    assert!(matches!(
+        run.acquire_field_at("newtonian".parse().unwrap(), 1).await,
+        Err(RunError::StaleBoundary {
+            expected: 1,
+            actual: 2
+        })
+    ));
     assert_eq!(sampled_x(&old), 0.0);
     drop(old);
     let current = run
@@ -449,11 +521,30 @@ async fn retained_run_publishes_steps_stop_and_bounded_independent_observations(
         SnapshotSource::Committed { boundary: 2, .. }
     ));
     assert!(sampled_x(&current) < 0.0);
-    let stopped = run.stop(control()).await.unwrap();
+    drop(current);
+    let objects = run.acquire_objects_at(2).await.unwrap();
+    assert!(objects.forces().is_some());
+    assert!(
+        matches!(objects.source(), SnapshotSource::Committed { workload, run: id, epoch: 1, boundary: 2, time_seconds } if *workload == descriptor.identity().workload_id() && *id == descriptor.digest().unwrap() && *time_seconds == fixture::n(1.0))
+    );
+    drop(objects);
+    let current = run
+        .acquire_field_at("newtonian".parse().unwrap(), 2)
+        .await
+        .unwrap();
+    let stopped = run.stop_at(2, control()).await.unwrap();
     assert!(stopped.stopped());
+    assert!(matches!(
+        run.stop_at(1, control()).await,
+        Err(RunError::StaleBoundary {
+            expected: 1,
+            actual: 2
+        })
+    ));
+    assert_eq!(run.stop_at(2, control()).await.unwrap(), stopped);
     assert_eq!(run.stop(control()).await.unwrap(), stopped);
     assert!(matches!(
-        run.step(control()).await,
+        run.step_at(2, control()).await,
         Err(RunError::Scientific(AdmissionError::Run(
             orishu_runtime::RunRejection::Stopped
         )))
@@ -502,10 +593,27 @@ async fn retained_run_has_no_step_backlog_and_publishes_with_reserved_capacity_a
     admission.before_step_publish = Some((entered_tx, release_rx));
     let run = admission.start(control()).await.unwrap();
     let caller = run.clone();
-    let pending = tokio::spawn(async move { caller.step(control()).await });
+    let pending = tokio::spawn(async move { caller.step_at(0, control()).await });
     entered(entered_rx).await;
     assert!(matches!(run.step(control()).await, Err(RunError::Busy)));
     assert!(matches!(run.stop(control()).await, Err(RunError::Busy)));
+    assert!(matches!(
+        run.step_at(0, control()).await,
+        Err(RunError::Busy)
+    ));
+    assert!(matches!(
+        run.stop_at(0, control()).await,
+        Err(RunError::Busy)
+    ));
+    // Observations have a distinct bounded ingress; fill it while a candidate
+    // waits at the commit gate. They cannot occupy the scientific command slot
+    // or force the candidate to await the consumers below.
+    let mut observations = Vec::new();
+    for _ in 0..8 {
+        let mut query = Box::pin(run.acquire_objects_at(0));
+        poll_pending(query.as_mut()).await;
+        observations.push(query);
+    }
     assert!(matches!(
         run.acquire_field("newtonian".parse().unwrap()).await,
         Err(RunError::Busy)
@@ -539,6 +647,33 @@ async fn retained_run_has_no_step_backlog_and_publishes_with_reserved_capacity_a
     .unwrap();
     drop(pressure);
     assert_eq!(run.view().unwrap().time_seconds(), fixture::n(0.5));
+    for query in observations {
+        assert!(matches!(
+            query.await,
+            Err(RunError::StaleBoundary {
+                expected: 0,
+                actual: 1
+            })
+        ));
+    }
+    // A response may be lost after publication. Replaying the original expected
+    // boundary cannot become another step, even though the adapter has no receipt.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match run.step_at(0, control()).await {
+                Err(RunError::Busy) => tokio::task::yield_now().await,
+                Err(RunError::StaleBoundary {
+                    expected: 0,
+                    actual: 1,
+                }) => break,
+                other => panic!("lost-reply retry advanced or closed run: {other:?}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(run.view().unwrap().boundary(), 1);
+    assert_eq!(run.step_at(1, control()).await.unwrap().boundary(), 2);
     run.unload();
     released(&service).await;
     handle.shutdown().await.unwrap();
@@ -562,6 +697,8 @@ async fn retained_run_refuses_complete_late_candidate_after_shutdown_or_owner_lo
         let pending = tokio::spawn(async move { caller.step(control()).await });
         entered(entered_rx).await;
         assert_eq!(run.view().unwrap().boundary(), 0);
+        let mut observation = Box::pin(run.acquire_objects_at(1));
+        poll_pending(observation.as_mut()).await;
         if abort {
             task.abort();
             assert!(task.await.unwrap_err().is_cancelled());
@@ -572,6 +709,10 @@ async fn retained_run_refuses_complete_late_candidate_after_shutdown_or_owner_lo
         assert!(!fence.is_current());
         release_tx.send(()).unwrap();
         assert!(matches!(pending.await.unwrap(), Err(RunError::Publication)));
+        assert!(
+            matches!(observation.await, Err(RunError::Closed)),
+            "a complete unaccepted candidate cannot become an observation"
+        );
         assert!(matches!(run.view(), Err(RunError::Closed)));
     }
 }

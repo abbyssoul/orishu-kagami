@@ -10,6 +10,10 @@ use orishu::client::ClusterAddress;
 pub struct LaunchOptions {
     /// Orishu client-plane endpoint selected for this session.
     pub cluster_address: ClusterAddress,
+    /// Optional explicit worker credential file for window run controls.
+    pub operator_token_file: Option<PathBuf>,
+    /// Additional worker TLS trust for this process only.
+    pub ca_cert: Option<PathBuf>,
     /// Quit by itself after this long, instead of running until the window
     /// closes — for automated testing on a machine where a windowed run has
     /// previously misbehaved.
@@ -22,6 +26,9 @@ pub struct LaunchOptions {
     /// Verified enabled component vocabulary supplied by startup IO. Kept out of
     /// `Model::new` so model tests never touch a user's installed plugins.
     pub plugin_schemas: kagami_catalog::SchemaRegistry,
+    /// Enabled exact declarations needing dependency resolution before use.
+    #[cfg(unix)]
+    pub unresolved_components: Vec<orishu_plugin::ContributionRef>,
     /// Bounded startup availability notice, never a silent provider substitution.
     pub plugin_notice: Option<String>,
     /// Startup-selected inventory for background scientific authoring effects.

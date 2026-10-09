@@ -146,6 +146,14 @@ impl Drop for DaemonLoadOwner {
     }
 }
 impl LoadCoordinator {
+    /// Producing daemon identity for a new command record, never a replay rebind.
+    pub(crate) fn source_node(&self) -> Result<orishu::model::node::NodeId, LoadError> {
+        self.0
+            .0
+            .service
+            .source_node()
+            .map_err(|_| LoadError::Closed)
+    }
     /// Bind an already opened journal to one admission service. This performs no
     /// IO and advertises no capability. `RunningWorker` installs/retains it once.
     pub fn new(

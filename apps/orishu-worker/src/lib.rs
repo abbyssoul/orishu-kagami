@@ -11,6 +11,8 @@ pub mod net_placement;
 pub mod operational_log;
 pub mod peer;
 mod reconciliation;
+#[cfg(unix)]
+pub mod run_commands;
 pub mod runtime;
 pub mod trace_context;
 pub mod trace_destination;

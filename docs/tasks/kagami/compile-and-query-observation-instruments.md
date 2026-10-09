@@ -15,6 +15,21 @@ same retained authority.
 
 ## Slices
 
+Implemented transport prerequisite: opt-in worker
+[field descriptor/query reads](../../protocol-field-observation-v1.md) and shared
+scientific client methods now carry exact-source typed sampling without private
+field-state transfer or scientific mutation. Kagami headless `workload field/sample`
+now consumes them for explicit channel/point queries. The attached remote-run
+window also supports explicit field-instance inspection and declared-channel point
+batches, with exact source/query identities and bounded numeric display.
+An explicit vector-3 channel can be mapped to normalized world-X/Y/Z direction
+glyphs locally, using all queried points with invalid/zero/range omissions. This
+does not infer coordinate frames or compile a saved instrument.
+These are one-shot reads, not Kagami instrument compilation, persistent UI/MCP
+instrument adoption, history or subscriptions. Descriptors do
+not pin later requests: stale boundaries refuse explicitly. Continuous observers
+must add explicit retention/baseline policy, not silently refresh a query.
+
 Initial field sampling follows ADR 0027's batched point interface. Point, finite
 plane, sphere, box and cylinder instruments with user-defined density/count
 compile to bounded positions, never shape-specific kernel calls. Define exact

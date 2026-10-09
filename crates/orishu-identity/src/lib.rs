@@ -36,7 +36,10 @@ mod tombstone;
 mod version;
 
 pub use fingerprint::CertFingerprint;
-pub use ids::{ClusterName, FormationId, NodeId, ProtocolRange, ProtocolVersion, WorkerName};
+pub use ids::{
+    ClusterName, FormationId, InvalidProtocolRange, NodeId, ProtocolRange, ProtocolVersion,
+    WorkerName,
+};
 pub use tombstone::{MembershipTombstone, RemovalMode};
 pub use version::{Incarnation, VersionTuple};
 

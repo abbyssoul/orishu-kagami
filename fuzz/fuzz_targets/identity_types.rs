@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 use orishu_identity::{
     CertFingerprint, ClusterName, FormationId, Incarnation, MembershipTombstone, NodeId,
-    VersionTuple, WorkerName,
+    ProtocolRange, VersionTuple, WorkerName,
 };
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -28,4 +28,6 @@ fuzz_target!(|data: &[u8]| {
     check::<VersionTuple>(data);
     check::<Incarnation>(data);
     check::<MembershipTombstone>(data);
+    // Deserialization enforces `min <= max`; a value that parses must round-trip.
+    check::<ProtocolRange>(data);
 });

@@ -1,10 +1,9 @@
 //! What the window holds: one document, and how it is being looked at.
 //!
 //! The split is the point. [`Model::document`] is the authority — the only
-//! thing that knows what an experiment is — and every other field is
-//! presentation: which object is selected, which subtrees are open, what is
-//! typed in the search box. ADR 0012 lists exactly those as client-local, so
-//! none of them dirties the document or enters undo.
+//! thing that knows what an experiment is. Other fields hold client-local
+//! presentation and IO adapters, including the separately owned run projection.
+//! They do not introduce an editable scientific authority or enter document undo.
 //!
 //! # The one field that is presentation but still saved
 //!
@@ -45,6 +44,31 @@ pub struct PropertyEdit {
 }
 
 pub struct Model {
+    #[cfg(unix)]
+    pub catalog: crate::catalog_form::Controller,
+    #[cfg(unix)]
+    pub component_form: crate::component_form::ComponentForm,
+    /// Exact local proposal owning the scientific lane after dependency handoff.
+    #[cfg(unix)]
+    pub(crate) component_extension: Option<uuid::Uuid>,
+    /// Transient complete-reset proposal; never a partially edited experiment.
+    #[cfg(unix)]
+    pub component_reset: crate::component_form::reset::Flow,
+    #[cfg(unix)]
+    pub component_dependencies: crate::physics_form::dependencies::Controller,
+    #[cfg(unix)]
+    pub physics_dependencies: crate::physics_form::dependencies::Controller,
+    #[cfg(unix)]
+    pub plugin_references: crate::plugins::references::References,
+    #[cfg(unix)]
+    pub plugin_management: crate::plugins::window::Controller,
+    #[cfg(unix)]
+    pub workload_preparation: crate::workload_preparation::Preparation,
+    /// Independent remote run projection; never editable experiment state.
+    pub run: crate::run::Controller,
+    /// Pending attachment consent is invalidated by editing/replacing the draft
+    /// or changing workspace modes while its network read is in flight.
+    pub(crate) run_attach_guard: Option<crate::document::AuthoringGuard>,
     /// One bounded background scientific edit, separate from MCP lifecycle.
     #[cfg(unix)]
     pub scientific_effects: crate::scientific_effect::ScientificEffects,
@@ -53,8 +77,10 @@ pub struct Model {
     #[cfg(unix)]
     pub kernel_choices: Vec<crate::plugins::KernelChoice>,
     #[cfg(unix)]
+    pub unresolved_components: Vec<orishu_plugin::ContributionRef>,
+    #[cfg(unix)]
     pub inventory_revision: Option<u64>,
-    /// The Orishu endpoint this client will use once the remote adapter is wired.
+    /// The explicit Orishu endpoint selected for this process.
     pub cluster_address: ClusterAddress,
     /// The experiment, and the only way to change one.
     ///
@@ -128,6 +154,11 @@ impl Model {
             schemas.insert(schema.clone());
         }
         let mut document = Document::new(schemas, Limits::DEFAULT);
+        #[cfg(unix)]
+        let plugin_references = crate::plugins::references::References::new(
+            options.scientific_plugins.as_ref().map(|p| p.store.clone()),
+            &mut document,
+        );
         if let Some(path) = options.open_path {
             // A fresh session has nothing to lose, so opening needs no
             // decision from anyone.
@@ -153,11 +184,47 @@ impl Model {
             McpState::Disabled
         };
 
-        Self {
+        let model = Self {
+            #[cfg(unix)]
+            catalog: crate::catalog_form::Controller::new(options.scientific_plugins.clone()),
+            #[cfg(unix)]
+            component_form: Default::default(),
+            #[cfg(unix)]
+            component_extension: None,
+            #[cfg(unix)]
+            component_reset: Default::default(),
+            #[cfg(unix)]
+            component_dependencies: crate::physics_form::dependencies::Controller::new(
+                options.scientific_plugins.clone(),
+            ),
+            #[cfg(unix)]
+            physics_dependencies: crate::physics_form::dependencies::Controller::new(
+                options.scientific_plugins.clone(),
+            ),
+            #[cfg(unix)]
+            plugin_references,
+            #[cfg(unix)]
+            plugin_management: crate::plugins::window::Controller::new(
+                options.scientific_plugins.clone(),
+            ),
+            #[cfg(unix)]
+            workload_preparation: crate::workload_preparation::Preparation::new(
+                options.scientific_plugins.clone(),
+            ),
+            run_attach_guard: None,
+            run: crate::run::Controller::new(options.operator_token_file.map(|token_file| {
+                crate::run::Connection {
+                    address: options.cluster_address.clone(),
+                    token_file,
+                    ca_cert: options.ca_cert,
+                }
+            })),
             #[cfg(unix)]
             inventory_revision: options.scientific_plugins.as_ref().map(|p| p.revision),
             #[cfg(unix)]
             kernel_choices: options.kernel_choices,
+            #[cfg(unix)]
+            unresolved_components: options.unresolved_components,
             #[cfg(unix)]
             physics_form: Default::default(),
             #[cfg(unix)]
@@ -180,7 +247,14 @@ impl Model {
             exit_deadline: options.exit_after.map(|lifetime| Instant::now() + lifetime),
             active_tool: Tool::Select,
             queue_len: 0,
-        }
+        };
+        #[cfg(unix)]
+        let model = {
+            let mut model = model;
+            model.plugin_references.drive(&mut model.document);
+            model
+        };
+        model
     }
 
     /// The camera and projection this window is currently looking through.
@@ -260,11 +334,10 @@ impl Model {
 
 /// The component schemas this build starts with.
 ///
-/// A stand-in for X-PLUGIN's inventory, which does not exist yet. It is
-/// deliberately *data*: nothing in the app branches on what is in here, so the
-/// inspector renders whatever the registry happens to contain and a real
-/// plugin inventory replaces this function without touching the UI.
-fn bundled_schemas() -> SchemaRegistry {
+/// Historical demo vocabulary, retained alongside exact installed plugin
+/// contributions for explicit old-document compatibility. These names never
+/// select executable physics or replace immutable plugin pins.
+pub(crate) fn bundled_schemas() -> SchemaRegistry {
     use kagami_catalog::{
         ComponentName, ComponentSchema, Dimension, PluginId, PropertyKind, PropertySchema,
         SchemaVersion,

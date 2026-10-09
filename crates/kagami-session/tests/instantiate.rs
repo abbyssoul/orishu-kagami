@@ -64,6 +64,65 @@ fn label(value: &str) -> DisplayName {
     DisplayName::new(value).expect("valid label")
 }
 
+#[test]
+fn binding_bounds_are_checked_before_catalog_lookup_and_preserve_the_authority() {
+    let (_directory, set) = catalog();
+    let limits = Limits {
+        max_variables: 1,
+        max_expression_bytes: 8,
+        ..Limits::DEFAULT
+    };
+    let mut authority = DocumentAuthority::new(schemas(), limits);
+    authority.adopt_catalog(set);
+    let before = authority.snapshot();
+    let cases = [
+        InstantiationSpec::new(template(), label("Sun"))
+            .binding("solar_mass".try_into().unwrap(), "1".repeat(9)),
+        InstantiationSpec::new(template(), label("Sun"))
+            .binding("solar_mass".try_into().unwrap(), "1")
+            .binding("unexpected".try_into().unwrap(), "2"),
+    ];
+    for (i, spec) in cases.into_iter().enumerate() {
+        let refused = instantiate(&mut authority, &format!("oversized-{i}"), spec).unwrap_err();
+        assert_eq!(refused.code(), "instantiation_limit_exceeded");
+        assert_eq!(authority.snapshot(), before);
+        assert_eq!(authority.history_status().depth, 0);
+    }
+}
+
+#[test]
+fn pure_preparation_uses_owned_command_bounds_without_adopting_or_minting_ids() {
+    let (_directory, set) = catalog();
+    let experiment = kagami_document::Experiment::new();
+    let spec = InstantiationSpec::new(template(), label("Sun"));
+    let limits = Limits {
+        max_commands_per_batch: 1,
+        ..Limits::DEFAULT
+    };
+    let refused =
+        kagami_session::instantiation::prepare(&experiment, &set, &schemas(), &spec, &limits)
+            .unwrap_err();
+    assert!(matches!(
+        refused,
+        kagami_session::SessionRejection::Document(reason)
+            if matches!(*reason, kagami_document::Rejection::BatchTooLarge { .. })
+    ));
+    let commands = kagami_session::instantiation::prepare(
+        &experiment,
+        &set,
+        &schemas(),
+        &spec,
+        &Limits::DEFAULT,
+    )
+    .unwrap();
+    assert!(commands.iter().any(|c| matches!(c,
+        kagami_document::ExperimentCommand::DefineVariable(v)
+            if v.namespace.as_str() == "objects.object_0"
+    )));
+    assert_eq!(experiment.counters().objects_minted(), 0);
+    assert_eq!(experiment.snapshot().object_count(), 0);
+}
+
 fn property(name: &str) -> PropertyName {
     PropertyName::new(name).expect("valid identifier")
 }

@@ -35,6 +35,12 @@ struct Cli {
         env = "ORISHU_HOST"
     )]
     host: Option<ClusterAddress>,
+    /// Enable window run inspection/controls using this private worker token file.
+    #[arg(long, env = "ORISHU_OPERATOR_TOKEN_FILE")]
+    operator_token_file: Option<PathBuf>,
+    /// Additional trusted worker certificate for window run access.
+    #[arg(long)]
+    ca_cert: Option<PathBuf>,
 
     /// Open the window normally, then quit on its own after SECONDS. Use
     /// this for automated testing, or the first time you try a windowed
@@ -71,6 +77,8 @@ enum Command {
     Plugin(kagami::plugins::cli::PluginArgs),
     /// Export a saved captured experiment into a new portable workload bundle.
     Export(kagami::export::ExportArgs),
+    /// Submit workloads, step/finish runs, or inspect receipts/objects/fields.
+    Workload(kagami::workload_cli::WorkloadArgs),
 }
 
 fn main() -> ExitCode {
@@ -95,6 +103,9 @@ fn main() -> ExitCode {
         return match command {
             Command::Plugin(args) => kagami::plugins::cli::run(args),
             Command::Export(args) => kagami::export::run(args),
+            Command::Workload(args) => {
+                kagami::workload_cli::run(cli.host.unwrap_or_default(), args)
+            }
         };
     }
 
@@ -115,6 +126,8 @@ fn main() -> ExitCode {
     };
     let options = LaunchOptions {
         cluster_address: cli.host.unwrap_or_default(),
+        operator_token_file: cli.operator_token_file,
+        ca_cert: cli.ca_cert,
         exit_after: cli
             .exit_after
             .map(|seconds| Duration::from_secs_f64(seconds.max(0.1))),
@@ -126,6 +139,8 @@ fn main() -> ExitCode {
         scientific_plugins: plugins.scientific,
         #[cfg(unix)]
         kernel_choices: plugins.kernels,
+        #[cfg(unix)]
+        unresolved_components: plugins.unresolved_components,
     };
 
     // AutoVsync (iced's default) blocks each frame on the compositor's
@@ -163,6 +178,8 @@ struct StartupPlugins {
     scientific: Option<kagami::scientific_effect::ScientificPlugins>,
     #[cfg(unix)]
     kernels: Vec<kagami::plugins::KernelChoice>,
+    #[cfg(unix)]
+    unresolved_components: Vec<orishu_plugin::ContributionRef>,
 }
 
 fn startup_plugins(
@@ -193,6 +210,7 @@ fn startup_plugins(
         }
         Ok(StartupPlugins {
             kernels: models.kernels,
+            unresolved_components: available.unavailable,
             schemas: available.schemas,
             notice,
             scientific: Some(kagami::scientific_effect::ScientificPlugins {
@@ -219,6 +237,138 @@ fn startup_plugins(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn headless_workload_commands_require_explicit_identity_and_credential_file() {
+        use kagami::workload_cli::WorkloadCommand;
+        let digest = format!("sha256:{}", "01".repeat(32));
+        let cli = Cli::try_parse_from([
+            "kagami",
+            "--host",
+            "/tmp/worker.sock",
+            "workload",
+            "--operator-token-file",
+            "/tmp/operator.token",
+            "submit",
+            "run.orishu",
+            "--formation-id",
+            "formation-a",
+            "--operation-id",
+            "load-1",
+            "--workload-id",
+            &digest,
+            "--json",
+        ])
+        .unwrap();
+        assert_eq!(
+            cli.host,
+            Some(ClusterAddress::UnixSocket("/tmp/worker.sock".into()))
+        );
+        let Some(Command::Workload(args)) = cli.command else {
+            panic!("workload command");
+        };
+        assert!(args.json);
+        assert!(matches!(args.command, WorkloadCommand::Submit { .. }));
+        assert!(
+            Cli::try_parse_from([
+                "kagami",
+                "workload",
+                "--operator-token-file",
+                "token",
+                "receipt"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "kagami",
+                "workload",
+                "--operator-token",
+                "raw-secret",
+                "current"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn manual_controls_require_exact_identity_boundary_and_action() {
+        use kagami::workload_cli::WorkloadCommand;
+        let digest = format!("sha256:{}", "01".repeat(32));
+        let common = ["kagami", "workload", "--operator-token-file", "token"];
+        let identity = [
+            "--formation-id",
+            "formation-a",
+            "--workload-id",
+            &digest,
+            "--workload-epoch",
+            "1",
+        ];
+        let control = ["--operation-id", "step-1", "--expected-boundary", "0"];
+        for name in [
+            "step",
+            "finish",
+            "command-receipt",
+            "status",
+            "objects",
+            "field",
+            "sample",
+        ] {
+            let mut args = common.to_vec();
+            args.push(name);
+            assert!(Cli::try_parse_from(&args).is_err());
+            args.extend(identity);
+            if matches!(name, "objects" | "field" | "sample") {
+                assert!(Cli::try_parse_from(&args).is_err());
+                args.extend(["--boundary", "0"]);
+                if name != "objects" {
+                    args.extend(["--field", "newtonian"]);
+                }
+                if name == "sample" {
+                    args.extend([
+                        "--request-id",
+                        "42",
+                        "--channel",
+                        "gravity",
+                        "--point",
+                        "-1,2,3",
+                    ]);
+                }
+            } else if name != "status" {
+                args.extend(control);
+            }
+            if name == "command-receipt" {
+                assert!(Cli::try_parse_from(&args).is_err());
+                args.extend(["--action", "step"]);
+            }
+            let cli = Cli::try_parse_from(&args).unwrap();
+            let Some(Command::Workload(value)) = cli.command else {
+                panic!("workload command")
+            };
+            assert!(matches!(
+                value.command,
+                WorkloadCommand::Step(_)
+                    | WorkloadCommand::Finish(_)
+                    | WorkloadCommand::CommandReceipt { .. }
+                    | WorkloadCommand::Status(_)
+                    | WorkloadCommand::Objects { .. }
+                    | WorkloadCommand::Field(_)
+                    | WorkloadCommand::Sample(_)
+            ));
+            let epoch = args
+                .iter()
+                .position(|arg| *arg == "--workload-epoch")
+                .unwrap()
+                + 1;
+            args[epoch] = "0";
+            assert!(Cli::try_parse_from(&args).is_err());
+        }
+        for name in ["pause", "resume", "stop", "run", "unload"] {
+            let mut args = common.to_vec();
+            args.push(name);
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
 
     #[test]
     fn parses_headless_export_with_exact_inventory_guard() {

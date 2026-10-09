@@ -1,7 +1,8 @@
 # Experimental scientific-load HTTP v1
 
-Status: **implemented opt-in whole-upload admission, receipt lookup and current-run descriptor; no public run stepping/control or observations yet**.
+Status: **implemented opt-in whole-upload admission, receipt lookup and current-run descriptor; manual controls use the separate scientific-command profile; observations remain work**.
 Decision: [ADR 0031](adr/0031-expose-bounded-identified-scientific-load-http.md).
+Related: [scientific-command HTTP v1](protocol-scientific-command-v1.md).
 
 ## Enablement and authority
 
@@ -12,8 +13,8 @@ which overrides file settings, including explicit false. Default is disabled.
 An unknown scientific configuration key or non-boolean value fails startup;
 non-Unix enablement is unsupported by the current private journal backend.
 
-Startup opens the owned/private receipt journal and shared sandbox on a blocking
-IO lane, then installs the daemon coordinator before exposing client listeners.
+Startup opens both owned/private load and command receipt journals and the shared
+sandbox on a blocking IO lane, then installs daemon coordinators before exposing client listeners.
 Corrupt/incompatible receipt history prevents enabled startup, never resets it.
 All routes below require exactly one `Authorization: Bearer <operator-token>`
 header, including Unix-socket reads. TCP still requires explicitly configured TLS;
@@ -163,7 +164,9 @@ transport timeout may be shorter). Before serde, the narrow fact-response scanne
 bounds depth (12), values (256), map fields (16) and UTF-8 strings (1024 bytes),
 rejects duplicates/trailing bytes, and admits only maps/text/unsigned integers/null.
 This is response validation, not a new canonical workload codec. The typed envelope
-then permits only receipts/descriptors and rejects unknown fields/variants.
+then permits scientific fact variants and rejects unknown fields/variants. Load
+methods still require the appropriate load receipt/descriptor; only separate
+command/status methods admit finite simulation-time floats.
 
 Every receipt must match the complete requested identity, and accepted descriptors
 must match that embedded request with a nonzero epoch. HTTP 202 is valid only for
@@ -176,7 +179,11 @@ Shared transport builders disable automatic retries, redirects and automatic
 decompression even if another dependency enables optional reqwest decompressors.
 The CBOR middleware now supplies a default media type without overwriting an
 explicit versioned upload type. Existing operator CBOR calls retain their format.
-These APIs do not yet add Kagami commands/window submission or public run controls.
+Kagami now exposes these through Unix headless `workload submit/receipt/current`
+commands; see [usage, output and exit codes](../apps/kagami/README.md#headless-workload-submission).
+Window submission and window run controls remain open; manual step/finish/status
+now have [worker routes, shared-client methods](protocol-scientific-command-v1.md)
+and [headless Kagami controls](../apps/kagami/README.md#headless-manual-run-controls).
 
 ## Evidence and remaining work
 
@@ -190,6 +197,6 @@ client as well as independent raw-wire checks. Process restart preserves accepta
 uploads recover Indeterminate. Unit tests exercise frame reuse, EOF signalling,
 trailer/error rejection and bounded empty-frame work.
 
-Kagami submission commands/window integration, public step/stop/unload, observations,
+Kagami controls/window integration, public pause/resume/unload, observations,
 thin/resumable transfer, cache administration, distributed/reset allocation and
 durable scientific storage remain open. Do not infer those from these routes.

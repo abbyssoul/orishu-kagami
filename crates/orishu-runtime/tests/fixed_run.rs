@@ -566,9 +566,21 @@ fn leased_snapshots_survive_advance_and_observer_limits_or_failures_do_not_block
         control(),
     )
     .unwrap();
+    let initial_objects = run.acquire_objects().unwrap();
+    assert!(initial_objects.forces().is_none());
+    assert!(Arc::ptr_eq(
+        &initial_objects.objects().bytes,
+        &run.state().objects().bytes
+    ));
+    assert!(
+        matches!(initial_objects.source(), SnapshotSource::Committed { boundary: 0, time_seconds, .. } if *time_seconds == FiniteF64::ZERO)
+    );
+    assert!(run.acquire_field(&"field-0".parse().unwrap()).is_err());
+    drop(initial_objects);
     let old = run.acquire_field(&"field-0".parse().unwrap()).unwrap();
     let old_query = query(&old, 1);
     assert!(run.acquire_field(&"field-0".parse().unwrap()).is_err());
+    assert!(run.acquire_objects().is_err());
     run.advance(control()).unwrap();
     let worker = std::thread::spawn(move || {
         let x = sampled_x(&old, old_query);
@@ -619,6 +631,56 @@ fn leased_snapshots_survive_advance_and_observer_limits_or_failures_do_not_block
     cancelled.cancel();
     assert!(run.advance(cancelled).is_err());
     same_state(&before, run.state());
+    drop(current);
+    let objects = run.acquire_objects().unwrap();
+    assert!(Arc::ptr_eq(
+        &objects.objects().bytes,
+        &run.state().objects().bytes
+    ));
+    assert!(Arc::ptr_eq(
+        &objects.forces().unwrap().bytes,
+        &run.state().forces().unwrap().bytes
+    ));
+    let retained_bytes = objects.objects().bytes.clone();
+    let retained_forces = objects.forces().unwrap().bytes.clone();
+    let mut frame = Vec::new();
+    let frame_id = objects
+        .encode(&mut frame, ObjectObservationLimits::default())
+        .unwrap();
+    let observation =
+        ObjectObservation::read(&frame, frame_id, ObjectObservationLimits::default()).unwrap();
+    observation.check_source(objects.source()).unwrap();
+    assert_eq!(observation.objects().bytes(), retained_bytes.as_ref());
+    assert_eq!(
+        observation.forces().unwrap().bytes(),
+        retained_forces.as_ref()
+    );
+    assert_eq!(observation.force_evaluation_boundary(), Some(2));
+    run.advance(control()).unwrap();
+    assert_eq!(objects.objects().bytes, retained_bytes);
+    assert_eq!(objects.forces().unwrap().bytes, retained_forces);
+    assert!(matches!(
+        objects.source(),
+        SnapshotSource::Committed { boundary: 3, .. }
+    ));
+    assert!(
+        run.acquire_objects().is_err(),
+        "old object lease shares the same count quota"
+    );
+    drop(run);
+    let mut repeated_frame = Vec::new();
+    assert_eq!(
+        objects
+            .encode(&mut repeated_frame, ObjectObservationLimits::default())
+            .unwrap(),
+        frame_id
+    );
+    assert_eq!(repeated_frame, frame);
+    assert_eq!(
+        objects.objects().bytes,
+        retained_bytes,
+        "retained observation survives owner disposal"
+    );
 }
 
 #[test]

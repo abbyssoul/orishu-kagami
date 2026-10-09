@@ -1,9 +1,9 @@
-//! Worker-private, bounded durable admission history; not execution authority.
+//! Worker-private, bounded durable operation history; not execution authority.
 //!
 //! Call on an IO lane, never the formation owner. A daemon coordinator must keep
 //! completion tickets independently of client connections, reserve BEFORE reading
-//! a workload, and finish Accepted only AFTER initial publication. This module is
-//! an internal prerequisite; no public workload route uses it yet.
+//! a workload/action, and finish Accepted/Applied only AFTER known publication.
+//! Load serving uses the load profile; command serving remains separate work.
 use std::{
     fs::File,
     io::{Read, Write},
@@ -11,10 +11,7 @@ use std::{
     sync::Arc,
 };
 
-use orishu::model::{
-    node::NodeId,
-    run_load::{LoadOutcome, LoadReceipt, LoadRequest, LoadState},
-};
+use orishu::model::{node::NodeId, run_load::LoadReceipt};
 use rustix::{
     fd::OwnedFd,
     fs::{AtFlags, FlockOperation},
@@ -29,6 +26,23 @@ use crate::{
     peer::codec,
 };
 
+mod record;
+pub use record::ReceiptRecord;
+
+/// Existing load journal and on-disk format, unchanged by command support.
+pub type ReceiptStore = ReceiptJournal<LoadReceipt>;
+/// Separate fixed-profile command journal; never reads or rewrites load records.
+pub type CommandReceiptStore = ReceiptJournal<orishu::model::run_command::RunCommandReceipt>;
+/// Load completion capability, retained for existing admission callers.
+pub type CompletionTicket = JournalTicket<LoadReceipt>;
+/// Exact load replay or newly reserved durable load intent.
+pub type BeginLoad = BeginReceipt<LoadReceipt>;
+/// Command completion capability, independent of load tickets and other stores.
+pub type CommandCompletionTicket = JournalTicket<orishu::model::run_command::RunCommandReceipt>;
+/// Exact command replay or newly reserved durable command intent.
+pub type BeginCommand = BeginReceipt<orishu::model::run_command::RunCommandReceipt>;
+pub(crate) type ReceiptHistory = JournalHistory<LoadReceipt>;
+
 /// Lifetime history cap; no eviction may turn an old operation into new work.
 pub const MAX_RECEIPTS: usize = 256;
 /// Checked before reading/parsing an existing snapshot, including recovery.
@@ -41,31 +55,31 @@ const LOCK: &str = ".workload-load-receipts.lock";
 #[derive(Debug, thiserror::Error)]
 pub enum ReceiptStoreError {
     /// Local storage could not establish durability; reopening is required.
-    #[error("load receipt persistence failed")]
+    #[error("operation receipt persistence failed")]
     Io(#[source] std::io::Error),
     /// Directory/file ownership, type or permissions are unsafe.
-    #[error("unsafe load receipt storage")]
+    #[error("unsafe operation receipt storage")]
     UnsafePath,
     /// Another instance holds the receipt writer lock.
-    #[error("load receipt storage already in use")]
+    #[error("operation receipt storage already in use")]
     InUse,
     /// Existing bytes/shape/version/identity are not a supported bounded snapshot.
-    #[error("invalid load receipt snapshot")]
+    #[error("invalid operation receipt snapshot")]
     Invalid,
-    /// Same formation and operation ID attempted a different immutable root.
-    #[error("load operation identity conflict")]
+    /// Same profile/formation/operation ID attempted different immutable intent.
+    #[error("operation identity conflict")]
     Conflict,
     /// History is full. Replays still work; new requests are refused.
-    #[error("load receipt history capacity exhausted")]
+    #[error("operation receipt history capacity exhausted")]
     Full,
     /// Ticket is from another store/incarnation or its receipt is already final.
-    #[error("load receipt ticket is not pending in this store")]
+    #[error("operation receipt ticket is not pending in this store")]
     Ticket,
     /// Proposed acceptance does not identify the requested execution.
-    #[error("load receipt outcome identity mismatch")]
+    #[error("operation receipt outcome identity mismatch")]
     Outcome,
     /// An earlier uncertain write prohibits further operations in this instance.
-    #[error("load receipt durability is uncertain; reopen storage")]
+    #[error("operation receipt durability is uncertain; reopen storage")]
     Poisoned,
 }
 
@@ -84,31 +98,26 @@ impl From<CredentialError> for ReceiptStoreError {
 }
 
 #[derive(Serialize, Deserialize)]
-enum Version {
-    #[serde(rename = "orishu.worker-load-receipts/v1")]
-    V1,
-}
-
-#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Snapshot {
-    api_version: Version,
+#[serde(bound(deserialize = "R: Deserialize<'de>"))]
+struct Snapshot<R> {
+    api_version: String,
     #[serde(deserialize_with = "bounded_receipts")]
-    receipts: Vec<LoadReceipt>,
+    receipts: Vec<R>,
 }
 
-fn bounded_receipts<'de, D: de::Deserializer<'de>>(
+fn bounded_receipts<'de, D: de::Deserializer<'de>, R: Deserialize<'de>>(
     deserializer: D,
-) -> Result<Vec<LoadReceipt>, D::Error> {
-    struct Receipts;
-    impl<'de> Visitor<'de> for Receipts {
-        type Value = Vec<LoadReceipt>;
+) -> Result<Vec<R>, D::Error> {
+    struct Receipts<R>(std::marker::PhantomData<R>);
+    impl<'de, R: Deserialize<'de>> Visitor<'de> for Receipts<R> {
+        type Value = Vec<R>;
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("bounded load receipts")
+            formatter.write_str("bounded operation receipts")
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
             if seq.size_hint().is_some_and(|length| length > MAX_RECEIPTS) {
-                return Err(de::Error::custom("load receipt count exceeded"));
+                return Err(de::Error::custom("operation receipt count exceeded"));
             }
             let mut result = Vec::new();
             while result.len() < MAX_RECEIPTS {
@@ -123,56 +132,53 @@ fn bounded_receipts<'de, D: de::Deserializer<'de>>(
             impl<'de> de::DeserializeSeed<'de> for Refuse {
                 type Value = ();
                 fn deserialize<D: de::Deserializer<'de>>(self, _: D) -> Result<(), D::Error> {
-                    Err(de::Error::custom("load receipt count exceeded"))
+                    Err(de::Error::custom("operation receipt count exceeded"))
                 }
             }
             seq.next_element_seed(Refuse)?;
             Ok(result)
         }
     }
-    deserializer.deserialize_seq(Receipts)
+    deserializer.deserialize_seq(Receipts(std::marker::PhantomData))
 }
 
 /// Nonserializable completion capability from one durable reservation.
 /// Dropping it does not erase intent or authorize another admission.
-pub struct CompletionTicket {
+pub struct JournalTicket<R> {
     incarnation: Arc<()>,
-    receipt: LoadReceipt,
+    receipt: R,
 }
-impl CompletionTicket {
+impl<R> JournalTicket<R> {
     /// Durable pending fact; this is NOT run acceptance.
-    pub fn receipt(&self) -> &LoadReceipt {
+    pub fn receipt(&self) -> &R {
         &self.receipt
     }
 }
 
 /// Replays never yield a fresh completion ticket or permission to execute.
-pub enum BeginLoad {
+pub enum BeginReceipt<R> {
     /// Durable pending reservation created exactly once.
-    Started(CompletionTicket),
+    Started(JournalTicket<R>),
     /// Historical state of the exact same logical request.
-    Replay(LoadReceipt),
+    Replay(R),
 }
 
 /// Bounded read-only projection of the last known durable history. Only the IO
 /// owner can publish a replacement; readers cannot issue completion tickets.
 #[derive(Clone)]
-pub(crate) struct ReceiptHistory(Vec<LoadReceipt>);
-impl ReceiptHistory {
-    pub(crate) fn lookup(
-        &self,
-        request: &LoadRequest,
-    ) -> Result<Option<LoadReceipt>, ReceiptStoreError> {
+pub(crate) struct JournalHistory<R>(Vec<R>);
+impl<R: ReceiptRecord> JournalHistory<R> {
+    pub(crate) fn lookup(&self, request: &R::Request) -> Result<Option<R>, ReceiptStoreError> {
         lookup(&self.0, request).map(|receipt| receipt.cloned())
     }
 }
 
 /// Single-writer Unix IO shell retaining bounded history across worker restarts.
-pub struct ReceiptStore {
+pub struct ReceiptJournal<R: ReceiptRecord> {
     directory: OwnedFd,
     _lock: File,
     incarnation: Arc<()>,
-    receipts: Vec<LoadReceipt>,
+    receipts: Vec<R>,
     poisoned: bool,
     #[cfg(test)]
     fail_at: Option<WriteStage>,
@@ -187,12 +193,12 @@ enum WriteStage {
     DirectorySynced,
 }
 
-impl ReceiptStore {
-    pub(crate) fn history(&self) -> Result<ReceiptHistory, ReceiptStoreError> {
+impl<R: ReceiptRecord> ReceiptJournal<R> {
+    pub(crate) fn history(&self) -> Result<JournalHistory<R>, ReceiptStoreError> {
         if self.poisoned {
             return Err(ReceiptStoreError::Poisoned);
         }
-        Ok(ReceiptHistory(self.receipts.clone()))
+        Ok(JournalHistory(self.receipts.clone()))
     }
     /// Open an existing owned/private directory (normally worker credentials).
     /// Corrupt committed files fail closed, never reset history. Pending records
@@ -200,7 +206,7 @@ impl ReceiptStore {
     /// nonblocking writer lock allows coexistence with the credentials lock.
     pub fn open(path: &Path) -> Result<Self, ReceiptStoreError> {
         let directory = credentials::open_private_directory(path)?;
-        let lock = credentials::open_private(&directory, LOCK, true)?;
+        let lock = credentials::open_private(&directory, R::LOCK, true)?;
         rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive).map_err(|error| {
             if error == rustix::io::Errno::WOULDBLOCK {
                 ReceiptStoreError::InUse
@@ -208,7 +214,7 @@ impl ReceiptStore {
                 ReceiptStoreError::Io(error.into())
             }
         })?;
-        let receipts = match credentials::open_private(&directory, SNAPSHOT, false) {
+        let receipts = match credentials::open_private(&directory, R::SNAPSHOT, false) {
             Ok(file) => {
                 if file.metadata()?.len() > MAX_RECEIPT_BYTES as u64 {
                     return Err(ReceiptStoreError::Invalid);
@@ -219,16 +225,16 @@ impl ReceiptStore {
                 if bytes.len() > MAX_RECEIPT_BYTES {
                     return Err(ReceiptStoreError::Invalid);
                 }
-                let snapshot: Snapshot =
-                    codec::decode(&bytes).map_err(|_| ReceiptStoreError::Invalid)?;
+                let snapshot: Snapshot<R> = codec::decode_receipts(&bytes, R::FINITE_FLOATS)
+                    .map_err(|_| ReceiptStoreError::Invalid)?;
+                if snapshot.api_version != R::VERSION {
+                    return Err(ReceiptStoreError::Invalid);
+                }
                 // Reject even identical duplicate keys: no file ordering may
                 // decide which history is authoritative.
                 let mut keys = std::collections::BTreeSet::new();
                 for receipt in &snapshot.receipts {
-                    if !keys.insert((
-                        receipt.request().formation_id(),
-                        receipt.request().operation_id(),
-                    )) {
+                    if !keys.insert(R::key(receipt.request())) {
                         return Err(ReceiptStoreError::Invalid);
                     }
                 }
@@ -241,9 +247,9 @@ impl ReceiptStore {
         };
         // A staging name is not an acknowledged snapshot. Remove only this exact
         // owned/private regular single-link file while holding the writer lock.
-        match credentials::open_private(&directory, STAGING, false) {
+        match credentials::open_private(&directory, R::STAGING, false) {
             Ok(_) => {
-                rustix::fs::unlinkat(&directory, STAGING, AtFlags::empty())
+                rustix::fs::unlinkat(&directory, R::STAGING, AtFlags::empty())
                     .map_err(std::io::Error::from)?;
             }
             Err(CredentialError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -258,22 +264,7 @@ impl ReceiptStore {
             #[cfg(test)]
             fail_at: None,
         };
-        let recovered: Vec<_> = store
-            .receipts
-            .iter()
-            .map(|receipt| {
-                if receipt.state() == &LoadState::Pending {
-                    LoadReceipt::new(
-                        receipt.request().clone(),
-                        receipt.source_node_id().clone(),
-                        LoadState::Finished(LoadOutcome::Indeterminate),
-                    )
-                    .expect("indeterminate has no execution identity")
-                } else {
-                    receipt.clone()
-                }
-            })
-            .collect();
+        let recovered: Vec<_> = store.receipts.iter().map(ReceiptRecord::recover).collect();
         // Establish even an empty history durably before exposing a usable store.
         store.replace(recovered)?;
         Ok(store)
@@ -281,47 +272,46 @@ impl ReceiptStore {
 
     /// Read exact retry state. Conflict is checked even at capacity. Callers must
     /// authenticate first; this store does not make a network authorization choice.
-    pub fn lookup(&self, request: &LoadRequest) -> Result<Option<&LoadReceipt>, ReceiptStoreError> {
+    pub fn lookup(&self, request: &R::Request) -> Result<Option<&R>, ReceiptStoreError> {
         if self.poisoned {
             return Err(ReceiptStoreError::Poisoned);
         }
         lookup(&self.receipts, request)
     }
 
-    /// Persist intent before input/admission. History replays must precede current
+    /// Persist intent before input/admission or run control. History replays must precede current
     /// formation eligibility checks; eligibility for NEW work remains the owner's
     /// responsibility. The passed source node is ignored for historical replays.
     pub fn begin(
         &mut self,
-        request: LoadRequest,
+        request: R::Request,
         source_node_id: NodeId,
-    ) -> Result<BeginLoad, ReceiptStoreError> {
+    ) -> Result<BeginReceipt<R>, ReceiptStoreError> {
         if let Some(receipt) = self.lookup(&request)? {
-            return Ok(BeginLoad::Replay(receipt.clone()));
+            return Ok(BeginReceipt::Replay(receipt.clone()));
         }
         if self.receipts.len() == MAX_RECEIPTS {
             return Err(ReceiptStoreError::Full);
         }
-        let receipt = LoadReceipt::new(request, source_node_id, LoadState::Pending)
-            .expect("pending has no execution identity");
+        let receipt = R::pending(request, source_node_id);
         let mut next = self.receipts.clone();
         next.push(receipt.clone());
         self.replace(next)?;
-        Ok(BeginLoad::Started(CompletionTicket {
+        Ok(BeginReceipt::Started(JournalTicket {
             incarnation: Arc::clone(&self.incarnation),
             receipt,
         }))
     }
 
-    /// Record an outcome exactly once. `Accepted` requires a known initial
+    /// Record an outcome exactly once. Accepted/Applied requires known owner
     /// publication; uncertain publication must use Indeterminate, never Refused.
     /// IO errors poison this instance, since even a failed fsync may have exposed
     /// a new snapshot. A final receipt does not retain or restore a live RunHandle.
     pub fn finish(
         &mut self,
-        ticket: &CompletionTicket,
-        outcome: LoadOutcome,
-    ) -> Result<LoadReceipt, ReceiptStoreError> {
+        ticket: &JournalTicket<R>,
+        outcome: R::Outcome,
+    ) -> Result<R, ReceiptStoreError> {
         if self.poisoned {
             return Err(ReceiptStoreError::Poisoned);
         }
@@ -331,30 +321,26 @@ impl ReceiptStore {
         let index = self
             .receipts
             .iter()
-            .position(|receipt| {
-                receipt == &ticket.receipt && receipt.state() == &LoadState::Pending
-            })
+            .position(|receipt| receipt == &ticket.receipt && receipt.is_pending())
             .ok_or(ReceiptStoreError::Ticket)?;
-        let receipt = LoadReceipt::new(
-            ticket.receipt.request().clone(),
-            ticket.receipt.source_node_id().clone(),
-            LoadState::Finished(outcome),
-        )
-        .map_err(|_| ReceiptStoreError::Outcome)?;
+        let receipt = ticket.receipt.finished(outcome)?;
         let mut next = self.receipts.clone();
         next[index] = receipt.clone();
         self.replace(next)?;
         Ok(receipt)
     }
 
-    fn replace(&mut self, receipts: Vec<LoadReceipt>) -> Result<(), ReceiptStoreError> {
+    fn replace(&mut self, receipts: Vec<R>) -> Result<(), ReceiptStoreError> {
         if receipts.len() > MAX_RECEIPTS {
             return Err(ReceiptStoreError::Full);
         }
-        let bytes = codec::encode(&Snapshot {
-            api_version: Version::V1,
-            receipts: receipts.clone(),
-        })
+        let bytes = codec::encode_receipts(
+            &Snapshot {
+                api_version: R::VERSION.into(),
+                receipts: receipts.clone(),
+            },
+            R::FINITE_FLOATS,
+        )
         .map_err(|_| ReceiptStoreError::Invalid)?;
         if bytes.len() > MAX_RECEIPT_BYTES {
             return Err(ReceiptStoreError::Invalid);
@@ -368,13 +354,13 @@ impl ReceiptStore {
     }
 
     fn write(&self, bytes: &[u8]) -> Result<(), ReceiptStoreError> {
-        let mut file = credentials::create_private(&self.directory, STAGING)?;
+        let mut file = credentials::create_private(&self.directory, R::STAGING)?;
         self.checkpoint(WriteStage::Created)?;
         file.write_all(bytes)?;
         self.checkpoint(WriteStage::Written)?;
         file.sync_all()?;
         self.checkpoint(WriteStage::Synced)?;
-        rustix::fs::renameat(&self.directory, STAGING, &self.directory, SNAPSHOT)
+        rustix::fs::renameat(&self.directory, R::STAGING, &self.directory, R::SNAPSHOT)
             .map_err(std::io::Error::from)?;
         self.checkpoint(WriteStage::Renamed)?;
         rustix::fs::fsync(&self.directory).map_err(std::io::Error::from)?;
@@ -391,22 +377,20 @@ impl ReceiptStore {
     }
 }
 
-fn same_key(left: &LoadRequest, right: &LoadRequest) -> bool {
-    left.formation_id() == right.formation_id() && left.operation_id() == right.operation_id()
-}
-
-fn lookup<'a>(
-    receipts: &'a [LoadReceipt],
-    request: &LoadRequest,
-) -> Result<Option<&'a LoadReceipt>, ReceiptStoreError> {
+fn lookup<'a, R: ReceiptRecord>(
+    receipts: &'a [R],
+    request: &R::Request,
+) -> Result<Option<&'a R>, ReceiptStoreError> {
     let receipt = receipts
         .iter()
-        .find(|receipt| same_key(receipt.request(), request));
+        .find(|receipt| R::key(receipt.request()) == R::key(request));
     if receipt.is_some_and(|receipt| receipt.request() != request) {
         return Err(ReceiptStoreError::Conflict);
     }
     Ok(receipt)
 }
 
+#[cfg(test)]
+mod command_tests;
 #[cfg(test)]
 mod tests;

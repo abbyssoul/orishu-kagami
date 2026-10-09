@@ -29,6 +29,9 @@ pub(super) fn build(
     authoring: &Limits,
     policy: SceneLimits,
 ) -> Result<Vec<u8>, ProjectionError> {
+    if let Some(lock) = snapshot.dependencies() {
+        crate::dependencies::reconcile(lock, selected.descriptor()).map_err(Rejection::from)?;
+    }
     if snapshot.object_count() > policy.objects
         || snapshot.variable_count() > policy.variables
         || selected.descriptor().kernel_instances.len() > policy.kernels

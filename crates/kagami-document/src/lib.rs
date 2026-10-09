@@ -108,6 +108,7 @@
 
 pub mod capability;
 pub mod command;
+pub mod dependencies;
 pub mod geometry;
 pub mod history;
 pub mod hydrate;

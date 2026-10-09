@@ -212,6 +212,16 @@ pub enum SessionRejection {
     /// An instantiation was submitted with no catalog loaded.
     #[error("no catalog is loaded, so there is no template to instantiate")]
     NoCatalogLoaded,
+    /// Caller or materialized input exceeds the receiving preparation policy.
+    #[error("instantiation {resource} exceeds its bound ({found} > {limit})")]
+    InstantiationLimit {
+        /// Bounded resource category, never caller-supplied text.
+        resource: &'static str,
+        /// Observed size/count.
+        found: usize,
+        /// Receiving limit.
+        limit: usize,
+    },
     /// The catalog refused the instantiation.
     ///
     /// Reported with the catalog's own structured reason — an unknown or
@@ -273,6 +283,7 @@ impl SessionRejection {
             Self::CommandIdentityConflict { .. } => "command_identity_conflict",
             Self::UnsavedChanges => "unsaved_changes",
             Self::NoCatalogLoaded => "no_catalog_loaded",
+            Self::InstantiationLimit { .. } => "instantiation_limit_exceeded",
             Self::Instantiation(_) => "instantiation_refused",
             Self::GestureNotOpen { .. } => "gesture_not_open",
             Self::NoGestureOpen => "no_gesture_open",

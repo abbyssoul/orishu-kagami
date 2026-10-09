@@ -85,7 +85,10 @@ receipts). This is admission-time work, not a per-tick hot path. Fault injection
 tests cover failures around create/write/file-sync/rename/directory-sync, but do
 not emulate every filesystem or prove hardware power-loss behavior. Durability
 depends on the host filesystem honoring sync/atomic rename. The backend is Unix
-only and is not automatically opened by worker bootstrap yet.
+only. Opt-in worker startup now opens the load profile under
+[ADR 0031](0031-expose-bounded-identified-scientific-load-http.md). The later
+[command journal profile](0032-retain-identified-run-command-outcomes.md) reuses
+its IO machinery but is not yet wired into startup or public command serving.
 
 ### Internal coordinator ownership
 
@@ -104,5 +107,5 @@ surface includes lost publication acknowledgement. A known published run is
 retained before final receipt IO. If that IO fails, the run remains retrievable,
 receipt history becomes unavailable and new admission fails closed. Unexpected
 task failure similarly poisons history; restart recovery, not automatic retry,
-resolves its durable pending record. HTTP and automatic startup wiring remain
-separate work against this implementation, not another ownership design.
+resolves its durable pending record. Opt-in HTTP and automatic startup wiring are
+now supplied by ADR 0031; public run-command coordination remains separate work.

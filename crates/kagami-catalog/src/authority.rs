@@ -26,6 +26,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use thiserror::Error;
 
@@ -141,6 +142,13 @@ bounded_identity!(
 pub enum CatalogCommand {
     /// Re-read the catalog directory from disk.
     Reload,
+    /// Reload using an explicitly refreshed capability projection. This changes
+    /// availability, not template content/pins; the normal revision and replay
+    /// guards apply before adopting either schemas or the new catalog snapshot.
+    ReloadWithSchemas {
+        /// Caller-owned current capabilities, not new template/provider intent.
+        schemas: SchemaRegistry,
+    },
     /// Add a template to `file`, creating the file if it does not exist.
     Create {
         /// Catalog-root-relative file to write into.
@@ -430,7 +438,7 @@ pub struct CatalogAuthority {
     root: CatalogRoot,
     registry: SchemaRegistry,
     limits: Limits,
-    set: CatalogSet,
+    set: Arc<CatalogSet>,
     revision: CatalogRevision,
     events: VecDeque<CatalogEvent>,
     accepted: BTreeMap<CommandId, CatalogOutcome>,
@@ -460,7 +468,7 @@ impl CatalogAuthority {
             root,
             registry,
             limits,
-            set,
+            set: Arc::new(set),
             revision: CatalogRevision::INITIAL,
             events: VecDeque::new(),
             accepted: BTreeMap::new(),
@@ -481,6 +489,13 @@ impl CatalogAuthority {
     /// The currently loaded snapshot.
     pub fn set(&self) -> &CatalogSet {
         &self.set
+    }
+
+    /// Retain one immutable read projection for document instantiation or a cold
+    /// preparation effect. Reload/write replaces the authority's handle, never
+    /// mutates a snapshot already selected by another consumer.
+    pub fn snapshot(&self) -> Arc<CatalogSet> {
+        self.set.clone()
     }
 
     /// The installed component schemas this catalog is resolved against.
@@ -568,7 +583,10 @@ impl CatalogAuthority {
                 revision: self.revision,
                 reports: self.validate(text),
             }),
-            CatalogCommand::Reload => {
+            CatalogCommand::Reload | CatalogCommand::ReloadWithSchemas { .. } => {
+                if let CatalogCommand::ReloadWithSchemas { schemas } = &envelope.command {
+                    self.registry = schemas.clone();
+                }
                 self.reload();
                 let summary = self.set.summary();
                 let revision = self.record(&envelope.actor, CatalogChange::Reloaded { summary });
@@ -684,7 +702,11 @@ impl CatalogAuthority {
     }
 
     fn reload(&mut self) {
-        self.set = load_directory(self.root.path(), &self.registry, &self.limits);
+        self.set = Arc::new(load_directory(
+            self.root.path(),
+            &self.registry,
+            &self.limits,
+        ));
     }
 
     fn record(&mut self, actor: &ActorId, change: CatalogChange) -> CatalogRevision {

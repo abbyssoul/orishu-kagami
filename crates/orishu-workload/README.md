@@ -63,12 +63,14 @@ cargo run --release -p orishu-workload --example profile_workload --features dha
 ```
 
 The benchmark measures the identity path — canonical encode, `workload_digest`,
-`manifest_from_canonical_bytes`, and `validate_closure` — over synthetic,
-in-memory manifests, scaling with the component count (and, for the closure,
-artifact bytes). Sizes are overridable via `ORISHU_WORKLOAD_BENCH_COMPONENTS`
-and `ORISHU_WORKLOAD_BENCH_CLOSURE_BYTES`. The `dhat` example reports the
-allocation cost of the same phases and confirms closure verification streams
-rather than allocating per artifact byte.
+manifest decode, and `validate_closure` — over synthetic, in-memory manifests,
+scaling with the component count (and, for the closure, artifact bytes). Each
+group benchmarks the **v3** composed scientific workload the runtime admits as
+its primary case, and the legacy **v2** root as a clearly labelled `v2_baseline`.
+Sizes are overridable via `ORISHU_WORKLOAD_BENCH_COMPONENTS` and
+`ORISHU_WORKLOAD_BENCH_CLOSURE_BYTES`. The `dhat` example profiles the v3 path
+and confirms closure verification streams rather than allocating per artifact
+byte.
 
 [ADR 0010]: ../../docs/adr/0010-content-addressed-workload-closure-and-portable-bundles.md
 [ADR 0024]: ../../docs/adr/0024-orishu-orchestrates-a-workload-component-graph.md

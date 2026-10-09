@@ -64,26 +64,32 @@ Kagami/MCP application was not claimed verified by these pure-crate checks.
 
 ## Next implementation work
 
-Immediate product integration priority after the startup/initializer checkpoints below:
-extend the implemented guarded complete-setup creation/replacement and field-reset
-adapter with targeted parameter edits, dependency-choice dialogs and object-edit
-history regeneration (whole-setup schema-driven editing/copy is implemented);
-finish other shell pending-effect/IO reservations, then
-connect window export and worker delivery/run control. Headless captured-file
-export is now implemented; see the portable export checkpoint below. Startup vocabulary and
+Current authoring checkpoints below include targeted field parameters, dependency
+choices, object-edit history regeneration, explicit component replacement and native
+single-template creation. Do not reimplement these from older checkpoint handoffs.
+Remaining work includes general compound/migration and catalog-editing/headless
+adapters, gesture/configuration-variable effects, other shell pending-effect/IO
+reservations, complete run visualization and durable client recovery. Coordinate
+MCP adoption with its separate owner. Source v2 also closes the explicit local
+alias/topological-lowering gap; remaining management hardening stays below.
+Headless captured-file export and worker delivery/manual control are implemented;
+guarded window captured-revision preparation/export/submission, external-run
+attachment and numeric controls now use that path.
+See [K-RUN](implement-kagami-run-workflow.md) and the checkpoints below. Startup vocabulary and
 process-only overrides now reach the actual app authority.
 Worker integration now has the formation-owner reservation and off-owner validated
 admission handoff from ADR 0028. Actual portable closures reach the shared sandbox,
 with parent-linked guest cancellation and reserved owner confirmation. The owner
 now allocates canonical run descriptors and non-reusable workload epochs, with
 real worker bootstrap/restart evidence (ADR 0029). Lease-bound complete-body IO
-with expected-root checks is now implemented. Next connect authenticated request
-framing, durable identified command receipts and public daemon adoption. The
+with expected-root checks is now implemented. Authenticated request framing,
+durable identified command receipts and opt-in daemon serving are implemented. The
 retained executor now uses a shared commit gate for owner-serialized initial/step/
 stop publication and bounded field leases; see the retained-run checkpoint below.
 A confirmed admission or read-only fence check alone is still not commit.
-Keep public workload routes/capability advertisement disabled until that path is
-verified with real exported bytes and lifecycle cancellation.
+Default startup remains formation-only; explicit scientific enablement now has
+real exported-byte, lifecycle, command and observation evidence. This does not
+advertise distributed scientific execution.
 Installed selections can now feed the shared sandbox through the app's initializer
 without hand-assembled reference metadata. Explicit captured-field reinitialization
 and whole-setup creation/replacement now adopt through a guarded window effect.
@@ -92,10 +98,13 @@ The fixed-state reference pair can exercise that real
 journey now; do not substitute more isolated fixtures for application adoption.
 The remaining full-goal gates below still apply.
 
-1. Complete source tooling (symbolic local references/topological compilation),
-   inventory hardening (origin metadata, every crash boundary), non-Unix secure IO.
-2. Finish explicit dependency selection and real open-document leases; add UI/MCP
-   management and live inventory refresh through the same local authority.
+1. Source v2 now implements explicit local aliases/topological lowering (see the
+   checkpoint below). Complete remaining inventory crash-boundary evidence and
+   non-Unix secure IO; origin metadata is implemented.
+2. Finish explicit dependency selection and real open-document leases; complete
+   UI/MCP management parity through the same local authority. The native panel
+   now supplies inspection/install/update/default/enablement and explicit guarded
+   live inventory refresh; removal warnings and automatic watching remain.
    Inspect concurrent MCP edits before modifying its server/command surface.
 3. Extend the WIT/grant/field/Dynamics lifecycle host below: close aggregate/JIT budget
    and attribution gates, replace the implemented fixed owner's disposable stores
@@ -1872,3 +1881,1997 @@ step/stop/unload and committed observations remain necessary for an actual usabl
 Kagami run. Bulk HTTP/2 flow-control/disconnection proof, distributed/reset scope,
 storage, emitters, hardening and earlier full-goal work remain open. This client
 adapter is progress toward the original goal, not X-PLUGIN completion.
+
+## Kagami headless workload delivery — 2026-09-16
+
+Unix `kagami [-H worker] workload` now supplies `submit`, `receipt` and `current`
+commands over the bounded shared scientific client. Submit independently checks
+the complete portable closure and explicit expected root before network IO. It
+does not open plugin inventory, initialize fields, rewrite a document, lock a
+formation, poll automatically or invent retry identity. Operation, formation and
+workload identity are caller supplied and retained in uncertain-outcome reports.
+Historical acceptance and current executor discovery remain different facts.
+
+The versioned JSON command report has distinct accepted/live, pending, refused,
+indeterminate, absent and error outcomes/exit codes. Strings are escaped; reflected
+credential material is rejected, including misuse as request identity. Bearer
+headers are marked sensitive to prevent ordinary request-debug disclosure. The
+existing operator credential loader moved into the already imperative shared
+client crate, with the operator CLI delegating to it unchanged. Unix descriptor
+checks, bounded reads, exact token spelling and redacted failures are reused, not
+reimplemented. No filesystem dependency entered the pure contract crates; no new
+third-party versions or workload/plugin/wire identity formats were introduced.
+
+The [command reference](../../apps/kagami/README.md#headless-workload-submission)
+documents secure credential/TLS options, explicit request reconciliation and
+limits. `make test-kagami-workload` builds the actual worker and obtains its path
+from Cargo's artifact output, then explicitly runs the otherwise ignored real
+binary journey. The test uploads real Newtonian/Euler Components, obtains the
+accepted descriptor, discovers the live owner, restarts the process and verifies
+the original accepted receipt survives while no live scientific run is restored.
+Ordinary CLI tests cover local refusal before network access, exact framed bytes,
+lost replies, all receipt states, mismatched identities and credential reflection.
+
+Validation: four headless CLI tests and four binary parser tests passed; the new
+credential-as-intent refusal also passed in a focused rerun. Kagami's 23 library,
+15 plugin-management and eight MCP-wire regression tests passed. Shared client
+all-target tests passed (112 unit, seven resource-wire, three run-identity and two
+receipt tests), as did the operator CLI's three unit/two integration tests and
+shared/Kagami doctests (one existing ignored). Scoped all-target Clippy, workspace
+all-target compilation, format, documentation and diff checks passed. The actual
+worker journey passed initially and again on its final unchanged rerun (104 s).
+One intervening run exhausted the test's 80-second receipt wait while still
+Pending, during concurrent numerical/JIT work. This is consistent with contention,
+not a proven diagnosis; no production deadline or acceptance assertion was relaxed.
+Native-JIT interruption/admission-latency hardening remains open. The existing
+`proc-macro-error2` future-compatibility warning remains. Full workspace runtime/
+kernel suites and GUI smoke were not rerun for this CLI checkpoint.
+
+**Next:** identified public step/stop/unload and committed observation delivery,
+then Kagami window submission/run workflow using the same shared client and owner.
+This checkpoint delivers admission/reconciliation, not an interactive simulation
+workflow. Non-Unix secure IO, distributed/reset allocation, durable scientific
+storage, emitters, JIT/RSS/reusable-store hardening, cache administration and the
+earlier full-goal gates remain open. X-PLUGIN is not complete.
+
+## Executor-side boundary guards for public control — 2026-09-17
+
+The retained worker executor now provides `step_at` and `stop_at`, preserving an
+explicit expected committed boundary until it is checked inside the single
+operation slot. The check precedes publication-capacity reservation and all guest
+work. A mismatch returns typed expected/actual boundaries without mutation or
+terminating the executor. Existing unconditional internal calls remain supported.
+An uncertain request must not automatically refresh the expected boundary: that
+would transform retry into another scientific step.
+
+The real retained-run tests now exercise future/extreme boundaries, stale step
+and stop calls, refusal with a completely reserved formation control lane, exact
+stop repetition, busy clones and guarded retry after caller cancellation following
+computation. A subsequent explicitly requested step still works. These guards do
+not identify which caller committed and are not substitutes for command receipts.
+
+The design/task documentation distinguishes terminal internal integration stop
+from the planned resumable public pause/step-budget lifecycle. No public mutation
+route, workload format, kernel ABI, numerical formula or scientific time changed.
+
+Validation: all three real-Component retained-run tests passed, including the
+extended boundary/refusal/lost-response cases and existing shutdown/owner-loss
+publication regression. Worker all-target compilation and Clippy passed; worker
+doctests (none defined), format, documentation and diff checks passed. The full
+workspace suite and GUI smoke were not rerun for this internal executor change.
+
+**Next:** bounded correlated run-command submission/reconciliation and committed
+status projection, then authenticated serving/shared client and Kagami controls.
+Preserve exact run identity, explicit boundary and operation intent; do not expose
+read-then-unconditional-step or mislabel terminal stop as resumable pause. Public
+controls/observations, window integration and the earlier full-goal gates remain
+open. X-PLUGIN is not complete.
+
+## Identified run-command facts and journal — 2026-09-17
+
+The shared `orishu::model::run_command` now defines strict versioned request,
+committed-status and receipt types. Requests retain operation ID, complete run
+identity, exact expected boundary and either one fixed `step` or terminal `finish`.
+Epoch zero/impossible next boundaries, invalid SI simulation time and cross-run,
+wrong-boundary/wrong-phase application claims are rejected during construction
+and serde. Pending, Applied, Refused and Indeterminate remain distinct; status
+inside an Applied receipt is historical, not proof of a currently live executor.
+
+The Unix journal IO was generalized behind two sealed concrete profiles, not
+duplicated. Load files/schema stay byte-compatible. `CommandReceiptStore` uses
+separate names/lock/version and supplies durable intent, exact replay/conflict,
+store-incarnation tickets, immutable final outcomes and conservative restart
+recovery. It does not execute a command or open itself during worker startup.
+Command history has the same explicit 256-record/512-KiB no-eviction limit; sustained
+retention and scalable control persistence remain gates, not silently deferred
+performance details for a future per-tick loop.
+
+Committed SI time requires finite CBOR floats, so only the command-journal profile
+opts into them. Ordinary peer and load encoding/decoding still reject floats;
+duplicate/length/depth/work preflight remains active in both profiles. NaN/Inf are
+rejected even in the scientific profile. No peer wire, workload identity, kernel
+ABI, dependency version or existing journal format was changed.
+
+[ADR 0032](../adr/0032-retain-identified-run-command-outcomes.md) records the
+problem/options, and the [v1 fact specification](../run-command-receipts-v1.md)
+documents schemas, attribution, recovery and integration obligations.
+
+Validation: three shared command-wire tests, all 15 journal tests (including six
+new command/profile tests), all seven codec tests and the peer suite (84 passed,
+one existing ignored) passed. Shared all-target tests passed: 112 unit, seven
+resource-wire, three run-identity, two load-receipt and three command tests.
+The actual daemon-owned admission/lost-response/retained-run regression passed
+against real Newtonian/Euler Components after generalizing the journal. Scoped
+all-target Clippy, workspace all-target compilation, shared/worker doctests (one
+existing ignored), format, documentation and diff checks passed. The existing
+`proc-macro-error2` future-compatibility warning remains. Full workspace numerical
+and GUI suites were not rerun; no new command execution/serving evidence is claimed.
+
+**Next:** a retained daemon coordinator must own command tickets independently of
+response futures, resolve history before live-run eligibility, use exact-identity
+guarded execution, classify publication uncertainty safely and publish committed
+metadata. Prove response loss, write failure, shutdown/restart and run replacement
+before enabling authenticated routes/shared clients/Kagami controls. Continuous
+control, public pause/resume/unload, observations, window integration and the prior
+full-goal gates remain open. X-PLUGIN is not complete.
+
+## Daemon-owned identified command execution — 2026-09-17
+
+`RunningWorker` can now explicitly install and retain a command coordinator over
+its existing load/run authority and an already opened command journal. One
+detached, non-queuing operation retains durable intent through exact-identity,
+boundary-guarded execution and final receipt IO. Request handle/response loss
+does not own the operation. Historical replay/conflict precedes live eligibility;
+unload/replacement never rebinds an old request to a newer run.
+
+Applied metadata comes only from an acknowledged identity-checked committed
+projection. Executor response/publication loss remains Indeterminate. Final IO
+failure poisons history without rolling back a committed step or discarding the
+run; reopen converts unfinished intent conservatively. Exact live status is
+independent of history health. Daemon shutdown/drop cancels uncommitted work even
+with surviving client handles; known committed outcomes still finish receipt IO.
+Closing this command lane alone is not an implicit finish/unload.
+
+Validation: all three real-kernel coordinator tests passed (53.47 seconds), covering
+dropped responses, replay/conflict, racing boundary changes, terminal finish,
+replacement, final-write failure, detached-task interruption, journal reopen and
+shutdown before/after execution. The focused uncertainty-classification unit test
+also passed. These tests use actual retained Newtonian/Euler runs, not mock
+scientific outcomes. Scoped worker all-target Clippy, documentation (199 Markdown
+files), formatting and diff checks passed. Startup, HTTP routes and client controls
+are unchanged. Full workspace numerical tests and GUI smoke were not rerun.
+
+**Next:** open/install the command journal/coordinator during opt-in scientific
+startup, then add authenticated bounded command/status routes and shared-client
+correlation before Kagami controls. Sustained history retention, continuous
+control, pause/resume/unload, observations, window integration and all earlier
+full-goal gates remain open. X-PLUGIN is not complete.
+
+## Authenticated manual commands and shared client — 2026-09-17
+
+Explicit scientific startup now opens both private receipt journals and installs
+the command coordinator before listening. Default formation-only startup is
+unchanged. The new authenticated POST routes submit exact step/terminal-finish
+intent, reconcile command receipts and read committed status for an explicit run
+identity. They share the scientific handler budget, strict CBOR/media/length/EOF
+rules and metadata deadline. Requests never select a new current run or refresh a
+boundary, and request loss cannot dispose daemon-owned command work.
+
+The shared scientific client now implements `command`, `command_lookup` and
+`status` with complete receipt/status correlation, bounded responses and no retry,
+redirect, implicit locking or polling. Only exact domain absence codes map to
+None; missing APIs and uncertain outcomes remain errors. Command/status IO admits
+finite CBOR simulation time under structural preflight without relaxing load or
+peer float prohibitions. `RunStatusRequest` and new response variants extend the
+scientific API; workload/kernel ABI and persisted journal formats are unchanged.
+
+The [HTTP specification](../protocol-scientific-command-v1.md) records exact routes,
+schemas, budgets, status/error semantics and lifecycle limits. ADR 0032 now records
+the serving refinement and choice of a read-only versioned POST status query.
+
+Validation: all 12 shared scientific-client tests and three command wire tests
+passed; the real worker auth/hostile-framing/opt-in test passed. A real portable
+Newtonian/Euler workload completed HTTP step, idempotent replay, stale/conflicting
+request rejection, terminal finish and process-restart history recovery (27.13
+seconds); restarted live status was absent while historical Applied replayed.
+Eight worker codec tests and three HTTP-body tests passed. Separate
+startup tests also prove corrupt command history fails without data reset/listener
+creation and explicit configuration precedence is preserved. Scoped all-target
+Clippy, workspace all-target compilation, formatting, diff and documentation
+checks passed; the existing proc-macro-error2 future-compatibility warning remains.
+Full workspace numerical and GUI suites were not rerun. Command-specific TLS and
+HTTP/2 journeys are not separately claimed beyond the reused listener stack.
+
+**Next:** connect Kagami's headless controls to these shared methods with explicit
+run/operation/boundary arguments and fact-oriented reporting, then complete its
+window/runtime observation workflow. This does not implement continuous execution,
+pause/resume/unload, observation delivery, durable scientific restart, distributed
+execution or sustained history retention. Prior full-goal gates remain open;
+X-PLUGIN is not complete.
+
+## Kagami headless manual controls — 2026-09-17
+
+The existing workload CLI now exposes `step`, `finish`, `command-receipt` and
+`status` over the shared scientific client. Controls require exact owner-issued
+formation/root/nonzero epoch, operation ID and expected boundary. Receipt lookup
+also requires the original action, and never executes it. No command substitutes
+current run/boundary, invents an operation ID, retries, polls, changes membership,
+opens a plugin inventory or mutates an experiment. Finish remains terminal,
+never an alias for pause, unload or continuous run.
+
+The new operations use `kagami.run-command/v1`; existing load/discovery reports
+retain `kagami.workload-command/v1` and their shapes. Reports retain original typed
+intent after possible delivery, distinguish historical receipts from separately
+queried live status, preserve domain outcomes/exit codes and redact reflected
+operator credentials. Applied reports use exit 0, Pending 10, Refused 11,
+Indeterminate 12 and absent receipt/status 13. Live status includes phase, so a
+retained Finished run is not mislabeled as still integrating. Invalid scientific
+intent is rejected before networking; missing CLI arguments/zero epoch fail usage.
+
+Validation: four new actual-executable socket fixture tests passed, covering exact
+step/finish bytes, lost replies without retry, every receipt outcome, Ready and
+Finished status, missing API versus domain absence, mismatched receipts, invalid
+intent and credential redaction. The CLI argument test passed. The real
+`make test-kagami-workload` journey passed in 27.90 seconds: portable upload,
+initial status, one Newtonian/Euler step, replay/receipt lookup without a second
+advance, stale/conflicting requests, terminal finish, refusal of a later step,
+and restart with historical Applied but unavailable live status. The complete
+headless CLI regression suite passed (eight tests; the separately run actual-worker
+test is ignored in the ordinary suite), as did all five binary argument tests.
+Scoped all-target Kagami Clippy, workspace all-target compilation, formatting,
+diff and documentation checks passed. The existing proc-macro-error2
+future-compatibility warning remains. Full workspace numerical tests and GUI
+smoke were not rerun.
+
+**Next:** implement bounded committed observation delivery and Kagami's run/window
+workflow over the shared runtime/proxy boundary; complete local runtime parity
+and the remaining authoring/plugin/runtime gates. Continuous control, pause/resume/
+unload, sustained history retention and previous full-goal gates remain open.
+X-PLUGIN is not complete.
+
+## Committed object leases and independent observer acquisition — 2026-09-17
+
+Before exposing observations, the retained worker's field-acquisition path was
+found to consume the same one-operation slot as stepping. That let an observer
+cause scientific Busy, contrary to the accepted non-perturbing observer boundary.
+Acquisitions now use a separate eight-request nonblocking ingress. Commands are
+checked before every observation; readers never own command capacity, block the
+executor on delivery, or run sampling guests during acquisition. Idle observation
+latency uses the existing 50-ms poll, and command pressure may starve observers.
+
+The shared runtime now exposes complete immutable object/force leases under the
+existing field-snapshot count/byte budget. No numerical buffers are copied per
+lease. Sources retain exact workload/run-descriptor/epoch/boundary/SI-time;
+boundary zero has absent computed forces, and later force packets describe forces
+evaluated at the predecessor. Held observations survive advancement and disposal.
+Worker `acquire_objects_at` and `acquire_field_at` check the requested boundary
+inside the executor; stale requests cannot return a newer snapshot under the
+old identity. Queue exhaustion, abandoned reads and lease pressure cannot own
+scientific capacity. These are internal host interfaces, not new wire formats.
+
+Validation: all three retained-worker real-kernel tests passed (80.99 seconds),
+including observer queue pressure during gated publication, stale acquisition,
+shared quota and lease survival. The shared-runtime real-kernel observation test
+passed (13.24 seconds), proving immutable object/force buffers, shared field/object
+quota, continued advancement and disposal survival. The byte-budget unit test
+passed, including exact combined size, failed-acquisition accounting, pointer
+sharing, quota return and non-waiting lock contention. Scoped all-target runtime/
+worker Clippy passed. The additional late-candidate test passed (40.18 seconds):
+an observer queued for a complete candidate receives Closed after shutdown/owner
+loss rather than unaccepted scientific bytes. Workspace all-target compilation,
+documentation (200 Markdown files), formatting and diff checks passed, with the
+existing proc-macro-error2 future-compatibility warning. The real headless
+Kagami-to-worker regression was rerun successfully (27.86 seconds). No GUI smoke or full workspace
+numerical suite is claimed for this checkpoint.
+
+**Next:** compose these exact committed leases into bounded shared observation
+framing/delivery and Kagami adoption. Do not call internal snapshot acquisition
+remote streaming, subscription/baseline recovery, recording or window integration.
+Those and all prior full-goal gates remain open. X-PLUGIN is not complete.
+
+## Complete-object observation payload — 2026-09-17
+
+The pure shared execution contract now supplies
+[object-observation v1](../object-observation-v1.md): canonical committed source
+metadata, the existing complete numeric-object packet and optional complete
+reduced forces, with SHA-256 identity over the entire bounded frame. Forces are
+absent/uncomputed at boundary zero; later frames explicitly expose their N-1
+evaluation boundary and require exact dynamic-object coverage. Static objects
+remain present. Fields and other authored components are not silently treated as
+part of this projection, and binary64 interchange is not a compute-precision claim.
+
+Readers validate length arithmetic, bounds, digest, canonical metadata, every
+numeric record and force membership before exposing borrowed data. Exact source
+correlation checks workload, descriptor, epoch, boundary and time. Writers reuse
+caller-owned storage and leave output unchanged on rejection. The runtime lease's
+`encode` method uses this same codec off-executor; no scientific execution formula,
+kernel ABI, workload/document format or dependency changed. ADR 0011 records why
+raw packets, per-object JSON and whole-run checkpoints were not used as this payload.
+
+Validation: nine codec tests passed, including a pinned 489-byte golden digest,
+static/dynamic and empty membership, uncomputed versus empty forces, every source
+field, malformed metadata, unknown/duplicate keys, record/byte limits, all truncated
+prefixes, trailing bytes, corruption, non-finite/negative-zero values, exact force
+membership, output preservation and storage reuse. All plugin all-target tests and
+benchmark smoke cases passed, including the dependency guard. The real-kernel
+runtime observation regression passed (13.26 seconds), proving that a retained
+boundary encodes identically after advancement and owner disposal. Plugin/runtime
+all-target Clippy, workspace all-target compilation, docs (201 Markdown files),
+formatting and diff checks passed. The existing proc-macro-error2 future-compatibility
+warning remains. Full workspace numerical tests and GUI smoke were not rerun.
+
+**Next:** authenticated bounded delivery and client adoption, using this payload
+without calling it a complete universe or a stream/resume envelope. Field queries,
+subscription identities, baselines, independent delivery budgets and Kagami's
+local/proxy window workflow remain open. X-PLUGIN and all prior full-goal gates
+remain active; this codec alone is not a user-visible observation feature.
+
+## Authenticated complete-object delivery — 2026-09-17
+
+The enabled worker now exposes `POST /api/v1/run/objects` for an exact
+formation/root/epoch/boundary, and the shared scientific client reads/validates
+the whole-object payload. The [protocol profile](../protocol-object-observation-v1.md)
+records strict request framing, 16-MiB aggregate response policy, source/digest
+correlation, deadline/error semantics and the distinction from resumable streams.
+No simulation command, initialization, implicit provider choice, boundary refresh
+or retry occurs. Finished runs remain readable; an old live run is unavailable
+after process restart despite historical command/load receipts remaining valid.
+
+Two observer permits are shared across listeners, independent of the scientific
+control handler pool. Encoding runs off-executor. Each encoded allocation owns
+its snapshot lease and permit through all shared HTTP chunks, including the final
+buffered chunk after producer exit. The send lane has bounded chunks and a deadline;
+reader pressure cannot own the scientific command slot. The pure plugin codec is
+now a dependency of the shared client, never an execution-engine dependency.
+The worker directly names the already-resolved pinned `bytes` dependency for owned
+zero-copy chunks. Existing workload, plugin, document and command formats did not
+change; only the new versioned read request/route is added.
+
+Validation: the real worker upload/step/finish/restart journey passed (28.36 seconds)
+with initial and stepped observations, predecessor-force metadata, stale-boundary
+refusal, finished-state reads and post-restart absence. Two authenticated stalled
+observers exhausted observer capacity while status and a real step still succeeded;
+capacity recovered after they disconnected. The opt-in/auth/framing regression
+passed with the new route. A focused encoded-owner test proved final-chunk lifetime
+retains capacity after producer/body disposal. All 16 shared scientific-client
+tests passed, including four observation fixtures covering exact requests, every
+run-scope field, corruption, media/digest/length, absence versus stale/busy/missing
+API, actual truncated/stalled wire bodies and deadlines. Request JSON/CBOR version,
+unknown-field, duplicate and signed-boundary checks passed. Scoped all-target
+Clippy, workspace all-target compilation, formatting, docs (202 Markdown files)
+and diff checks passed; the existing proc-macro-error2 warning remains. The real
+Kagami CLI-to-worker load/control/restart regression also passed (31.05 seconds).
+
+**Next:** expose these observations through Kagami's client/run projection, then
+complete field queries, local/proxy parity and the window workflow. This first
+read adapter does not supply subscriptions, delta baselines/resume, recorded
+playback or large-response chunk recovery. `ObservedObjects::view` currently
+revalidates immutable bytes; repeated consumers should retain one view, not hash
+per object. X-PLUGIN and the earlier full-goal gates remain open. GUI smoke and
+full-workspace numerical tests were not rerun at this checkpoint.
+
+## Kagami headless committed object inspection — 2026-09-17
+
+`kagami workload objects` now requires an explicit formation/root/nonzero epoch
+and committed boundary, then uses the shared authenticated observation client.
+Its separate `kagami.object-observation/v1` report retains exact read intent and
+validated source/frame identity, complete numeric objects, optional forces and
+their predecessor evaluation boundary. Static objects remain present and initial
+forces remain null/uncomputed. Success is `observed`/0, absent live run is `empty`/13,
+and stale/busy/protocol/transport failures are errors/1 with no possibly-submitted
+mutation. Neither history nor a numerical snapshot is reported as live run status.
+
+The command never initializes fields, opens the inventory, submits a scientific
+command, edits the document, enters window observation mode, refreshes identity
+or retries. It reuses secure credential loading and reflection rejection. Numeric
+records serialize through borrowed packet access without extra object/force arrays;
+bounded JSON materialization and per-serialization immutable-view validation remain
+cold CLI costs, not a renderer performance claim. Existing load/control report
+versions and field shapes remain unchanged. Usage, units, scope and limits are in
+the [headless inspection guide](../../apps/kagami/README.md#headless-committed-object-observations).
+
+Validation: three actual-executable socket-fixture tests passed, covering initial
+and stepped numeric projections, static/dynamic masses, force phase, exact request
+bytes, absence/stale/busy/missing API, lost replies, credential reflection and
+rejection of corrupt/wrong-boundary payloads without exposing observations. The
+real `make test-kagami-workload` journey passed (28.22 seconds): initial objects,
+real Newtonian/Euler position changes and forces after step, stale read refusal,
+identical retained observations after terminal finish, and unavailable live data
+after restart alongside preserved historical receipts. The ordinary headless
+suite passed all 11 tests (the real-worker test is separately ignored there),
+and all five binary argument tests passed. Scoped all-target Kagami Clippy,
+workspace all-target compilation, formatting, docs (202 Markdown files) and diff
+checks passed. Existing proc-macro-error2 future-compatibility warning remains;
+no GUI smoke or full-workspace numerical suite was rerun.
+
+**Next:** field query delivery and Kagami's actual run/window observation workflow,
+with local/proxy parity and the outstanding authoring/management/runtime gates.
+One-shot CLI inspection is not a subscription, sensor/MCP integration, baseline
+recovery, recorded playback or completion of X-PLUGIN. The full goal remains active.
+
+## Authenticated exact field descriptors and sampling — 2026-09-17
+
+The enabled worker now serves `POST /api/v1/run/field` and `/api/v1/run/samples`;
+the shared scientific client validates both. The new pure, bounded canonical
+`FieldObservation` descriptor exposes exact committed source/state identity and
+selected instance context, never field-private bytes. Sampling reuses OSQ1/OSP1
+with observer-generated points, exact typed channels, dimensions, precision,
+validity and quality. The [wire profile](../protocol-field-observation-v1.md) and
+ADR 0011 record limits, authority and alternatives. A descriptor does not pin the
+next request: stale boundaries are explicit refusals, not automatic refreshes.
+
+Both routes share the two-permit observer lane with object reads. Field lease
+acquisition uses the existing exact-boundary executor ingress; descriptor encoding,
+point scans and disposable-guest sampling run off-executor. Resource permits and
+leases outlive a disconnected response waiter and remain owned by every shared
+transport chunk. Sampling response delivery shares the runtime output allocation
+without another full output copy. Existing native-execution resource caveats remain;
+timeouts are not evidence that native work was instantly terminated. Existing guest,
+workload, document and command formats are unchanged; only additive versioned
+descriptor/read envelopes and routes were introduced. No new dependencies.
+
+Validation: all plugin all-target tests and benchmark smoke passed, including the
+new descriptor canonical/truncation/oversize/source/context tests and dependency
+guard. All 19 shared scientific-client tests passed: new fixtures cover exact
+wire intent, descriptor scope, query/context/state/precision substitution,
+corruption/length limits, local refusal before network and absence versus explicit
+stale/busy/missing-API errors. Versioned read-intent JSON/CBOR tests passed.
+An older oversized-object response fixture was corrected to send a consistent
+oversized body instead of inducing a Hyper header/body-length panic.
+
+The real worker load/step/finish/restart journey passed (28.02 seconds), including
+initial/stepped sampling, finite values with direct quality, explicit singular and
+outside-domain cells, stale-query rejection, forged context/state and malformed/
+duplicate-point refusal, unchanged scientific state after reads, retained sampling
+after finish and absence after restart. Mixed stalled object/sample uploads share
+observer capacity while status and a real step remain usable. That pressure test
+initially raced an unobserved early refusal; it now confirms each admitted stalled
+body with HTTP 100 Continue before asserting saturation, and passed. Auth/opt-in/
+framing and final-chunk budget-ownership tests passed. Kagami's ordinary headless
+regression suite passed 11 tests (the separately invoked real-worker CLI journey
+was not rerun here). Scoped all-target Clippy, workspace all-target compilation,
+formatting, docs (203 Markdown files) and diff checks passed. The existing
+proc-macro-error2 future-compatibility warning remains. No GUI smoke or full
+workspace numerical suite was rerun.
+
+**Next:** Kagami field-query consumers and actual window run/observation adoption,
+with local/proxy parity. Instrument geometry, sensor/MCP integration, explicit
+pinned/history/subscription semantics, emitter execution and the previously listed
+management/runtime gates remain open. This completes one-shot field transport,
+not X-PLUGIN or the full user-requested product workflow.
+
+## Kagami headless field discovery and point sampling — 2026-09-17
+
+`kagami workload field` now reports the exact committed field descriptor and
+selected typed observable slots. `workload sample` requires explicit run/boundary,
+field instance, observer request ID, ordered channel slots and finite SI points;
+it describes that boundary and submits the shared exact-state/context query once.
+Neither command opens an inventory/document, initializes fields, chooses another
+model, advances science, enters window observation mode or refreshes stale intent.
+Usage and output semantics are in the
+[headless field guide](../../apps/kagami/README.md#headless-field-inspection-and-point-sampling).
+
+The additive `kagami.field-observation/v1` report preserves original intent and,
+on success, exact descriptor, scientific query metadata, request/response digests
+and complete requested readings. Scalar/vector/matrix rows retain declared shapes
+and dimensions. Valid values carry separate quality flags; invalid cells carry
+explicit reasons with no numeric stand-ins. A descriptor acquired before a later
+failure may remain visible, without becoming a current-status or success claim.
+Credential reflection clears all remote field/sample data and retains safe
+original intent. Existing report/wire/workload/document versions are unchanged.
+
+The CLI refuses duplicate/over-budget channels and point counts before connecting,
+and absent selected-model slots before issuing the sample request. This initial
+CLI is a declared-slot convenience observer, not persistence of probes requesting
+unsupported exact scientific contracts. Those lower-level unavailability semantics
+remain unchanged. Sample serialization borrows validated packet cells without
+per-cell value vectors; bounded JSON materialization and repeated validation remain
+cold CLI costs. The actual-executable test harness now drains stdout/stderr while
+waiting, with explicit output ceilings, so larger scientific reports cannot
+deadlock against pipe capacity.
+
+Validation: all 14 ordinary headless executable tests passed (one separately
+invoked real-worker test ignored in that suite). Three new tests cover descriptor
+discovery, exact query bytes/point IDs, value/quality/invalidity projection, missing
+slots, duplicate channels/4097-point refusal, lost/stale/busy/corrupt replies and
+credential reflection. Argument and finite-coordinate parser tests passed.
+`make test-kagami-workload` passed (29.13 seconds), exercising initial and computed
+field inspection through real Newtonian/Euler execution. Explicit reordered
+potential/acceleration/Jacobian queries retained scalar/3-vector/3x3 row-major
+shapes, direct quality and singular reasons. Sampling left status unchanged;
+stale reads refused, terminal finish retained values and restart returned no live
+field, while historical command/load receipts remained readable. Scoped Kagami
+all-target Clippy, workspace all-target compilation, formatting, docs (203 files)
+and diff checks passed. The existing proc-macro-error2 warning remains. No GUI
+smoke or full-workspace numerical suite was rerun.
+
+**Next:** actual Kagami window run/observation workflow and local/proxy parity;
+instrument/MCP adoption, subscriptions/history, emitters and the earlier explicit
+management/runtime gates remain open. The full X-PLUGIN goal remains active.
+
+## Window remote-run attachment and manual controls — 2026-09-17
+
+The native window now uses the shared scientific client to inspect an external
+retained run, explicitly enter Observation mode, refresh committed numeric
+objects/forces and issue exact-boundary step/terminal-finish commands. The new
+app-local `run` adapter owns one background job and a separate retained projection;
+neither network IO nor full-frame validation/table preparation runs per UI frame.
+The display labels its 100-object limit, exact provenance and predecessor-force
+boundary. It does not render unrelated authoring geometry as simulated output.
+
+Authoring remains gated by the existing session. A late read cannot attach after
+panel cancellation, draft edits/replacement or intervening mode changes. Its slot
+remains occupied until actual exit. Returning to the open draft discards the run
+projection and ephemeral view without sending a finish command or changing the
+draft's revision/history/default view. The run is explicitly external: no claim
+of document-to-run lineage is made. ADR 0022 records that distinction.
+
+Lost command replies retain the original operation/run/action/boundary. Receipt
+lookup and explicit identical resubmission never invent fresh intent; Pending,
+absent and Indeterminate remain unresolved. Applied/refused receipts are not
+observations, so a fresh snapshot is required before another command. Credentials
+are process-local and reflected secrets are refused before projection adoption.
+Client recovery state is memory-only and the UI warns to record pending intent
+before closing. No wire, workload or document versions changed; no dependencies
+were added for this window slice.
+
+Validation: all 17 ordinary workload CLI/window tests passed (one separately
+invoked real-worker journey ignored in that suite). New window tests cover mode
+gating, unchanged authored state/view, lost replies, absent/Pending/Applied
+reconciliation, exact original resubmission, terminal finish, late cancellation/
+edit/replacement and wrong-boundary/status-time rejection. All 29 authoring and
+five binary argument tests passed. `make test-kagami-workload` passed (29.14s),
+including actual window update-path attachment to the computed Newtonian/Euler
+run and proof that returning to authoring leaves the worker Ready at its boundary.
+Scoped Kagami all-target Clippy, workspace all-target compilation, formatting,
+docs (204 files) and diff checks passed. Existing proc-macro-error2 future
+compatibility warning remains.
+
+Offscreen renderer smoke passed 120 frames under both projections on llvmpipe
+Vulkan. A two-second native-window startup smoke with an isolated temporary
+inventory passed with desktop access; its first sandboxed attempt failed to reach
+the Wayland compositor. This is startup evidence, not manual visual verification
+of the remote-run panel. That visual review and the full-workspace numerical suite
+were not performed in this slice.
+
+**Next:** [K-RUN](implement-kagami-run-workflow.md) now specifies the remaining
+exact-revision window export/submission, lineage, durable client intent recovery,
+3D/instrument projection and local/proxy parity. Streaming/history, emitters and
+the earlier management/runtime gates remain open. The full X-PLUGIN goal remains
+active; this is the initial window adapter, not completion of the entire product.
+
+## Window captured-revision preparation, export and submission — 2026-09-17
+
+The Unix window now prepares the open captured experiment without saving or
+initializing it again. Headless export and the window share `compile_snapshot`:
+exact selected kernels, captured scientific inputs and source composition produce
+the same deterministic portable bytes. Compilation/packing runs off-window in one
+non-queuing lane. Authoring incarnation/revision/mode and final inventory guards
+cover adoption. A cancelled/obsolete job retains its slot until it actually exits.
+Name/draft changes invalidate readiness; camera changes do not.
+
+The adopted output is explicitly frozen. New-file export refuses replacement.
+Submission requires the expected formation and uses the shared authenticated load
+API, without implicit locking, initialization, provider resolution or retries.
+Original upload intent and bytes survive reply loss and preparation-form changes.
+Missing/Pending/Indeterminate outcomes block a fresh load; explicit identical
+resubmission preserves its operation, root and bytes. Only terminal history can be
+cleared locally. Accepted history permits exact-run inspection, not automatic
+observation or recovery of lost worker state. The retained local source incarnation
+and revision are associated only with that receipt's exact descriptor; they never
+enter scientific identity or imply the current draft is unchanged.
+
+The panel and [K-RUN](implement-kagami-run-workflow.md) document byte budgets and
+the memory-only recovery limitation. Preparation admits 128 MiB captured scientific
+retention, 64 MiB selected artifacts/8 MiB selected metadata, 128 MiB declared closure
+and 128 MiB final archive, with bounded codec/projection intermediates. Upload owns
+one additional cold copy of at most 128 MiB while the original is retained for
+explicit retry. This is not an aggregate RSS guarantee or an allocation-free upload
+claim. No new dependencies, persisted formats, wire profiles or MCP surface changes.
+
+Validation: the seven-test scientific initialization/export suite passed, including
+window/headless byte identity, unused-code exclusion in the existing shared export
+proof, new-file refusal, unchanged captured source, camera independence and late
+draft replacement. The added socket fixture drops an upload reply, returns missing
+history then Pending, and verifies identical original bytes/intent on explicit
+resubmission after the prepared candidate is discarded. A separate cancellation/
+stale-context unit test proves capacity is retained until the blocked job exits.
+The first socket run failed because its test expected `/run/loads`; correcting the
+fixture to the existing `/run-loads` API resolved it without a protocol change.
+
+`make test-kagami-workload` now exercises two real-worker journeys. The original
+CLI/restart journey passed (39.91s in the final run); the window-authored journey
+passed (59.98s). That second path creates a plugin-composed dynamic object and
+static gravity source, captures fields/history, prepares/uploads the revision,
+reconciles acceptance, observes and steps real Newtonian/Euler Components, checks
+nonzero attractive force and changed dynamic position, verifies the static source
+does not integrate, finishes and restores unchanged authored state/view. Worker
+startup receives no plugin inventory. The ordinary workflow suite also passed all
+17 tests (one separately invoked worker test ignored), plus 29 authoring and five
+argument tests. Scoped Kagami all-target Clippy, workspace all-target compilation,
+formatting, documentation and diff checks passed. The existing proc-macro-error2
+future-compatibility warning remains. Offscreen renderer smoke passed 120 frames
+under both projections on llvmpipe Vulkan, and a two-second native-window startup
+with the isolated temporary inventory passed with desktop access. Manual panel visual review and the
+full-workspace numerical suite were not performed in this slice.
+
+**Next:** durable client intent/bundle recovery and explicit connection capability
+negotiation, 3D/instrument observations and local/proxy parity; dependency-choice/
+management parity, object-edit history regeneration, emitter execution and prior
+runtime hardening gates remain. The requested full X-PLUGIN goal stays active.
+
+### Committed-object position markers — 2026-09-17
+
+**Progress, not full-goal completion.** The window now renders exact committed
+object positions through `kagami-renderer`, alongside the existing numeric table.
+Gold denotes Dynamics and blue static/kinematic objects. These are fixed-size,
+depth-tested position glyphs, not physical spheres or meshes: the observation
+contract does not supply a radius or shape. No authored geometry is used as run
+state. The view labels provenance, manual-snapshot freshness and display limits.
+
+At most 65,536 SI positions are extracted off-window per snapshot. Changed scene
+scale reprojects the retained SI positions off-window; old-scale markers are
+hidden until ready. Capacity and scale-range omissions are counted separately;
+geometry is never clamped to a false position. Camera clipping additionally
+applies. Immutable batches reuse the GPU instance buffer (maximum 1.5 MiB), with
+uploads only on changed batch identity. Camera motion only updates uniforms.
+Depth storage follows the window target size. This is single-viewport presentation,
+not a claim of zero allocations, aggregate RSS hardening or physical mesh support.
+
+Evidence: the real `SceneProgram`/primitive GPU path passed pixel readback checks
+for both projections, depth ordering, behind-camera clipping, unchanged batches,
+replacement and removal. `make smoke-kagami` also passed its 120-frame camera
+sweep on llvmpipe Vulkan. The window wire fixture verifies scale changes issue no
+network calls, preserve SI/provenance and the authored view, report out-of-range
+positions and restore them on returning to metre scale. The real-worker window
+journey now asserts that Newtonian/Euler integration moves the marker projection
+and every marker agrees with its observed SI position at the selected scale.
+`make test-kagami-workload` passed both CLI/restart (29.11s) and window-authored
+(47.91s) journeys. Ordinary adapter tests passed 17 tests (the separately exercised
+worker test is ignored there), plus 29 authoring tests. Renderer and projection
+unit tests cover invalid input, bounded capacity and scale conversion. Scoped
+all-target Clippy, workspace all-target compilation, formatting, documentation
+and diff checks passed. The existing proc-macro-error2 future-compatibility warning
+remains. A two-second native-window startup passed; interactive visual review
+and the full workspace numerical suite were not performed in this slice.
+
+K-RUN, K-VIEW and the roadmap now distinguish implemented marker presentation
+from outstanding field vectors/flow lines, instruments, picking/follow, trails,
+streaming and historical playback. Durable client recovery/capability negotiation,
+local/proxy parity and the prior full X-PLUGIN delivery gates remain open.
+
+### Native plugin management and explicit availability refresh — 2026-09-17
+
+**Progress, not full-goal completion.** The Unix window now exposes a Plugins
+panel over the existing `PluginStore`: all-release listing, verified contribution
+inspection, local bundle installation/update, persistent enablement and default
+selection. It never executes guests. Opening/refreshing the panel and successful
+mutations acquire one coherent inventory revision and adopt component/model
+availability without restarting Kagami. Stale commands refuse rather than retry;
+process-only overrides remain visible and take precedence over stored preferences.
+
+One off-window job owns capacity until actual completion, even when the panel
+closes. The adapter distinguishes an accepted write from a failed follow-up
+refresh; it does not tell the user to repeat an accepted mutation. Discovery uses
+the existing secure IO and bounded inventory profile, then holds its short final
+revision guard through adoption. Changed availability cancels stale scientific
+work without releasing its slot early, invalidates prepared workload candidates
+and clears unapplied physics-form choices. Exact authored pins, history, saved
+dirty state, retained submission bytes and accepted worker runs are not rewritten.
+There is no new wire or persisted version and no MCP surface was changed.
+
+The real update-path fixture installs and updates side-by-side bundles, switches
+defaults, disables/re-enables exact component availability, inspects declarations,
+rejects malformed input and stale concurrent-writer intent, and verifies unchanged
+saved experiment/history. A separate fixture verifies persistent enablement cannot
+override a process-only disable. A controlled pending-job test proves close keeps
+capacity and accepted-write/failed-refresh feedback remains explicit. All 17
+management tests, 29 authoring tests and 28 library tests passed. The extended
+real-worker window journey disables a local provider during observation, then
+successfully advances the same Newtonian/Euler run and restores preferences;
+`make test-kagami-workload` passed CLI/restart (29.00s) and window (48.07s) paths.
+Scoped all-target Clippy, workspace all-target compilation, docs/diff checks and
+offscreen GPU smoke passed; the known proc-macro-error2 future-compatibility warning
+remains. A two-second native startup passed. Manual panel interaction/visual QA
+and the complete workspace numerical suite were not performed.
+
+Native removal is explicitly unavailable until real open-document/history leases
+and acknowledgement warnings are integrated. Remove/pack/validate remain CLI
+operations. Open references, full native/MCP parity, dependency-choice dialogs,
+automatic watching and the earlier full delivery gates remain open.
+
+### Bounded document-held plugin reference inventory — 2026-09-17
+
+**Progress; live document leases/removal remain incomplete.** A lease primitive
+already exists in `PluginStore`, but the application previously had no authoritative
+way to identify all releases held by a document session. Scanning visible objects
+would miss redo/undo snapshots, captured transitive computational providers and
+retained Open/edit request data. Inferring releases from logical names or scanning
+unopened files would violate the accepted identity/discovery policy.
+
+`DocumentAuthority::plugin_references` now supplies one pure, cold query over
+current objects/scientific selections, both history stacks and retained accepted
+requests. It returns deterministic exact-release keys with separate current,
+history and receipt presence flags. Work counts empty/legacy structural records
+as well as exact contributions; caller-owned work/distinct-release ceilings refuse
+an incomplete scan without returning a misleading prefix. Shared history handles
+are read without copying opaque buffers, and installed schemas/catalogs never
+select a provider for this query. Exhaustive command matching makes new command
+variants require an explicit reference-policy choice. No dependency, persistence
+or protocol version was added.
+
+The native Plugins panel's **References** action uses this same authority query
+and labels it as a point-in-time, this-session-only report—not an acquired lease
+or discovery of other files/processes. It runs only on explicit request, not per
+viewport frame. A capped query reports unknown/incomplete coverage, never “unused.”
+
+Evidence: four focused session tests cover current/history/receipt separation,
+undo/redo, independent receipt eviction, earlier Open requests, exact budget
+boundaries, unchanged authority state and no legacy-name fallback. The initial
+scientific persistence fixture proved empty rather than exercising a computational
+provider; its test now explicitly covers the empty case. The actual Newtonian/Euler
+authoring/export fixture separately verifies that the report retains selected
+kernel providers absent from every attached object component (passed, 33.93s).
+The native management fixture exercises the new action. Document/session unit and
+integration suites passed, as did scoped all-target Clippy, workspace compilation,
+format/docs/diff checks, offscreen renderer smoke and two-second native startup.
+The existing proc-macro-error2 future-compatibility warning remains. Manual panel
+visual review and the full workspace numerical suite were not performed.
+
+**Next:** reconcile the complete report with cross-process release leases over
+document/undo/replay lifetime, distinguish missing releases from acquisition
+failure, and test removal races before exposing native acknowledgement/removal.
+An asynchronous lease adapter must guard changes to retained request/history data
+as well as document revision: gesture brackets can evict receipts without a new
+experiment revision. Do not treat this point-in-time report as that lifetime gate.
+Full X-PLUGIN remains active, including the other previously recorded requirements.
+
+### Live document reference leases and native removal — 2026-09-17
+
+**Progress; this lifetime/removal slice is implemented, not full X-PLUGIN closure.**
+Inventory-aware Unix windows now retain exact release leases across current
+experiment, undo/redo and accepted-request lifetime, regardless of panel visibility.
+Before Open or command submission, the document holds a shared `references.lock`
+gate. Removal acquires it exclusively under the inventory writer lock; even an
+acknowledged removal cannot bypass unknown reference coverage. An authoring action
+arriving during removal is refused before document mutation.
+
+One background job captures immutable shared snapshot/request handles, scans with
+the existing work/release bounds and adopts exact leases before releasing the
+coarse gate. Its generation includes receipt-only changes, not merely experiment
+revision. Stale completion cannot unlock newer state; lock/IO/thread/budget failure
+preserves protection until explicit retry or another authoring action. Missing
+registration is a separate result, never inferred from corruption or acquisition
+failure. Existing leases survive acknowledged de-registration and re-registration;
+they release after the last retained reference disappears or the owner closes.
+Snapshot readers extend old-state lifetime but do not copy scientific buffers or
+request bodies. The one-slot bound is not a global memory/RSS proof.
+
+Native **Remove registration…** now stages exact release and inventory revision,
+offers unused-only or explicitly acknowledged removal, and explains unchanged
+pins, unavailable capabilities and preserved cache bytes. Accepted inventory writes
+also invalidate reference coverage when subsequent vocabulary refresh fails.
+Shared read-only selection preparation now coexists with reference/revision readers;
+writers remain exclusive. No persisted/scientific protocol version or dependency
+was added. This new cooperative advisory-lock gate is not honored by old binaries
+or direct filesystem modifications.
+
+Evidence: 19 management tests pass, including actual CLI removal during a pending
+document scan, acknowledgement, undo/history/request retention and eviction,
+re-registration and owner close, native confirmation and unchanged authored data.
+Four tracker tests cover stale receipt-only generations, acquisition failure with
+explicit retry, reverse removal/edit contention and missing registrations. Five
+shared query tests include detached immutable snapshots across later edits. All
+document/session unit/integration tests, 32 Kagami library tests, 29 authoring tests
+and three scientific-guard tests passed.
+
+The first real-worker window run exposed unnecessary exclusive locking in read-only
+selection preparation. A deterministic shared-reader regression failed before the
+fix and passed afterward, while asserting inventory writes remain blocked. The
+rerun of `make test-kagami-workload` passed actual CLI/restart (31.46s) and window
+(71.90s) journeys, the latter including local-provider disablement during an active
+worker run. All seven other scientific-initialization tests also passed. An earlier
+parallel management run returned a transient `Busy` in the cross-process lease
+fixture; isolated, serial and subsequent parallel runs passed. Its cause is not
+established, and no production retry or weakened assertion was added to hide it.
+
+Scoped all-target Clippy, workspace all-target compilation, format/docs/diff checks,
+offscreen GPU smoke and two-second native startup passed. The known
+`proc-macro-error2` future-compatibility warning remains. Manual plugin-panel visual
+QA, non-Unix execution and the full workspace numerical suite were not performed.
+
+**Still open:** other adapter/MCP lifetime integration and management parity,
+dependency-choice dialogs, origin metadata, automatic watching, broader crash
+fault-injection and the earlier full delivery gates. A previously missing release
+installed externally is covered only after explicit refresh/reconciliation; these
+leases do not discover unopened files or implement physical garbage collection.
+Full X-PLUGIN remains active.
+
+### Scientific dependency selection and paged exact providers — 2026-09-17
+
+**Progress; scientific-setup provider choices are implemented, not full X-PLUGIN
+closure.** The shared resolver already returned ambiguity and candidate pages;
+the window previously flattened setup failure into an unavailable message and had
+no way to supply a new explicit dependency binding. Configure physics now exposes
+**Check dependencies**, bounded diagnostic/candidate pages and exact provider
+selection. Logical plugin owners accompany immutable release/extension/local IDs.
+Provider choice is a local proposal; it does not run code or edit the experiment.
+
+The read-only adapter captures model and current scene-component roots, explicit
+bindings, document incarnation/revision, form generation and inventory revision.
+One job retains its capacity until actual exit. A short shared inventory guard
+spans result adoption; stale or failed reads never retry implicitly. Each page has
+its own token, preventing delayed index-based clicks from choosing a different
+provider. Candidates are replaced per page rather than accumulated. Shared bounds
+cover diagnostics, candidates, bindings, dependency work and cold inventory reads;
+this does not establish a global RSS budget across other adapters.
+
+Choosing a candidate resets Apply consent and invalidates the report. Explicit
+rechecks reveal remaining/transitive requirements; no satisfiable branch is guessed.
+Numeric edits preserve chosen pins while invalidating reports; changing models
+clears local bindings. Captured settings retain their existing exact bindings.
+The same selection builder supplies Check and Apply, including scene roots.
+Initialization, document adoption and workload export still independently validate
+the complete exact closure. An ambiguous Apply refusal now points to the chooser.
+No scientific wire/file version or dependency was introduced.
+
+Evidence: three new production-message-path integration tests pass. A 33-provider
+fixture exercises two bounded pages, logical-owner labels, stale page clicks,
+invalid offsets/indices, form/document changes, explicit binding preservation and
+external inventory revision refusal. Its intentionally non-executable kernel
+artifact still permits discovery/resolution, which must not invoke JIT. The real
+Newtonian/Euler fixture chooses one of two vocabulary providers across transitive
+requirements, initializes, reuses captured pins despite competing defaults,
+saves/reopens without inventory, exports the identical selection descriptor, then
+admits and advances the workload after the inventory directory is gone (27.30s).
+
+The repeated management-test `Busy` is now diagnosed: Linux `strace` showed another
+test thread's `clone3(CLONE_VM|CLONE_VFORK)` inheriting an open inventory-lock
+description. The owner closed it, but its next nonblocking lock got `EAGAIN` before
+the unrelated child's `execve` completed. This reproduced failures even during
+fixture setup. Management fixtures now isolate process spawning from one another;
+their intentional thread/process races, exact assertions and production refusal
+semantics remain unchanged. All 19 tests passed both normally and under the same
+16-thread traced harness. No production retry was added. Local diagnostic traces:
+`/tmp/kagami-lock-trace.RUbdSP/{parallel,isolated}.trace` (temporary, not repository
+conformance artifacts).
+
+The 32 Kagami library tests, 29 authoring tests and three scientific-guard tests
+passed. `make test-kagami-workload` passed actual CLI/restart (28.89s) and window
+(47.93s) journeys. Scoped all-target Clippy, workspace all-target compilation,
+format/docs/diff checks, offscreen GPU smoke and two-second native startup passed.
+The known `proc-macro-error2` future-compatibility warning remains. Manual chooser
+visual QA, non-Unix execution and the full workspace numerical suite were not run.
+
+**Still open:** component-only authoring dependency repair and a general explicit
+picker for non-default providers absent from the eligible default/already-selected
+candidate list; those are not implemented by this scientific-setup dialog.
+Scientific/MCP parity, targeted field edits, object-edit history regeneration,
+emission/dynamic membership and the other earlier end-to-end requirements remain.
+Full X-PLUGIN remains active.
+
+### Explicit installed-provider browsing, including non-default releases — 2026-09-17
+
+**Progress; scientific-setup provider selection now includes non-default releases.**
+The preceding ambiguity dialog intentionally used the automatic candidate policy:
+enabled defaults and already-explicit providers. That could not select another
+installed release unless it was already a root/pin. The shared resolver now exposes
+`explicit_provider_page` separately from `candidate_page`. It lists enabled exact
+scientific-contract matches, including non-default releases, with the same bounded
+ordering, paging, stale-revision and work checks. Neither query selects a provider,
+and the automatic resolver's eligibility policy is unchanged.
+
+The window's **Browse installed alternatives** is available for resolved bindings
+and reported external requirements. It uses the same one-slot read adapter and
+document/form/inventory guards. Installed pages are distinct from automatic
+ambiguity pages, replace their bounded candidate list and receive fresh tokens;
+delayed clicks cannot select a different provider. Choosing an exact installed
+provider changes only a local proposal binding and requires normal revalidation
+before initialization/capture. Inventory defaults do not change. Captured pins
+remain protected; local-only dependency slots have no alternatives. There is no
+new persisted/wire version, dependency, registry or worker inventory.
+
+Evidence: all 11 shared resolution tests pass. The added case proves non-default
+browsing leaves automatic resolution unchanged, excludes disabled releases, pages
+completely and refuses stale/oversized requests before accepting an explicit pin.
+All four window dependency tests pass, including resolved and ambiguous scenarios,
+34 installed candidates across pages, stale installed-page clicks, old-release
+selection and unchanged default/revision/dirty state. The real Newtonian/Euler
+fixture now explicitly selects a *non-default* vocabulary release despite competing
+defaults, preserves its complete descriptor through capture/offline file reopen
+and workload export, then admits and advances after the inventory is gone. The
+newer default is asserted absent from the selected closure (focused rerun 40.44s).
+
+The 32 Kagami library, 29 authoring and 19 management tests passed, as did scoped
+all-target Clippy, workspace all-target compilation, format/docs/diff checks,
+offscreen GPU smoke and two-second native startup. `make test-kagami-workload`
+passed actual CLI/restart (36.93s) and window (65.33s) journeys. The known
+`proc-macro-error2` future-compatibility warning remains. Manual browser visual QA,
+non-Unix execution and the full workspace numerical suite were not performed.
+
+**Still open:** component-only authoring dependency repair, scientific/MCP parity,
+targeted field edits, object-edit history regeneration, emission/dynamic membership
+and the earlier full delivery gates. This closes the scientific-setup non-default
+provider-picker gap, not the complete X-PLUGIN objective; that remains active.
+
+### Targeted captured-field parameter editing — 2026-09-17
+
+**Progress; the field-only parameter-edit gap is implemented.** The copied-setup
+form now retains its source document incarnation/revision and offers separate
+per-field reset consent. **Apply only this field's parameters** uses the existing
+single, bounded, cancellable scientific-effect slot and final inventory/document
+guards. It retains exact provider/instance pins, domain, timestep, precision and
+sampling policy. Only the selected field is initialized; unrelated field state
+and Dynamics history retain their existing buffers. Replacement parameter metadata
+shares the retained-input budget before selection reads/thread execution.
+
+Unrelated pending domain, timestep or other model parameter edits refuse this
+narrow operation instead of being dropped or broadening the reset. Whole-setup
+Apply keeps its existing explicit all-state reset. Changing any form input clears
+field consent; whole-setup consent does not authorize a field-only reset. Copying
+again is required after an accepted document edit/reopen or inventory refresh.
+Neither failed dimensional validation nor cancellation changes the old capture.
+The effect API also requires a current authoring guard and rejects non-field
+targets and oversized inputs before preparing kernels. No persisted/wire version
+or dependency changed; both paths use the existing undoable setup-adoption command.
+
+Evidence: a new real-Component native-message fixture configures two distinct
+field families and a non-empty Dynamics membership. It checks consent, unrelated
+pending edit refusal, bad dimensions, stale document/inventory contexts, exact
+pointer retention for the untouched field/history, one-revision acceptance,
+undo/redo, cancellation, input/target refusals, saved capture reopening and portable
+export. A fresh runtime admits/advances that export after the inventory is gone
+(final rerun: 45.51s). This covers actual kernels,
+not just a mocked callback. Separate metadata-reservation coverage checks bounded
+parameter count/text and accounting of owned property/input metadata.
+
+All 33 library tests, 29 authoring tests and four dependency tests passed.
+Scoped all-target Clippy, workspace all-target check,
+format/docs/diff checks, offscreen GPU smoke and two-second native startup passed.
+`make test-kagami-workload` passed actual CLI/restart (29.78s) and worker-backed
+window (59.24s) journeys. The known `proc-macro-error2` future-compatibility warning
+remains. Native startup is not manual visual/interactive verification of the new
+controls. Non-Unix execution and the full workspace numerical suite were not run.
+
+**Still open:** component-only dependency repair, object-edit Dynamics-history
+regeneration, emission/dynamic membership, scientific/MCP and management parity,
+complete field visualization/instruments, and the earlier end-to-end runtime,
+recovery and resource-hardening gates. Full X-PLUGIN remains active.
+
+### Atomic initial-object edits and Dynamics-history regeneration — 2026-09-17
+
+**Progress; configured experiments can now accept object edits requiring new
+initial Dynamics history.** The previous authority correctly refused changed
+objects paired with an old history-source packet, but the native editor had no
+way to supply a coherent replacement. `prepare_history_edit` now reuses the
+ordinary command fold, structure/schema/expression/configuration checks and real
+allocator high-water marks. Its `HistoryEdit` type exposes only bounded
+initialization inputs, never an adoptable experiment or snapshot. The regular
+`Candidate` remains available only after complete scientific validation.
+
+The existing single scientific-effect slot now initializes the exact selected
+integrator against the proposed initial-entity packet, retains all field captures,
+and submits the original edits plus the new capture as one guarded batch. No ID,
+component, pose, mass or history is accepted before that complete batch succeeds.
+Provider selection and configuration remain pinned. Cancellation, intervening
+edits and inventory/context changes discard the whole proposal. Undo/redo restore
+captured bytes without invoking kernels. History input and output are separately
+bounded; scene proposal admission caps commands/components/properties at 4096
+aggregate entries and expression/text content at 1 MiB, with document per-value/
+collection limits checked before background work. This is not an aggregate RSS
+guarantee.
+
+Existing Unix create/remove, component attach/detach and property actions use the
+effect only when normal validation specifically reports changed history. Ordinary
+valid edits remain synchronous and need no executable inventory; other validation
+errors remain normal authority refusals. The effect API also supports compound
+creation and initial transform/velocity edits. The app lane is deliberately
+object-only: variable changes affecting captured configuration need their own
+affected-capture regeneration plan, not a hidden all-field reset. Dedicated
+pose/velocity gestures and scientific MCP routing remain open.
+
+Evidence: the real Newtonian/Euler native-message test covers atomic Dynamics
+attachment, mass changes and dimensional refusal, detach/removal, compound
+transform/creation with previously deleted allocator IDs, exact field-buffer
+retention, undo/redo, cancellation and stale completion after a rename. It tests
+the shared preparation directly, including refusal of setup changes/oversized
+batches and continued rejection by normal update without replacement history.
+The resulting nonempty scene exports and admits/advances after the inventory and
+window are dropped (final rerun 68.44s). A compile-fail doctest proves the
+preparation cannot yield an experiment snapshot. Input-admission unit coverage
+checks oversized text, aggregate counts/text and non-object intent.
+
+Document all-target tests and doctests, session all-target tests, 34 Kagami library
+and 29 authoring tests passed. The previous two-field parameter-edit fixture also
+passed (52.46s), exercising the factored capture-completion path. Scoped all-target
+Clippy, workspace all-target compilation, documentation/format/diff checks,
+offscreen GPU smoke and two-second native startup passed. Real worker CLI/restart
+(29.96s) and window delivery (48.78s) passed through `make test-kagami-workload`.
+The known
+`proc-macro-error2` future-compatibility warning remains. Manual interactive UI
+verification, non-Unix execution and the full workspace numerical suite were not
+performed.
+
+**Still open:** component-only dependency repair, gesture/MCP and
+configuration-affecting variable adapters, emission/dynamic membership, complete
+field visualization/instruments, broader management parity and the earlier
+end-to-end runtime/recovery/resource-hardening gates. Full X-PLUGIN remains active.
+
+### Window field inspection and bounded point sampling — 2026-09-17
+
+**Progress; an attached window can now inspect and sample an exact committed
+field without a local plugin installation.** The run panel accepts a configured
+field instance ID, obtains its validated descriptor through the shared scientific
+client, and lets the observer select declared channels and finite SI point
+coordinates. No private field layout is decoded by Kagami. The existing single
+background run slot performs descriptor and OSQ1/OSP1 requests; neither read
+initializes a kernel, advances the simulation, edits the document nor silently
+refreshes to a newer boundary. A descriptor must also agree with the displayed
+status's simulation time. Unresolved command intent prevents starting a new read.
+
+Local form/channel generations reject stale successes and errors. Refresh,
+scientific commands and detachment clear field observations. Channel actions are
+bound to the displayed generation, not merely an index. Query text is limited to
+64 KiB, with at most 4096 points and 16 selected channels, additionally subject to
+the selected field's shared packet policy. Complete validated packets are retained;
+the numeric display projects at most 256 cells and 16 values per cell into flat
+storage and cached text off the window thread. Truncation is explicitly labelled
+and does not change scientific completeness. Invalid cells remain unavailable,
+never fabricated zeroes; quality, declared shape, dimensions, frame and provenance
+remain visible. There is no new dependency or persisted/wire format.
+
+Evidence: the actual worker-backed window fixture samples the reference Newtonian
+field while its authoring provider is disabled. It checks valid acceleration,
+singular/outside-domain invalidity, quality, stale form/channel rejection, invalid
+coordinates, display truncation, unchanged document/run boundary and absence of
+command intent. An independent second controller advances the worker; sampling
+against the window's old descriptor returns `StaleBoundary` without implicit
+refresh. Explicit refresh clears observations and selects the new boundary.
+The full CLI/restart and window journeys passed through
+`make test-kagami-workload` (final window run: 50.01s). An earlier version of the
+second-controller fixture failed with `Transport` before its stale-sampling
+assertion while reusing a client whose current-thread executor had been parked
+during window requests. The final fixture constructs a genuinely independent
+client; production transport/retry behavior was not changed, and this does not
+claim a pooled-connection defect was diagnosed or fixed.
+
+All 35 Kagami library tests and 29 authoring tests passed. Scoped all-target
+Clippy, format/documentation/diff checks, offscreen GPU smoke
+and a two-second native startup passed. Native startup is not manual visual or
+interactive verification of the new field panel. The known
+`proc-macro-error2` future-compatibility warning remains; non-Unix execution and
+the full workspace numerical suite were not performed for this increment.
+
+**Still open:** field-instance enumeration for external runs, geometric sampling
+generators, persistent instruments, field vectors/flow lines and sensor MCP. This
+is a numeric observation prerequisite, not completion of K-OBSERVATION. The
+earlier dependency-repair, gesture/MCP/configuration-variable, emitter, management,
+runtime/recovery and resource-hardening gates remain. Full X-PLUGIN remains active.
+
+### One-shot field direction glyphs — 2026-09-17
+
+**Progress; validated field samples now have a 3D direction view.** The attached
+window offers one exact sampled vector-3 channel, an explicit world-X/Y/Z mapping
+action and a finite positive presentation length in metres. Frame/axes/conventions
+remain visible; shape alone does not infer a coordinate transform. Arrows are
+normalized directions, explicitly not magnitude/quality encoding. The original
+numeric values, quality, query/state identities and complete validated packets
+remain unchanged. Matrices/scalars cannot be used as spatial vectors.
+
+All queried points participate, independently of numeric-table truncation. Invalid
+samples and zero vectors produce no arrows and have separate counters. Checked
+SI-to-SceneScale conversion omits out-of-range or collapsed endpoints instead of
+clamping them. Normalization scales before squaring so even finite huge and
+subnormal values retain direction. One off-window local job reuses the report's
+immutable packets without credential IO, a worker request or guest invocation.
+Generation guards reject stale results after hide/form/query changes. Scale
+changes hide incompatible geometry and reproject once per requested scale;
+failed work is not retried every poll. Refresh/commands/detach clear the view.
+
+The renderer consumes generic finite endpoints/RGB, never scientific field
+layouts. `ArrowBatch` caps input at 4096 arrows (144 KiB GPU instance storage),
+reuses changed-batch uploads and shares the object-marker depth pass. Camera
+motion changes uniforms only. Projection is O(points) cold work/storage; GPU draw
+is O(arrows). Near/far plane crossings and subpixel/view-axis directions are
+deliberately visually omitted. No new dependency, persisted format or wire
+operation was introduced. No MCP files were changed.
+
+Evidence: 36 Kagami library, eight renderer and 29 authoring tests passed.
+Real worker CLI/restart (29.91s) and window delivery (49.75s) passed through
+`make test-kagami-workload`. The window fixture checks actual Newtonian sample
+direction and fixed length, singular/outside-domain omissions, stale/unsupported
+channel refusal, invalid length, hide during pending projection, all-point output
+beyond the truncated table, scale reprojection and unchanged document/report/run.
+GPU readback checks both projection modes, arrow/object depth, behind-camera
+omission, camera-only reuse, empty replacement and removal. The 120-frame
+offscreen smoke, scoped all-target Clippy, workspace all-target compilation,
+formatting, docs/diff checks and two-second native startup passed. The known
+`proc-macro-error2` future-compatibility warning remains. Native startup is not manual field-panel
+interaction/layout verification; non-Unix execution and the full workspace
+numerical suite were not performed for this increment.
+
+The first worker-test build stopped in the linker with a bus error before tests
+ran, with only 847 MiB free on the workspace filesystem. Six validated old Kagami
+incremental-cache directories were removed (about 2.2 GiB, regenerable by Cargo);
+source, installed plugins and scientific artifacts were untouched. Linking and
+the complete worker journey then succeeded. No production transport change or
+automatic retry was used to make the tests pass.
+
+**Still open:** flow lines, magnitude mappings, frame transforms, persistent
+instruments and the earlier full X-PLUGIN gates (dependency repair, gestures/MCP,
+configuration variables, emitters, management/runtime/recovery/resource hardening).
+This is partial K-VIEW slice 4, not completion of K-OBSERVATION or full X-PLUGIN.
+
+### Local plugin acquisition origin and versioned inventory migration — 2026-09-17
+
+**Progress; the accepted local-origin requirement is implemented.** Path-based
+package loading now records the bounded absolute input spelling before reading
+the explicit source directory/bundle. Origin is separate from canonical roots,
+payloads, archive bytes and workload identity. CLI/window install and update share
+the same acquisition path. The registration retains its first known origin;
+explicit reinstall can fill an unknown value but cannot silently replace a known
+one. Byte-only packages and v1 inventories retain unknown origin. No timestamp,
+publisher trust, fetch permission or global source-history claim is invented.
+
+Inventory v2 stores optional typed origin with a 4096-byte absolute NUL-free path:
+UTF-8 text where possible, lowercase lossless Unix-byte hex otherwise. Inspection
+returns this escaped local metadata alongside independently verified cached
+package data; it does not follow the path, even after the source is deleted.
+Scientific retained-package reads omit origin. Same logical content loaded from
+different paths still packs to identical archive bytes and release identity.
+The existing 256 KiB index ceiling charges origin too; paths are never truncated
+to make a registration fit. The secure writer and nonblocking lock/revision rules
+remain in force. Old v1 reads leave bytes unchanged; only an accepted management
+mutation publishes v2 at the next revision. Older binaries fail closed on v2.
+CLI JSON is explicitly `kagami.plugin-command/v2` for the added local-origin result
+fields; consumers requiring v1 must update. Command grammar/error codes and
+scientific formats are unchanged. Native Inspect exposes the same record. No
+MCP files or worker protocol were changed.
+
+Evidence: all 37 Kagami library tests, 21 plugin-management tests and four dependency
+tests passed. Added real CLI/window checks cover acquisition and inspection;
+tests cover non-UTF-8 input names, escaped control characters, invalid/oversized
+metadata, first-known retention, rejected-install atomicity, source deletion,
+origin-free archive identity, retained scientific reads and read-only v1 / accepted
+v2 migration. The dependency fixture still captures/saves/exports and executes
+without an inventory (28.23s). Actual worker CLI/restart (29.68s) and window delivery
+(49.80s) passed. Scoped all-target Clippy, workspace all-target compilation,
+format/docs/diff checks, GPU smoke and two-second native startup passed. The known
+`proc-macro-error2` future-compatibility warning remains. Manual inspection-layout
+verification, non-Unix execution and the full workspace numerical suite were not
+performed for this increment.
+
+**Next / still open:** the authoring audit confirms that standalone objects pin
+their component contribution but dependency bindings currently persist only in a
+captured `ScientificSetup` descriptor. The existing X-PLUGIN authoring slice now
+explicitly requires a versioned standalone draft-lock path, coordinated across
+save/open, undo, catalogs, references and export, before claiming a durable
+component-only chooser. Do not hide this with temporary UI choices or require an
+unrelated physics setup. Source-local aliases, exhaustive crash injection,
+management/MCP parity, scientific adapters, emitters and the earlier complete
+runtime/recovery/resource-hardening and observation gates remain open. Full
+X-PLUGIN remains active.
+
+### Standalone provider-intent lock foundation — 2026-09-17
+
+**Progress; component-only authoring integration is not complete.** The shared
+`orishu-plugin::authoring_lock` now defines `orishu.plugin-authoring-lock/v1`,
+independent of `ScientificSetup` and workload evidence. Private validated storage,
+bounded JSON and canonical-CBOR readers/writers retain exact roots, members and
+every dependency binding. There is no inventory revision, enablement, code,
+domain, captured state or initialization requirement in this format. The
+checked-in structural JSON Schema reuses the declaration schema's identifiers;
+Rust additionally enforces budgets and graph invariants.
+
+Graph validation rejects duplicate/noncanonical sets, foreign endpoints,
+unreachable members and cycles, and checks the complete longest dependency path
+with bounded flat scratch storage. JSON refuses an excess array entry before
+deserializing its malformed body. `Inventory::resolve_lock` independently checks
+current declarations/availability and requires exact closure equality: missing
+or disabled providers cannot be replaced by current defaults, and omitted
+declared edges cannot be filled implicitly. It rechecks receiving count/work/depth
+limits before cloning/traversal. A decoded lock alone grants neither schema
+compatibility nor executable admission.
+
+Evidence: seven new codec/graph/schema tests and two new resolver tests passed,
+including an independently written empty CBOR golden, independent nonempty CBOR
+decoding, malformed/over-budget inputs, shared dependency paths, stale revisions,
+changed defaults, disabled/missing providers, omitted/fictitious edges and a real
+component-plus-independent-constants choice without fields or kernels. All
+`orishu-plugin` all-target tests and its doc test passed, as did scoped all-target
+Clippy, workspace all-target compilation, format/docs/diff checks. The known
+`proc-macro-error2` future-compatibility warning remains. No new dependencies,
+workload identities or existing document/catalog/file versions were introduced.
+No worker, renderer or MCP implementation was changed in this increment; their
+end-to-end/manual suites and the full workspace numerical suite were not rerun.
+
+**Next:** adopt the lock in the document authority and versioned persistence,
+including atomic commands, save/open, undo/redo weight, catalog materialization,
+reference leases and exact export reconciliation. Then wire the component-only
+chooser to that durable authority. Existing captured `ScientificSetup` bindings
+must reconcile with standalone intent rather than become a competing authority.
+Do not claim this foundation makes UI-only choices durable or satisfies the full
+X-PLUGIN delivery goal; all earlier remaining gates still apply.
+
+### Standalone provider intent in the document and file boundary — 2026-09-17
+
+**Progress; catalog/choice adapters remain open.** `AdoptDependencies` now adopts
+a shared immutable lock through the existing atomic document transition. Final
+roots must equal the set of exact component contributions attached to objects;
+legacy logical references never acquire guessed providers. Component root-set
+changes require an updated lock in the same batch, including removals. There is
+no implicit pruning or dropping of intent. Captured scientific selection must
+contain every locked member and all/only the same dependency edges for those
+members; omission of a required edge is not accepted. Scene compilation repeats
+the agreement check. Offline hydration requires no installed provider or execution.
+
+The lock is shared across snapshots/undo/redo, and its cached canonical byte
+weight joins existing aggregate retention admission across current state,
+history and accepted receipts. Receiving authorities recheck their own lock
+limits on Open. A rejection preserves revision, counters, events, history and
+receipts. Dependency-only providers now enter the existing bounded exact-release
+reference projection and therefore window lease reconciliation. Raw lock adoption
+is not exposed as an ordinary JSON command; a future UI/MCP choice must still
+resolve and guard current availability before submitting the typed command.
+
+[Container v5](../experiment-container-v5.md) persists standalone intent as a
+required digest/length-addressed canonical lock blob in the same flat archive as
+`document.json` and any scientific captures. Its setup is explicitly legacy or
+scientific. It requires no field, kernel or initialization and introduces no
+nested archive or new executable identity. Unlocked JSON v3 and scientific v4
+writers/bytes are unchanged; old files never acquire a lock on open. Bare legacy
+JSON serialization refuses locked documents instead of losing data. Model wire
+v4 adds a raw read projection of the lock; session envelope v1 and workload/kernel
+contracts are unchanged. Older file readers decline v5 explicitly.
+
+Evidence: all-target tests for `orishu-plugin`, `kagami-document` and
+`kagami-session` passed, including existing legacy/v4 golden fixtures. New tests
+exercise atomic combined edits, undo/redo, receipts, dependency-only references,
+per-lock/aggregate admission, offline round trips, malformed/extra/missing blobs,
+root/evidence disagreement and all five durable-write failure windows. Their doc
+tests passed. Kagami's 37 library tests passed. The actual installed Newtonian/
+Euler dependency fixture saved scientific captures plus an explicit empty component
+lock, reopened offline, exported exact selection evidence and ran through fresh
+inventory-free runtime admission (28.13s). This proves scientific coexistence, not
+a nonempty component-choice UI. Scoped all-target Clippy, workspace all-target
+compilation, formatting, documentation and diff checks passed. The known
+`proc-macro-error2` future-compatibility warning remains.
+
+The broader scientific-initialization run passed nine cases and exposed one
+outdated fixture that treated format 5 as a future version. It now tests the
+version after `LOCKED_CONTAINER_VERSION`; this is a fixture compatibility change,
+not relaxing unknown-version refusal. The corrected case passed its focused rerun
+(43.46s), completing evidence for all ten scientific-initialization cases.
+No worker/renderer/MCP implementation was
+changed here; worker socket journeys, GPU/native manual checks, non-Unix execution
+and the full workspace numerical suite were not rerun for this increment.
+
+**Next:** catalog-scoped dependency locks; pure explicit composition/pruning for
+object/template edits; component-only choice UI/MCP using strict inventory
+revalidation and document/inventory guards; nonempty composed-object end-to-end
+evidence. The earlier emitters, observation, recovery and resource-hardening gates
+also remain. Full X-PLUGIN delivery is still active.
+
+### Catalog-scoped provider intent and explicit composition — 2026-09-17
+
+Delivered [catalog v3](../catalog-template-v3.md), extending the document-owned
+lock without requiring fields, a solver or a plugin installation:
+
+- `orishu-plugin::authoring_lock` now offers a bounded embedded deserializer,
+  borrowed serialization, explicit `for_roots` closure extraction, and `merge`.
+  Common exact consumers must agree on all outgoing bindings, including absence.
+  Conflicts expose the requirement and both optional providers; no replacement,
+  implicit edge repair or current-default selection occurs. Union outputs and
+  input graphs are checked against receiving bounds.
+- `kagami.catalog/v3` requires structured `spec.dependencies`, including an
+  explicit empty lock where appropriate. Roots exactly match template exact
+  components. The lock enters canonical bytes/fingerprints, safe writes and the
+  materialized candidate. Missing schemas preserve intent as unavailable. V1/v2
+  retain their existing bytes and do not silently gain locks. Newly created v2
+  provenance now reports v2 rather than incorrectly claiming v1; old historical
+  provenance is untouched.
+- Lock reads use the default shared ceiling plus tighter receiving policy.
+  Direct typed validation cannot raise that ceiling and create a template its
+  standard reader cannot reopen. `parse_stream` now checks bytes for in-memory
+  callers too. The enclosing YAML loader remains Value-based before lock
+  preflight; this is not evidence of fully streaming YAML allocation bounds.
+- Document instantiation merges the template lock and object commands in one
+  transaction, including aggregate metadata retention, identities, history,
+  receipts and events. Unchanged merged intent reuses the current Arc. Conflicts,
+  unrelated existing unlocked roots, mismatched captured selection and exhausted
+  retention refuse without partial mutation. Explicit removal plus a pruned lock
+  uses the same normal command batch. No general UI/MCP auto-pruning is implied.
+- Nonempty template instantiation, offline v5 save/open, undo/redo, shared provider
+  retention, source-fingerprint staleness and safe catalog writes are exercised.
+  The catalog availability projection is schema-only; strict plugin-inventory
+  revalidation before computational use remains the consuming adapter's duty.
+
+Validation passed:
+
+- `cargo test --locked -p orishu-plugin -p kagami-catalog -p kagami-document -p kagami-session --all-targets`
+  (including 11 shared lock tests, four catalog-lock tests and nine session-lock
+  tests; benchmark targets run in test mode, not performance measurements).
+- The same four crates' doc tests.
+- Targeted Clippy for those four crates plus `kagami`, all targets with `-D warnings`.
+- `cargo check --locked --workspace --all-targets`.
+- `cargo test --locked -p kagami --lib` (37 tests).
+- Formatting, diff whitespace and documentation checks.
+
+One old unknown-version fixture used v3, which is now supported; it now uses v99
+and still asserts version-first refusal. The first broad Kagami link failed with
+a bus error when the filesystem was full. Six exact generated incremental-cache
+directories were moved to `/tmp/x-plugin-build-cache.09Iydu` (about 2.8 GiB, still
+recoverable until temporary storage is cleared), with no source/user-data removal;
+Kagami's tests then passed. Workspace checking still reports the existing
+`proc-macro-error2` future-compatibility warning. Worker/socket/real-Wasm journeys,
+GPU/native manual checks, non-Unix execution and the full workspace numerical
+suite were not rerun for this increment.
+
+**Next:** component-only resolution/guarded adoption and general root-edit adapters
+using these durable locks; real declared nonempty composed-object
+capture/export/runtime evidence. Keep all remaining delivery gates above active.
+Full X-PLUGIN delivery is not complete.
+
+### Guarded component-only window choices and nonempty execution — 2026-09-17
+
+Implemented the [existing-component Unix choice workflow](../component-provider-choices.md):
+
+- `ComponentForm` copies current exact roots and saved bindings under a document
+  guard, independently of fields, domain, integrator selection or initialized
+  state. Empty documents and captured scientific setups refuse this form instead
+  of creating an unnecessary empty lock or rebinding captured physics. Clearing
+  local choices restores copied saved intent.
+- The physics dependency controller now serves a small shared proposal interface.
+  Component and physics forms share bounded resolution, automatic/explicit
+  installed-provider pages and stale-token protection, while retaining separate
+  proposal generations. Only the component form may submit `ApplyLock`.
+  An explicit discard action removes only a binding the current report identifies
+  as unused, so changing an upstream provider can be repaired without silent
+  pruning or throwing away all saved choices.
+- `PluginStore::prepare_authoring_lock` independently checks the exact closed
+  component-root graph, current enablement and declaration bindings, returns
+  selected component schemas and retains exact release leases. It uses bounded
+  package verification, but builds no execution closure and performs no JIT or
+  guest calls. Omitted edges do not acquire default providers during revalidation.
+- Apply holds the final inventory guard across the document's incarnation,
+  revision and mode check and normal `AdoptDependencies` acceptance. A refused
+  completion changes neither document intent nor its schema projection. Accepted
+  selected schemas restore unavailable authoring capabilities. The completion
+  fold starts reference reconciliation immediately, avoiding a coarse reference
+  gate left waiting for an unrelated future user event.
+- Saved component bindings enter whole-physics requests automatically. Conflicting
+  local physics choices refuse before initialization; they do not override the
+  lock. The coordinated migration/reset path needed to change these providers
+  after scientific capture remains explicitly unsupported by this form.
+- The inspector exposes Load/Check/Browse/Choose/Save without requiring any enabled
+  kernels. Saving is dirty/undoable and uses container v5; no persisted format,
+  workload identity, kernel ABI or client wire version changed here. No MCP
+  implementation was edited.
+
+Real installed-declaration tests exercise an existing component made ambiguous by
+installing a second compatible provider, guarded repair, schema restoration,
+offline save/open, undo/redo, dependency-only references, stale inventory and
+an intervening document edit before the completion fold. Separate preparation
+checks cover missing edges, receiving bounds, release leases and disabled pins.
+
+The prior real Newtonian/Euler fixture was strengthened from an empty component
+lock to two bodies carrying exact mass and Dynamics components from a deliberately
+selected non-default vocabulary release. Their lock is saved through the new
+window controller **before** physics initialization. It survives scientific
+capture, offline reopening and portable export, excludes unused/default vocabulary
+providers, and enters a fresh inventory-free runtime. One actual committed step
+gives the two bodies oppositely directed attractive velocities. Existing dedicated
+kernel/runtime numerical suites remain the detailed numerical evidence.
+
+Validation includes the nine real plugin-dependency integration cases (including
+that Wasm journey), Kagami library/authoring/scientific-guard tests, workspace
+all-target checking, targeted all-target Clippy, formatting and docs checks.
+Native startup with the isolated existing plugin fixture succeeded and exited
+normally after two seconds when given desktop compositor access. The first
+sandboxed startup could not connect to Wayland; this was an environment boundary,
+not evidence of a working window. Native startup is still not manual inspection
+of multi-provider layout, paging or interaction. Existing `proc-macro-error2` and
+platform graphics warnings remain. Worker socket/client journeys, the full
+workspace numerical suite and non-Unix execution were not rerun in this increment.
+
+**Next:** general root-edit and initially unavailable/unattached-component
+adapters; coordinated component-provider migration after scientific capture;
+MCP adoption using the same preparation/guards. These remain required, alongside
+the broader delivery gates above. Existing-root repair and a nonempty execution
+fixture do not close the entire authoring or X-PLUGIN task.
+
+### Atomic native removals in locked documents — 2026-09-17
+
+The native Remove object / Detach component actions now explicitly prepare the
+surviving root set and use shared closure restriction before submitting the
+ordinary edit batch. Repeated component uses preserve the root and existing lock
+allocation; shared reachable dependencies keep their exact providers. Last-use
+removal submits the revised lock with the object/component edit. Removing every
+root leaves an explicit empty lock, never an implicitly unlocked document.
+The authority's strict root-equality rule is unchanged; raw removal without a
+matching lock still refuses. This is a local window adapter, not an MCP mutation.
+
+Uncaptured removal requires no inventory or executable, including offline files
+whose schemas are unavailable. Captured Dynamics removal now carries bounded
+`AdoptDependencies` proposals through the existing guarded history lane. Old and
+proposed locks join captured state in its retained-input budget. Normal structural,
+captured-selection and history validation still applies; lock, object and matching
+history commit together while field buffers remain unchanged. Stale completion
+cannot publish either the removal or its pruned lock. Undo/redo restore all three
+without executing guests; existing reference reconciliation tracks the new graph
+and keeps history references.
+
+Evidence: native-message tests cover repeated roots, shared members also used as
+roots, final detach/object removal, invalid repeat, undo/redo, offline removal,
+receiving batch-budget refusal and dependency-only current-reference removal.
+The real Newtonian/Euler object/history fixture now has a persisted component
+lock, exports it for inventory-free execution and checks final-component removal
+with unchanged field handles, replacement history and undo/redo. A directly
+scheduled pruned-lock/history proposal followed by an intervening authority edit
+proves stale refusal independently of worker completion timing. A focused input
+test rejects dependency locks exceeding the receiving byte budget before spawning.
+
+Validation: 81 Kagami library/authoring/plugin-dependency/scientific-guard tests
+and the real object/history fixture passed. The amended removal and history tests
+were rerun after their additional budget/stale assertions. Workspace all-target
+checking, targeted all-target Clippy, formatting, diff whitespace and documentation
+checks passed. No new persisted format, workload identity or kernel ABI; no MCP
+implementation edits. The full workspace suite, worker network journeys, non-Unix
+execution and manual window interaction were not rerun in this increment.
+
+**Next:** general root-addition/replacement, first attachment with unavailable or
+ambiguous dependencies, coordinated captured-provider migration and MCP adoption.
+Removal support does not complete these or the broader X-PLUGIN delivery gates.
+
+### Guarded first attachment and locked-root addition — 2026-09-17
+
+The window now carries the inventory's bounded unresolved component pins through
+startup and explicit refresh into the object inspector. **Resolve and add** offers
+enabled declarations requiring dependency selection/repair. Adding a new exact
+root to an already locked, uncaptured document uses the same staged proposal,
+including components whose schemas are already available. Check/Browse/Choose
+remain read-only; **Attach component and save choices** submits declared defaults,
+the attachment and the complete lock together. The proposal cannot rebind/drop
+saved edges, and final graph composition independently requires agreement for
+every existing consumer. Existing provider choices are never replaced implicitly.
+
+`DocumentAuthority::submit_with_schemas` provides cold atomic capability-plus-command
+admission, reusing the ordinary transition, receipt, event, history and aggregate
+retention checks. Failed attachment or retention admission publishes neither
+capabilities nor intent/events; replay returns the original receipt without
+installing the supplied projection. The guarded app shell uses this same path
+for existing-component repair and attachment while the verified inventory guard
+and exact release leases remain held. No new wire authority or persisted schema
+format was introduced. Undo restores component/lock intent, not installed schemas.
+
+Cancel discards the proposal generation without releasing a running worker slot
+early. A stale or cancelled completion cannot install a component, lock or schema.
+Required defaults remain required: declarations with missing defaults refuse
+without inventing values or leaking their prepared capability projection.
+
+Evidence includes native-message initial ambiguity/selection, new roots from
+another release, a selected dependency promoted to a root, preservation of saved
+edges, undo/redo, deterministic stale/cancelled completion and required-default
+refusal. Core authority tests cover complete view/history/event/schema rollback
+on retention refusal, acceptance, replay with different supplied schemas and
+undo/redo. Validation passed: 184 session all-target tests, its doctest, 84 targeted
+Kagami library/authoring/plugin-dependency/scientific-guard tests (including the
+real selected-closure export/runtime fixture), workspace all-target checking,
+Kagami/session all-target Clippy, formatting, diff whitespace and docs checks.
+The full workspace suite, worker network journeys, non-Unix execution and manual
+window interaction were not rerun. No MCP implementation was edited.
+
+**Next:** uniform lock capture for already-available components added to unlocked
+documents (the earlier synchronous path is unchanged); property entry when
+required defaults are missing; general component replacement; coordinated
+captured-state additions/provider migration; MCP adoption. The standalone
+attachment path now works, but these and the wider X-PLUGIN delivery gates remain.
+
+### Pin choices on the first available native attachment — 2026-09-17
+
+Native exact-component Add now stages dependency resolution whenever an
+uncaptured document has no standalone lock, even if the component schema is
+already available. An available schema is no longer mistaken for durable
+provider intent. Acceptance uses the existing leased/guarded schema-component-lock
+transaction and saves the complete exact graph for all current exact roots plus
+the new component. Another use of an already locked root can retain the existing
+synchronous path because it introduces no new choice. Legacy logical actions and
+offline reading of older unlocked documents/templates are unchanged; no provider
+is guessed for a logical ID and no read silently migrates a file. Captured-state
+additions still require their separate coherence/migration work.
+
+The inspector explains Check/Save before attachment. Real startup/management and
+Newtonian/Euler fixtures now exercise this two-phase native path, rather than
+assuming first attachment is immediately accepted. Legacy repair fixtures are
+explicitly seeded through the typed authority as older unlocked documents, so
+they continue testing the intended compatibility case instead of bypassing the
+new UI behavior unnoticed. A focused fixture accepts a first available component
+with one dependency, then installs a second compatible provider: recheck retains
+the original binding without ambiguity, and offline save/open preserves it.
+
+Validation passed: 106 Kagami library/authoring/scientific-guard/plugin-management/
+plugin-dependency tests, including actual selected-closure export and fresh
+runtime execution; workspace all-target checking; Kagami all-target Clippy;
+formatting, diff whitespace and docs checks. `make smoke-kagami` passed on
+llvmpipe, including both projections and marker/arrow pixel checks. This is not
+manual inspector interaction/layout QA. Full workspace tests, worker network
+journeys and non-Unix execution were not rerun. No MCP implementation was edited.
+
+The build volume had less than 1 GiB free. Three exact generated Kagami incremental
+cache directories were moved recoverably to `/tmp/x-plugin-incremental.vaAyOo`;
+source files and build outputs were not removed. Existing future-compatibility
+warnings remain unrelated to this change.
+
+**Next:** property entry for components lacking required defaults; general
+replacement; coordinated captured-state additions/provider migration; MCP
+adoption and the wider X-PLUGIN runtime/delivery gates. Native unlocked first
+attachment no longer remains a provider-intent gap.
+
+### Bounded attachment property entry and read-only field inspection — 2026-09-17
+
+Every uncaptured exact attachment now offers a local property proposal, including
+another use of an already locked component. This closes the required-no-default
+case for second and subsequent objects too. Available declarations populate
+bounded fields/defaults immediately; an unavailable declaration can be inspected
+with **Load property fields** after dependency resolution. That guarded read
+revalidates the selected closure and copies only local declaration metadata; it
+does not install a schema or modify the document. Apply revalidates availability
+and exact schema agreement again before the existing atomic schema/component/lock
+acceptance. Identical accepted locks reuse the existing retained allocation.
+
+The inspector supports retained quantity expressions, literal text and explicit
+boolean values, including empty text/false versus Unset. Requiredness, dimensions,
+expression evaluation and plugin constraints are normal authority checks. A
+failed save retains local values for correction without leaking a component,
+schema, history entry or receipt. Offline missing schemas preserve quantity
+sources as unevaluated values, not fabricated numeric evaluations. Undo/redo
+restores accepted object/lock contents; installed capabilities remain separate.
+
+Property messages carry a distinct form identity; local value changes advance
+proposal generation and invalidate pending Apply/resolution. Cancelled/stale
+field reads cannot populate a new proposal or install capabilities. Field/source
+retention is bounded: at most 256 declaration fields, receiving property-count,
+expression/text limits, and a 1 MiB aggregate source ceiling. Defaults are checked
+before cloning; rejected edits preserve the previous local values. This is not a
+whole-process memory bound or a claim of complete property editing in other adapters.
+
+Evidence: a real installed declaration with missing quantity/text/boolean defaults
+refuses incomplete input, allows read-only field inspection, rejects wrong units
+and text constraints, then accepts `1 kg + 1 kg`, explicit false and empty text in
+one revision. Tests cover offline sources, undo/redo, a second object with distinct
+values and unchanged provider choices, edits during in-flight Apply, stale/cancelled
+property reads, cross-form messages, wrong-kind/oversized inputs, aggregate source
+limits, field counts and absent/default distinctions. The existing real selected
+workload export/runtime fixture still passes with the staged attachment path.
+
+Validation passed: 110 focused Kagami library/authoring/plugin-dependency/plugin-
+management/scientific-guard tests, workspace all-target checking, Kagami all-target
+Clippy, formatting, diff whitespace and docs checks. Renderer smoke passed on
+llvmpipe under both projections. Full workspace tests, worker network journeys,
+non-Unix execution and manual inspector interaction/layout QA were not rerun.
+No MCP implementation, persisted format, workload identity or kernel ABI changed.
+
+**Next:** general component replacement; coordinated captured-state additions and
+provider migration; MCP adoption and the wider X-PLUGIN execution/delivery gates.
+This completes the uncaptured attachment property-entry path, not the whole goal.
+
+### Explicit uncaptured component replacement — 2026-09-17
+
+The Unix object inspector now offers **Choose replacement…** on an existing
+component. Selecting a different exact component creates a guarded local proposal;
+it does not detach the original. New values come from the new declaration's
+defaults or explicit input, never inferred copying/conversion of old properties.
+The shared dependency/property workflow independently checks the selected closure
+and declaration. Acceptance submits detach, attach and revised lock as one atomic
+schema/command operation, with existing availability guards and release leases.
+Successful acceptance clears the chooser; refusal retains values for correction.
+
+Preparation restricts old provider intent to surviving roots, also retaining any
+selected dependency promoted to the new root. Shared consumers retain complete
+bindings. Only intent made unreachable by the explicit replacement is removed.
+Another object's use of the old component preserves its root and providers.
+Replacement does not require a spare component slot: the bounded command batch
+detaches before attaching, without exposing intermediate state. Undo/redo restore
+objects, values and locks together; offline save/open preserves accepted choices.
+Captured scientific setups still refuse this form and require coordinated migration.
+
+Evidence: real installed declarations exercise new and promoted roots, shared and
+last-use replacement, explicit quantity values, offline reopen and undo/redo.
+Invalid values, cancelled/stale completions and expired picker identities cannot
+detach the original. Tests also cover ending replacement mode after acceptance,
+local preparation at the component-count limit and refusal after real scientific
+capture. Existing selected-workload export and inventory-free execution still pass.
+
+Validation passed: 113 focused Kagami library/authoring/scientific-guard/plugin-
+dependency/plugin-management tests, workspace all-target checking, Kagami all-target
+Clippy, formatting and documentation checks. Renderer smoke passed 120 frames and
+marker/arrow checks under both projections on llvmpipe. Full workspace tests,
+worker network journeys, non-Unix execution and manual inspector layout/interaction
+QA were not rerun. No MCP implementation, persisted format or kernel ABI changed.
+
+An initial native test link failed with a linker SIGBUS while the build volume had
+less than 1 GiB free. Three exact generated incremental caches were moved
+recoverably to `/tmp/x-plugin-link-cache.HIOCpc`; the retry passed. Disk pressure
+was suspected, not proven as the cause. No source files were removed.
+
+**Next:** coordinated captured-state additions/component-provider migration; MCP
+adoption and the wider X-PLUGIN execution/delivery gates. General uncaptured
+replacement is no longer an open adapter gap; the overall goal remains active.
+
+### Captured-component extension preparation and atomic adoption — 2026-09-17
+
+`kagami_document::update::prepare_extended_history_edit` now prepares component
+additions against an extended verified declaration set without exposing an
+incoherent experiment. Existing roots, members, complete provider bindings and
+kernel-instance identities must remain unchanged. The core verifies retained
+captures against the new declarations and uses the same ordinary command fold,
+schema governance and expression/configuration checks as history editing. Only
+numerical-history coherence is deferred; normal guarded acceptance still requires
+the complete new capture. This does not authorize provider or kernel migration.
+
+The internal Unix `ScientificEffects::extend_components` lane now takes exact
+attachment commands, a complete component lock and the originating authoring guard.
+It bounds input before starting work, independently revalidates the lock/schemas,
+merges saved intent without rebinding, retains exact release leases and compiles
+the complete selected closure with the existing kernel uses. It regenerates
+integrator history from the proposed objects using the same initializer as ordinary
+scene edits. Field buffers, domain, timestep and compute settings are retained.
+Final inventory/document guards cover atomic adoption of attachments, lock,
+extended scientific evidence/history and selected schema capabilities. Cancelled,
+stale or refused completion cannot install a schema or accept a partial edit.
+
+Evidence: a real captured Newtonian/Euler setup with two initially static objects
+receives Dynamics, gravitational mass and a newly installed additive component
+whose dependency references Dynamics. The new schema is absent before acceptance;
+afterward the revision, components, lock and scientific evidence change together,
+while field bytes retain their allocation. History contains the two dynamic IDs.
+Undo/redo and offline save/open preserve the whole transition. Exported bytes admit
+and execute in a fresh runtime after the document/inventory are dropped, producing
+oppositely directed attractive velocities. Invalid units, cancellation, an
+intervening edit, command-budget overflow and non-attachment requests refuse.
+Core tests independently reject changed kernel uses and changed provider bindings
+even with valid compiled declarations and every old member still present.
+
+Validation passed: 126 Kagami library/authoring/scientific-guard/plugin-dependency/
+plugin-management/scientific-initialization tests; 318 document/session all-target
+tests and benchmark test-mode checks; three document/session doctests; workspace
+all-target checking; affected-crate all-target Clippy; formatting, diff whitespace
+and docs checks. The real scientific regression suite ran with two test threads.
+Full workspace tests, worker network journeys, non-Unix execution and manual window
+QA were not rerun. Rendering/UI code was unchanged in this increment. The existing
+`proc-macro-error2` future-compatibility warning remains. No MCP implementation,
+persisted format, workload identity rule or kernel ABI changed.
+
+**Next:** connect the native captured Add proposal to this lane. Retain bounded
+property/dependency editing and complete provider choices, require explicit consent
+to regenerate history, and carry document/form/inventory guards through the
+asynchronous handoff. The current inspector still refuses newly introduced captured
+roots; the internal API is not completed user-facing parity. Captured-provider
+replacement/migration, MCP adoption and wider X-PLUGIN execution/delivery gates
+remain open. The overall goal remains active.
+
+### Native captured Add with proposal-specific consent — 2026-09-17
+
+Every native exact Add now stages component properties and complete dependency
+choices, including attachment of a root already used on another object. For a
+captured experiment, the proposal preserves reachable captured component choices
+and refuses rebinding existing scientific consumers. New property values still
+come from exact declarations/defaults or explicit input. Loading an unavailable
+declaration remains a read-only local operation, not capability adoption.
+
+Captured Add requires explicit consent to regenerate initial integrator history
+while preserving fields and existing providers. Consent names the exact local
+proposal generation; editing values or provider choices invalidates it, and old
+checkbox messages cannot authorize later inputs. Checked component intent hands
+off to `ScientificEffects::extend_components` in the same update fold, with
+document/form/inventory/consent checks. The scientific lane independently repeats
+availability/selection validation and accepts components, lock, declaration
+evidence, history and schemas atomically. No direct component-only adoption occurs
+for captured additions.
+
+The window retains ownership of the scientific operation through its actual exit.
+Cancel or withdrawn consent prevents acceptance before or after the dependency-to-
+scientific handoff; pending work continues to own capacity until cleanup. Successful
+acceptance ends the proposal. Failure leaves local values available for correction
+but requires fresh consent and an explicit retry. The scientific polling
+subscription remains active after dependency discovery releases its slot.
+
+Evidence: native-message tests load an unavailable component's fields without
+installing its schema, invalidate consent on input edits, refuse old checkbox
+messages and unconsented Apply, withdraw consent after handoff, cancel a pending
+dependency read and preserve intervening edits on both sides of handoff. Successful
+attachment advances one revision, retains field buffers, saves/reopens offline,
+exports, and restores the full change through undo/redo. Another object receives
+the same locked component with distinct values and the same lock allocation.
+The existing real Dynamics object/history journey now uses the consented native
+attachment path; shared real-kernel export/admission/execution regressions pass.
+
+Validation passed: 128 Kagami library/authoring/scientific-guard/plugin-dependency/
+plugin-management/scientific-initialization tests, workspace all-target checking,
+Kagami all-target Clippy, formatting, diff whitespace and docs checks. Renderer
+smoke passed 120 frames plus marker/arrow checks under both projections on llvmpipe.
+Full workspace tests, worker network journeys, non-Unix execution and manual
+inspector interaction/layout QA were not rerun. No MCP implementation, persisted
+format, workload identity rule or kernel ABI changed.
+
+The first native test link failed with linker SIGBUS while the build volume was
+low on space. Three exact older generated worker incremental caches were moved
+recoverably to `/tmp/x-plugin-native-cache.AZ5NYa`; the retry passed. Disk pressure
+was suspected, not proven as the cause. No source files were removed.
+
+**Next:** captured provider replacement/migration, compound/catalog and headless
+composition adapters, MCP adoption and the wider X-PLUGIN execution/delivery gates.
+Ordinary native captured component attachment is no longer an open adapter gap.
+The overall goal remains active.
+
+### Explicit captured-provider full-reset backend — 2026-09-17
+
+Implemented `ScientificEffects::reset_components` and `ComponentResetRequest`.
+The caller supplies explicit scene edits/new values, the complete resulting
+component lock and a complete new physics request. This is a distinct operation
+requiring consent to discard all old field/history state, not implicit migration
+or an extension of ordinary Add consent. Its native proposal/consent and MCP
+adapters remain unimplemented.
+
+Shared `prepare_scientific_reset` folds ordinary commands using the real source
+allocation counters. Schemas, expressions, bounds, exact component roots and
+complete lock agreement with new verified scientific evidence remain mandatory.
+Only old capture coherence is deferred inside this non-adoptable preparation;
+it exposes variables and projected Dynamics input, not a snapshot or old state.
+Setup/domain/timestep commands cannot bypass the separately supplied reset request.
+Final acceptance resubmits edits, lock and the complete new setup through normal
+authority validation with staged schemas.
+
+The backend independently revalidates authoring and scientific selections,
+retains their release leases, initializes every field/history afresh and keeps
+the inventory revision guard through acceptance. It shares full initialization
+with ordinary setup creation/replacement. Fields receive no coupled objects in
+initialization; history receives newly projected objects under the new bindings.
+Neither old executables nor old blobs are needed to initialize new providers.
+Aggregate owned configuration weight across all kernels now reduces the admission
+budget for retained old scientific inputs; scene inputs retain their separate
+bounded admission. This is not a whole-process RSS guarantee.
+
+Real Newtonian/Euler tests replace both vocabulary and solver providers, disable
+both old packages, explicitly change component mass/configuration/timestep, and
+accept new components, choices, schemas and fresh captures in one revision.
+They prove undo/redo, offline v5 reopen, portable export and fresh inventory-free
+runtime admission/attraction. Core tests reject ordinary acceptance with the old
+capture, expose bounded new Dynamics input only, and refuse setup commands during
+preparation. Invalid values, old locks, missing edits, scientific-selection
+disagreement, later field-kernel refusal after history initialization, cancellation
+and stale edits preserve the source and install no new schemas. Command-count
+and embedded-lock refusals occur before starting a worker.
+
+Validation passed: 130 Kagami library/authoring/scientific-guard/plugin-dependency/
+plugin-management/scientific-initialization tests; 318 document/session all-target
+tests plus benchmark test-mode checks; four document/session doctests; workspace
+all-target checking; Kagami/document/session all-target Clippy; formatting, diff
+whitespace and docs checks (207 Markdown files). The 17-test real scientific suite
+ran with two test threads and completed in 327.98 seconds. The initial focused run
+had one assertion expecting a different diagnostic phrase; the kernel correctly
+refused the input and left state intact. The corrected assertion and all subsequent
+runs passed. Full workspace tests, worker network journeys, non-Unix execution and
+manual window QA were not rerun. Rendering/UI code was unchanged in this increment;
+no renderer smoke was needed. The existing `proc-macro-error2` future-compatibility
+warning remains. No MCP implementation was changed.
+
+**Next:** connect a native captured replacement proposal with complete new
+component values/provider/physics choices, explicit loss-of-state preview and
+input-specific full-reset consent. Keep cancellation and document/form/inventory
+guards across both preparation stages; leave ordinary Add field-preserving.
+Compound/catalog and headless composition, MCP adoption and the wider X-PLUGIN
+execution/delivery gates remain open. No persisted format, workload identity rule
+or kernel ABI changed. The overall goal remains active.
+
+### Native captured replacement and binding-only full reset — 2026-09-17
+
+Connected native authoring to the full-reset backend. An author may choose a new
+exact component for one selected object, with explicit values, or load captured
+component choices to change dependency providers without object edits. Captured
+choices seed the proposal; explicit reset rebinding is allowed, while ordinary
+captured Add remains field/provider-preserving. No property conversion is inferred.
+
+The component resolver stages checked intent without adopting commands or schemas.
+The inspector then presents a complete physics proposal: domain/grid/timestep are
+copied, but models, parameters, precision and sample policy are not carried over
+implicitly. The author selects all desired fields/integrator and checks physics
+dependencies against the proposed component lock, not the superseded document
+roots/bindings. Final Apply freezes the exact displayed resolved graph and invokes
+independent backend revalidation and fresh initialization.
+
+Full-reset consent and Apply identify both component and physics generations.
+Physics changes revoke consent; component changes discard the staged physics too.
+Old buttons/checkboxes cannot authorize later inputs. Ordinary physics/field/Add
+consent is not reset consent. Cancellation and withdrawal work before and after
+handoff, with worker ownership retained until actual exit; document/mode/inventory
+guards invalidate stale proposals. Failure requires explicit confirmation/retry,
+and success ends the proposal after one atomic revision. No new schemas or partial
+component/provider changes are accepted during preparation.
+
+Native-message tests use installed declarations and real Newtonian/Euler kernels.
+They exercise read-only field loading, staging without adoption, mandatory explicit
+model choices, wrong/stale consent and Apply, physics/component edits, cancellation
+during dependency work and after scientific handoff, late kernel refusal, and
+intervening edits. Successful replacement preserves the other object's old
+component, adopts explicit new values and new kernel providers, resets every
+capture, supports undo/redo/offline reopen/export, and reaches fresh inventory-free
+runtime admission/attractive motion. A binding-only journey uses installed-provider
+pages to change a captured dependency, explicitly resolves the integrator's
+different provider choice, and resets without changing any object data.
+
+Validation passed: 133 Kagami library/authoring/scientific-guard/plugin-dependency/
+plugin-management/scientific-initialization tests; a focused rerun of all three new
+native reset tests after the final preflight-consent guard; workspace all-target
+checking; Kagami all-target Clippy; formatting, diff whitespace and docs checks
+(207 Markdown files). The full 20-test scientific suite completed in 436.38 seconds
+with two test threads; the focused final rerun completed in 161.59 seconds while
+both suites overlapped. Renderer smoke passed 120 frames plus marker/arrow pixel
+checks under both projections on llvmpipe. Full workspace tests, worker network
+journeys, non-Unix execution and manual inspector interaction/layout QA were not
+rerun. The existing `proc-macro-error2` future-compatibility warning remains.
+
+**Next:** general compound/catalog and headless composition adapters, MCP adoption,
+gesture/configuration-variable authoring and the remaining X-PLUGIN delivery gates.
+The native selected-component replacement and binding-only reset gaps are closed;
+this is not a general multi-object migration planner or selective state migration.
+No persisted format, workload identity or kernel ABI changed. No MCP implementation
+was changed. The overall goal remains active.
+
+### Captured compound/catalog addition preparation — 2026-09-17
+
+Extracted the existing catalog-to-command translation into pure
+`kagami_session::instantiation::prepare`, now used by ordinary session acceptance
+and captured-scientific addition preparation. It takes an explicit immutable
+catalog and the original experiment, uses real allocation counters for object-local
+definitions, preserves rewritten sources/provenance and merges complete template
+locks without replacing intent. Caller binding count/source bounds precede copying;
+materialized command counts are checked before constructing the command vector.
+Preparation never mints or adopts IDs. Normal authority validation remains the
+only acceptance path; ordinary instantiation does not bypass captured history.
+
+`ScientificEffects::compose_scene` now accepts bounded exact component attachments,
+new objects and new definitions with a complete resulting component lock.
+`instantiate_template` retains one adopted catalog snapshot and requires an exact
+fingerprint, available entry and independently verified complete lock. Catalog
+reload after submission does not replace the retained source. Template bindings
+cannot be overridden by a different supplied lock, even if that lock resolves
+successfully; dependency-composition refusals retain the typed conflict. Existing
+providers/kernels/fields/settings survive, while integrator history is regenerated
+and copied data, choices, evidence/history and schemas accept atomically under the
+existing inventory/document guards. The attachment-only API stays attachment-only.
+Source/entry and aggregate effect bounds precede retention/preparation as applicable;
+catalog materialization retains its existing loading limits, not a new RSS guarantee.
+
+Real Newtonian/Euler tests cover repeated catalog instantiation after deleted IDs,
+parameter overrides, clearing the catalog while pending, object-local definitions,
+unchanged field-buffer handles, undo/redo, offline v5 reopen, portable export and
+fresh inventory-free runtime admission/attraction. Compound creation accepts two
+objects and a new definition in one revision; a duplicate definition refuses
+without mutation. Other tests cover stale fingerprints, invalid bindings,
+cancellation, intervening document edits, absent fingerprints, command/source/
+aggregate bounds, and a valid alternate provider lock conflicting with the selected
+template. No failed proposal installs new schema capabilities.
+
+Validation passed: 137 Kagami library/authoring/plugin-dependency/plugin-management/
+scientific-guard/scientific-initialization tests, including the 23-test real suite
+(502.91 seconds, two test threads); all four focused catalog/compound tests
+(107.61 seconds while overlapping the broader suite), followed by the final
+provider-conflict diagnostic test (24.96 seconds). The latter is an additional test
+beyond those 137. Session all-target tests and its doctest passed, including 12
+instantiation/preparation tests. Final Kagami/session all-target Clippy, workspace
+all-target checking, formatting, diff whitespace and docs checks (207 Markdown
+files) passed. Initial test compilation and one test-only Clippy issue were fixed.
+A final native link crashed with a nearly full workspace volume; moving six stale
+incremental cache directories to `/tmp/x-plugin-catalog-cache.r5Pxda` freed about
+1.5 GiB and the retry passed. Those caches remain recoverable; no source was removed.
+The existing `proc-macro-error2` future-compatibility warning remains. Full workspace
+tests, worker network journeys, non-Unix execution and manual window QA were not
+rerun. This increment changes no renderer/widgets, so no new renderer smoke ran.
+
+**Next:** native catalog loading/selection, bounded parameter/placement input,
+complete provider choices and proposal-specific history consent, connected to this
+backend without an implicit provider reset. Unavailable catalog entries require
+explicit revalidation under selected schemas, not silent promotion. Preserve the
+document/catalog/form/inventory context across reads and scientific handoff.
+Headless/MCP adoption, general migration planning, gesture/configuration-variable
+authoring and the remaining X-PLUGIN execution/delivery gates stay open. These
+preparation APIs are not a native catalog browser, emitter implementation or MCP
+parity. No persisted format, workload identity or kernel ABI changed. No MCP code
+was modified. The overall goal remains active.
+
+### Native catalog creation and guarded availability refresh — 2026-09-17
+
+Connected the Unix native Catalog panel to the existing catalog authority and
+shared instantiation preparation. Users can load/reload a directory, page bounded
+entries, select an exact template fingerprint, edit instance name/placement/velocity
+and parameter expressions, resolve complete provider choices and create an object.
+Structurally valid unavailable templates remain inspectable; independently verified
+selected schemas revalidate the retained source before acceptance. The picker never
+guesses a provider, replaces existing/template bindings or writes catalog files.
+Uncaptured creation atomically adopts copied data, verified schemas and dependency
+intent without executing kernels. Captured creation preserves field state/providers
+and enters the guarded history-regeneration lane with proposal-specific consent.
+
+The authority supplies shared immutable snapshots. Reload with current schemas uses
+the same expected-revision/replay checks as normal catalog commands; changing the
+read projection does not dirty the experiment. Directory enumeration now has a
+separate bound, including ignored entries, and refuses an over-budget scan instead
+of presenting a filesystem-order-dependent prefix. Instance inputs and asynchronous
+jobs retain explicit bounds. Stable input identities allow queued edits, while a
+separate proposal generation invalidates stale provider reports, Apply and consent.
+Cancellation, consent withdrawal and changed document/inventory/input context cannot
+publish data or schema capabilities; cancelled work retains capacity until exit.
+
+Real native-message tests cover unavailable-schema recovery, locked-provider refusal,
+unlocked ambiguity and explicit choice, input bounds, stale selection/Apply/consent,
+invalid expressions, cancellation across scientific handoff, undo/redo and offline
+reopen. Captured native creation reaches portable export and fresh inventory-free
+Newtonian/Euler runtime execution. Reload refreshes availability under current
+schemas without changing previously created objects or retained source snapshots.
+
+Validation passed: 142 Kagami library/authoring/plugin-dependency/plugin-management/
+scientific-guard/scientific-initialization tests, including the 28-test scientific
+suite (576.20 seconds, two test threads). After final consent/provider/reload changes,
+all four focused native catalog tests passed (106.35 seconds while overlapping the
+broader suite); the final reload-availability assertion passed in a further focused
+run (24.65 seconds). Final catalog/session all-target tests and doctests, Kagami/
+catalog/session all-target Clippy, workspace all-target checking, formatting, diff
+whitespace and docs checks passed. Catalog unit coverage includes 175 tests.
+Renderer smoke passed on llvmpipe, including marker/arrow pixel checks in both
+projections; it does not replace manual inspection of the new panel layout.
+The existing `proc-macro-error2` future-compatibility warning remains. Full workspace
+tests, worker network journeys and non-Unix execution were not rerun this increment.
+
+The native single-template creation gap named by the preceding checkpoint is now
+implemented. General compound/migration planning, catalog-file editing, headless/MCP
+adoption, gesture/configuration-variable authoring and remaining X-PLUGIN runtime/
+delivery gates stay open. Manual window layout QA is outstanding. No persisted
+format, workload identity or kernel ABI changed; no MCP code was modified.
+The overall goal remains active.
+
+### Source-local contract and artifact lowering — 2026-09-17
+
+Implemented `orishu.plugin-source/v2` for external plugin authors through the same
+headless validate/pack/inspect authority. Explicit local contribution aliases
+replace scientific requirement contracts; declared artifact aliases replace model/
+integrator kernel and optional icon digests. Source v1 remains accepted unchanged
+for exact inputs. V2 does not look up logical names or installed providers, build
+code, execute guests or fetch dependencies. Independent external contracts remain
+exact. The resulting installed-release, stored-ZIP, workload and ABI formats do
+not change; equivalent exact v1 and symbolic v2 inputs produce identical bundles.
+
+The pure shared `SourcePayload` lowerer reuses bounded declaration decoding and
+ordinary exact validation/scientific hashing. Kagami owns secure source acquisition,
+the explicit local graph and final release verification. Forward references are
+compiled in dependency order independent of manifest order. Missing/opaque local
+contracts, cycles, duplicate aliases and missing artifacts refuse without a partial
+package. Unknown extension-point bytes remain opaque, not interpreted for markers.
+Raw acquisition and canonical release bytes have independent aggregate budgets;
+expanded exact payloads must still fit the ordinary receiving limits. There is no
+recursive graph traversal or ambient inventory dependency.
+
+Tests prove complete bundle byte equality, order and artifact-alias/path independence,
+transitive rehashing after component/kernel changes, self/two-node cycle refusal,
+missing/opaque providers, duplicate IDs, v1 marker refusal, bounded parsing before
+an excess malformed entry, duplicate keys/nulls and expansion limits. Real CLI
+validation/packing leaves an absent inventory absent, installs the resulting bundle
+normally, and refuses malformed packing without publishing output or changing the
+existing inventory. Fixture code is deliberately inert: these are packaging tests,
+not new numerical execution evidence.
+
+Validation passed: all plugin-crate targets, including dependency-boundary tests and
+benchmark smoke; the final five source-lowering tests and plugin doctest; all 25
+Kagami plugin-management tests. The final four source-management tests were rerun
+after strengthening cycle and failed-publication assertions. Final Kagami/plugin
+all-target Clippy, workspace all-target checking, formatting, diff whitespace and
+docs checks (208 Markdown files) passed. Initial Clippy enum-size/style findings
+were corrected with boxed cold payload variants and simplified guards. The existing
+`proc-macro-error2` future-compatibility warning remains. Full workspace tests,
+numerical/worker network journeys, non-Unix IO and window QA were not rerun; this
+increment changes no widgets or renderer behavior. No MCP files were changed.
+
+The [source format](../plugin-source-v2.md), authoring guide, ADR 0027, architecture,
+context, task and roadmap now record this delivered gate. Remaining inventory crash
+injection/non-Unix IO, authoring adapters and runtime/recovery/delivery gates stay
+open. The overall goal remains active.

@@ -6,13 +6,17 @@
 //! recognises, leaving the pose and its bounds to whoever has to save them
 //! (ADR 0022). Only pointer bookkeeping stays in the widget.
 
+mod arrows;
 mod camera;
 mod geometry;
+mod markers;
 mod pipeline;
 mod primitive;
 mod program;
 
+pub use arrows::{Arrow, ArrowBatch, MAX_ARROWS};
 pub use camera::{Camera, Projection};
+pub use markers::{MAX_MARKERS, Marker, MarkerBatch};
 pub use pipeline::{GridAxisPipeline, Uniforms};
 pub use primitive::ScenePrimitive;
 pub use program::{CameraMotion, PointerState, SceneProgram};

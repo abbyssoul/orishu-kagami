@@ -1,6 +1,6 @@
 # ADR 0031: Expose bounded identified scientific load over opt-in HTTP
 
-Status: **accepted implementation refinement; experimental load/receipt/current-run routes implemented; public stepping and observations remain open**
+Status: **accepted implementation refinement; experimental load/receipt/current-run routes implemented; manual stepping is supplied by ADR 0032; observations remain open**
 Date: **2026-09-16**
 Refines: [ADR 0030](0030-retain-durable-worker-load-receipts.md) and
 [ADR 0010](0010-content-addressed-workload-closure-and-portable-bundles.md).
@@ -73,8 +73,8 @@ coordination/storage gates are delivered.
 ## Consequences and remaining work
 
 This is an experimental whole-upload admission surface, not completion of
-O-RUNTIME, O-CLIENT or X-PLUGIN. Public stepping/stop/unload and observation,
-Kagami submission adapters, durable scientific state, distributed
+O-RUNTIME, O-CLIENT or X-PLUGIN. Public pause/resume/unload and observation,
+complete Kagami window integration, durable scientific state, distributed
 execution, thin/resumable transfer and artifact administration remain. Existing
 native JIT interruption/aggregate RSS and reusable-storage hardening limitations
 remain explicit in the runtime tasks; opt-in serving does not erase those gates.
@@ -84,4 +84,9 @@ The shared `HttpClusterClient::scientific()` adapter now implements bounded
 submission/lookup/discovery with exact request correlation, status/schema checks
 and no implicit retry. Its response profile and limits are documented alongside
 the wire protocol; real-worker tests upload and recover receipt history through
-this path. This does not complete the Kagami product adapter or public controls.
+this path. Kagami's headless `workload submit`, `receipt` and `current` commands
+now use it with explicit private credential files and preserved request identity.
+The Unix window now compiles a guarded captured revision through the same exporter
+and explicitly uploads its frozen bytes with original-intent reconciliation. This
+does not complete durable client recovery or the full window workflow. Manual step/finish/status are
+now implemented by the separate [command profile](../protocol-scientific-command-v1.md).

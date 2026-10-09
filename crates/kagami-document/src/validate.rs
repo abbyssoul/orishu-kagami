@@ -111,6 +111,9 @@ impl fmt::Display for PropertyPath {
 /// enough to point at the offending field without guessing.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum Rejection {
+    /// Standalone component-provider intent does not fit this experiment.
+    #[error(transparent)]
+    Dependencies(#[from] crate::dependencies::DependencyError),
     /// Scientific capture/parameters cannot be adopted as one coherent setup.
     #[error(transparent)]
     Scientific(#[from] crate::scientific::ScientificError),
@@ -434,6 +437,7 @@ impl Rejection {
     /// on it and a translated message cannot change its meaning.
     pub const fn code(&self) -> &'static str {
         match self {
+            Self::Dependencies(reason) => reason.code(),
             Self::Scientific(reason) => reason.code(),
             Self::BatchTooLarge { .. } => "batch_too_large",
             Self::TooManyObjects { .. } => "too_many_objects",
@@ -645,6 +649,14 @@ pub(crate) fn validate_structure(
     state: &ExperimentState,
     limits: &Limits,
 ) -> Result<(), Rejection> {
+    validate_structure_against(state, limits, None)
+}
+
+pub(crate) fn validate_structure_against(
+    state: &ExperimentState,
+    limits: &Limits,
+    replacement: Option<&orishu_plugin::selected::VerifiedDeclarations>,
+) -> Result<(), Rejection> {
     if state.objects.len() > limits.max_objects {
         return Err(Rejection::TooManyObjects {
             found: state.objects.len(),
@@ -685,6 +697,12 @@ pub(crate) fn validate_structure(
         }
     }
 
+    match replacement {
+        Some(selected) => {
+            crate::dependencies::validate_against(state, limits, Some(selected.descriptor()))?
+        }
+        None => crate::dependencies::validate(state, limits)?,
+    }
     Ok(())
 }
 

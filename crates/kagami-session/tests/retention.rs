@@ -43,6 +43,59 @@ fn weight(document: &kagami_session::ExperimentDocument) -> usize {
 }
 
 #[test]
+fn empty_scientific_capture_does_not_invent_provider_references() {
+    let document = draft();
+    let expected: std::collections::BTreeSet<_> = document
+        .experiment
+        .setup
+        .scientific()
+        .unwrap()
+        .declarations()
+        .descriptor()
+        .contributions
+        .iter()
+        .map(|pin| pin.release)
+        .collect();
+    assert!(
+        expected.is_empty(),
+        "this persistence fixture has no selected contributions"
+    );
+    let mut authority =
+        DocumentAuthority::new(kagami_catalog::SchemaRegistry::new(), Limits::default());
+    authority.submit(envelope(0, open(document))).unwrap();
+    let report = authority.plugin_references(Default::default()).unwrap();
+    assert_eq!(
+        report
+            .releases
+            .keys()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
+    assert!(
+        report
+            .releases
+            .values()
+            .all(|usage| usage.current && usage.receipts)
+    );
+    authority
+        .submit(envelope(
+            1,
+            SessionCommand::New {
+                discard_unsaved: true,
+            },
+        ))
+        .unwrap();
+    let report = authority.plugin_references(Default::default()).unwrap();
+    assert!(
+        report
+            .releases
+            .values()
+            .all(|usage| !usage.current && !usage.history && usage.receipts)
+    );
+}
+
+#[test]
 fn repeated_independent_opens_stay_bounded_and_keep_the_newest_receipt() {
     let document = draft();
     let mut limits = Limits::default();

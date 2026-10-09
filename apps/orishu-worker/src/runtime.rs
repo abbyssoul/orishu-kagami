@@ -312,6 +312,8 @@ impl WorkerRuntime {
             RunningWorker {
                 #[cfg(unix)]
                 workload_load: std::sync::Mutex::new(None),
+                #[cfg(unix)]
+                run_commands: std::sync::Mutex::new(None),
                 process_health: Default::default(),
                 stopping: std::sync::atomic::AtomicBool::new(false),
                 outbound_endpoint: std::sync::Mutex::new(outbound_endpoint),
@@ -380,6 +382,8 @@ pub(crate) fn project_summary(membership: &Membership, participation: Participat
 pub struct RunningWorker {
     #[cfg(unix)]
     workload_load: std::sync::Mutex<Option<crate::workload_load::DaemonLoadOwner>>,
+    #[cfg(unix)]
+    run_commands: std::sync::Mutex<Option<crate::run_commands::DaemonCommandOwner>>,
     #[cfg(feature = "observability")]
     peer_ingress: crate::peer::ingress::IngressMetrics,
     process_health: crate::health::ProcessHealthState,
@@ -1079,6 +1083,36 @@ impl RunningWorker {
             .as_ref()
             .map(|owner| owner.0.clone())
     }
+    /// Install command ownership only after load/run ownership exists. Open the
+    /// separate journal on an IO lane first. This does not expose public routes.
+    #[cfg(unix)]
+    pub fn install_run_command_coordinator(
+        &self,
+        receipts: crate::workload_receipts::CommandReceiptStore,
+        timeout: std::time::Duration,
+    ) -> Result<crate::run_commands::RunCommandCoordinator, crate::run_commands::CommandError> {
+        use crate::run_commands::{CommandError, DaemonCommandOwner, RunCommandCoordinator};
+        let loads = self.load_coordinator().ok_or(CommandError::Policy)?;
+        let coordinator = RunCommandCoordinator::new(loads, receipts, timeout)?;
+        let mut installed = self.run_commands.lock().map_err(|_| CommandError::Closed)?;
+        if self.stopping.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(CommandError::Closed);
+        }
+        if installed.is_some() {
+            return Err(CommandError::Busy);
+        }
+        *installed = Some(DaemonCommandOwner(coordinator.clone()));
+        Ok(coordinator)
+    }
+    /// Borrow the daemon-owned command lane. A request handle is not its owner.
+    #[cfg(unix)]
+    pub fn run_command_coordinator(&self) -> Option<crate::run_commands::RunCommandCoordinator> {
+        self.run_commands
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|owner| owner.0.clone())
+    }
     /// Authenticate against the worker-local operator credential.
     pub fn authorize_operator(&self, candidate: &str) -> bool {
         self.credentials.operator.matches(candidate)
@@ -1087,6 +1121,10 @@ impl RunningWorker {
     pub async fn shutdown(&self) -> Result<(), crate::driver::DriverError> {
         self.stopping
             .store(true, std::sync::atomic::Ordering::Release);
+        #[cfg(unix)]
+        if let Some(coordinator) = self.run_command_coordinator() {
+            coordinator.shutdown();
+        }
         #[cfg(unix)]
         if let Some(coordinator) = self.load_coordinator() {
             coordinator.shutdown();

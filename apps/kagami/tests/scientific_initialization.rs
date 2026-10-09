@@ -8,8 +8,14 @@ use orishu_runtime::{
 use orishu_variables::VariablesSystem;
 use std::{sync::Arc, time::Duration};
 
+#[path = "support/component_extension.rs"]
+mod component_extension;
 #[path = "../../../plugins/reference/declarations.rs"]
 mod declarations;
+#[path = "support/field_parameters.rs"]
+mod field_parameters;
+#[path = "support/history_edits.rs"]
+mod history_edits;
 const GRAVITY: &[u8] =
     include_bytes!("../../../crates/orishu-runtime/tests/fixtures/newtonian.component.wasm");
 const EULER: &[u8] =
@@ -142,6 +148,46 @@ fn entities() -> Buffer {
         value_count: 1,
         bytes: bytes.into(),
     }
+}
+
+#[test]
+fn selection_and_reference_readers_coexist_without_admitting_inventory_writes() {
+    let installed = Installed::new();
+    let revision = installed.request.expected_inventory_revision;
+    let guard = installed.store.guard_revision(revision).unwrap();
+    let lease = installed
+        .store
+        .lease_if_installed(installed.vocabulary)
+        .unwrap()
+        .unwrap();
+    let prepared = installed.prepare();
+    assert_eq!(prepared.inventory_revision(), revision);
+    assert_eq!(lease.release(), installed.vocabulary);
+    assert_eq!(
+        installed
+            .store
+            .submit(
+                revision,
+                InventoryCommand::SetEnabled {
+                    plugin_id: "org.orishu.reference.vocabulary".parse().unwrap(),
+                    enabled: false,
+                }
+            )
+            .unwrap_err()
+            .code,
+        Code::Busy
+    );
+    drop(guard);
+    installed
+        .store
+        .submit(
+            revision,
+            InventoryCommand::SetEnabled {
+                plugin_id: "org.orishu.reference.vocabulary".parse().unwrap(),
+                enabled: false,
+            },
+        )
+        .unwrap();
 }
 
 #[test]
@@ -467,7 +513,7 @@ fn real_captures_enter_document_authority_atomically_and_undo_restores_bytes() {
         serde_json::from_value::<WireSnapshot>(description.clone()).unwrap(),
         WireSnapshot::of(&authority.snapshot())
     );
-    assert_eq!(description["version"], 3);
+    assert_eq!(description["version"], 4);
     assert_eq!(
         description["setup"]["apiVersion"],
         "kagami.scientific-setup/v1"
@@ -768,7 +814,7 @@ fn real_captures_enter_document_authority_atomically_and_undo_restores_bytes() {
         .unwrap()
     };
     let mut future = json.clone();
-    future["formatVersion"] = 5.into();
+    future["formatVersion"] = (container::LOCKED_CONTAINER_VERSION + 1).into();
     let refused = container::decode(&repack(&future, &archive.blobs), limits).unwrap_err();
     assert_eq!(refused.code(), "unsupported_format_version");
     assert!(!refused.is_damage());
@@ -1153,6 +1199,22 @@ fn physics_form_creates_saves_and_exports_a_new_experiment() {
     };
     let installed = Installed::new();
     let available = installed.store.available_components(&[]).unwrap();
+    let selected = installed.prepare();
+    let component = |role| {
+        let reference = selected
+            .compiled()
+            .verified()
+            .payloads()
+            .iter()
+            .find(|(_, p)| matches!(p, Payload::Components(c) if c.scientific.role == role))
+            .unwrap()
+            .0;
+        let kind = kagami_catalog::ComponentTypeId::exact(reference.clone()).unwrap();
+        let defaults = component_defaults(available.schemas.get(&kind).unwrap());
+        (kind, defaults)
+    };
+    let (dynamics, dynamics_defaults) = component(ComponentRole::Dynamics);
+    let (mass, mass_defaults) = component(ComponentRole::FieldCoupling);
     let choices = installed.store.available_models(&[]).unwrap();
     assert_eq!(choices.revision, available.revision);
     assert_eq!(choices.kernels.len(), 2);
@@ -1174,6 +1236,30 @@ fn physics_form_creates_saves_and_exports_a_new_experiment() {
         }),
         ..Default::default()
     });
+    use kagami_document::{
+        DisplayName, ExperimentCommand as Edit, ObjectSpec, Transform, Vector3, Velocity,
+    };
+    let dynamic = ObjectSpec::new(DisplayName::new("moving gravity responder").unwrap())
+        .with_component(dynamics, dynamics_defaults)
+        .with_component(mass.clone(), mass_defaults.clone())
+        .with_transform(Transform {
+            translation: Vector3::new(-1.0, 0.0, 0.0).unwrap(),
+            ..Default::default()
+        })
+        .with_velocity(Velocity {
+            linear: Vector3::new(0.0, 1.0, 0.0).unwrap(),
+            ..Default::default()
+        });
+    let fixed = ObjectSpec::new(DisplayName::new("static gravity source").unwrap())
+        .with_component(mass, mass_defaults)
+        .with_transform(Transform {
+            translation: Vector3::new(1.0, 0.0, 0.0).unwrap(),
+            ..Default::default()
+        });
+    assert!(model.document.edit(vec![
+        Edit::CreateObject(Box::new(dynamic)),
+        Edit::CreateObject(Box::new(fixed))
+    ]));
     for i in 0..model.kernel_choices.len() {
         let _ = update(&mut model, Message::PhysicsForm(PhysicsAction::Kernel(i)));
     }
@@ -1405,6 +1491,40 @@ fn physics_form_creates_saves_and_exports_a_new_experiment() {
             .unwrap();
     assert_eq!(bundle.verified().root(), report.workload);
     assert!(model.document.open(input, true));
+    // A selected computational provider can be retained without contributing
+    // any attached entity component. Visible object inspection alone misses it.
+    let references = model
+        .document
+        .plugin_references(Default::default())
+        .unwrap();
+    let scientific = model.document.snapshot().setup().scientific().unwrap();
+    let selected_releases: std::collections::BTreeSet<_> = scientific
+        .declarations()
+        .descriptor()
+        .contributions
+        .iter()
+        .map(|pin| pin.release)
+        .collect();
+    let component_releases: std::collections::BTreeSet<_> = model
+        .document
+        .snapshot()
+        .objects()
+        .values()
+        .flat_map(|object| object.components.keys())
+        .filter_map(|kind| kind.contribution().map(|pin| pin.release))
+        .collect();
+    assert!(
+        selected_releases
+            .iter()
+            .any(|release| !component_releases.contains(release)),
+        "reference fixture separates vocabulary and kernels"
+    );
+    for release in selected_releases {
+        assert!(
+            references.releases[&release].current,
+            "full selected closure is referenced"
+        );
+    }
     assert_radius(
         &model
             .document
@@ -1416,7 +1536,91 @@ fn physics_form_creates_saves_and_exports_a_new_experiment() {
         "4 mm",
         0.004,
     );
+    assert_window_preparation(&mut model, installed._dir.path(), &bytes);
 }
+
+fn poll_preparation(model: &mut kagami::model::Model) {
+    let end = std::time::Instant::now() + Duration::from_secs(30);
+    while model.workload_preparation.is_pending() {
+        let _ = kagami::update::update(
+            model,
+            kagami::message::Message::Workload(kagami::workload_preparation::Action::Poll),
+        );
+        assert!(
+            std::time::Instant::now() < end,
+            "workload preparation timed out"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn assert_window_preparation(
+    model: &mut kagami::model::Model,
+    directory: &std::path::Path,
+    expected: &[u8],
+) {
+    use kagami::{
+        message::{Authoritative, ClientLocal, Message},
+        update::update,
+        workload_preparation::Action,
+    };
+    let before = model.document.snapshot().clone();
+    let _ = update(model, Message::Workload(Action::Name("ui-created".into())));
+    let _ = update(model, Message::Workload(Action::Prepare));
+    poll_preparation(model);
+    let frozen = model
+        .workload_preparation
+        .ready(&model.document)
+        .expect(&model.workload_preparation.notice);
+    assert_eq!(frozen.source_revision, before.revision().get());
+    assert_eq!(frozen.report.bytes, expected.len());
+    let target = directory.join("window.orishu");
+    let _ = update(model, Message::Workload(Action::ExportTo(target.clone())));
+    poll_preparation(model);
+    assert_eq!(
+        std::fs::read(&target).unwrap(),
+        expected,
+        "window and headless export must use the same compiler"
+    );
+    assert_eq!(model.document.snapshot(), &before);
+    let _ = update(model, Message::Workload(Action::ExportTo(target.clone())));
+    poll_preparation(model);
+    assert!(model.workload_preparation.notice.contains("publish"));
+    assert_eq!(
+        std::fs::read(&target).unwrap(),
+        expected,
+        "existing export is never overwritten"
+    );
+    let _ = update(
+        model,
+        Message::Local(ClientLocal::SetProjection(
+            kagami_session::Projection::Orthographic,
+        )),
+    );
+    assert!(
+        model.workload_preparation.ready(&model.document).is_some(),
+        "camera/view changes do not affect a workload"
+    );
+    window_delivery::lost_reply(model, expected);
+    if std::env::var_os("ORISHU_TEST_WORKER").is_some() {
+        window_delivery::real_worker(model);
+    }
+    // A new incarnation (even at a reused numeric revision) invalidates both a
+    // prepared result and any late completion, without affecting the export.
+    let _ = update(model, Message::Workload(Action::Prepare));
+    let _ = update(
+        model,
+        Message::Authoritative(Authoritative::New {
+            discard_unsaved: true,
+        }),
+    );
+    poll_preparation(model);
+    assert!(model.workload_preparation.ready(&model.document).is_none());
+    assert_eq!(std::fs::read(target).unwrap(), expected);
+}
+
+#[path = "support/window_delivery.rs"]
+mod window_delivery;
 
 fn assert_document_projection(
     reopened: &kagami_document::Experiment,

@@ -29,8 +29,16 @@ Start here:
   dependencies, parallel lanes, and exit criteria.
 - [Simulation plugins](simulation-plugins.md) — how advanced users add physical
   models without extending trusted Kagami or worker code.
+- [Plugin source v2](plugin-source-v2.md) — explicit local contract/artifact aliases
+  lowered to exact declarations before ordinary validation and packaging.
 - [Scientific experiment container v4](experiment-container-v4.md) — captured
   state, offline reopening, exact declaration evidence and durable recovery.
+- [Experiment container v5](experiment-container-v5.md) — standalone component
+  provider intent, scientific-selection agreement and bounded history retention.
+- [Catalog template v3](catalog-template-v3.md) — scoped component provider
+  choices, conflict-refusing document materialization and explicit closure pruning.
+- [Component provider choices](component-provider-choices.md) — existing-component
+  Unix resolution/adoption without physics initialization and remaining adapters.
 - [Workload contract](protocol-workload.md) — the portable sandbox boundary and
   lifecycle implemented by client-supplied simulation packages.
 - [What is an Orishu workload?](workloads.md) — the user-facing definition,
@@ -39,10 +47,21 @@ Start here:
   Kagami export, exact closure verification, format choice and remaining limits.
 - [Identified run-load receipts v1](run-load-receipts-v1.md) — shared admission
   facts, bounded Unix journal and daemon coordinator.
+- [Identified run-command receipts v1](run-command-receipts-v1.md) — shared guarded
+  step/terminal-finish facts, separate journal and internal daemon coordinator;
+  historical outcomes independent of live status.
+- [Scientific-command HTTP v1](protocol-scientific-command-v1.md) — opt-in
+  authenticated step/terminal-finish, receipt/status routes and shared client.
 - [Scientific-load HTTP v1](protocol-scientific-load-v1.md) — opt-in authenticated
   whole-upload admission, historical receipts and current-run discovery.
 - [Immutable run descriptor v1](run-descriptor-v1.md) — formation/workload/epoch
   identity, canonical bytes and owner-issued single-node execution provenance.
+- [Committed object observation v1](object-observation-v1.md) — bounded complete
+  numeric-object/force projection, source identity and force-phase semantics.
+- [Object-observation HTTP v1](protocol-object-observation-v1.md) — authenticated
+  bounded full-object reads with independent worker capacity and shared client.
+- [Field-observation HTTP v1](protocol-field-observation-v1.md) — exact opaque-state
+  descriptors and bounded typed point sampling through isolated observer guests.
 - [The shared resource envelope](resource-envelope.md) — the one structural
   shape Orishu resources and Kagami object templates share, and the authority,
   identity, and validation each keeps.

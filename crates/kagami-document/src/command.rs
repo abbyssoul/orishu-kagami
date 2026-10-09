@@ -35,6 +35,10 @@ use crate::variable::{VariableId, VariableSpec};
 /// One authoring intent.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExperimentCommand {
+    /// Adopt complete component provider intent without creating scientific
+    /// setup. Batch with component edits; final roots and captured selection must
+    /// agree. Availability is independently checked by the consuming adapter.
+    AdoptDependencies(std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>),
     /// Atomically adopt an explicitly chosen scientific setup and its captures.
     /// Initialization is an external effect; the session must guard its document
     /// identity and expected revision before submitting this ordinary edit.
@@ -155,6 +159,7 @@ impl ExperimentCommand {
     /// A short name for this edit, in the user's terms.
     pub const fn label(&self) -> &'static str {
         match self {
+            Self::AdoptDependencies(_) => "Choose component providers",
             Self::AdoptScientificSetup(_) => "Configure scientific setup",
             Self::CreateObject(_) => "Add object",
             Self::RemoveObject(_) => "Remove object",

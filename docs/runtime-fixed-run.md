@@ -1,6 +1,6 @@
 # Fixed-profile scientific run owner
 
-Status: **implemented single-partition owner and bounded field-snapshot leases;
+Status: **implemented single-partition owner and bounded field/object-snapshot leases;
 selected workload admission implemented; application integration remains work**.
 
 `orishu_runtime::FixedRun` owns committed numeric objects, every selected field,
@@ -60,6 +60,11 @@ kernel errors survive under host `RunFailure` attribution for the affected
 instance/stage/run/epoch/boundary. Scheduling, background execution and external
 command transport are the embedding application's responsibility. `stop` is
 terminal for that owner but retains committed state for inspection/checkpointing.
+The worker embedding's `step_at`/`stop_at` additionally compare an explicit expected
+boundary inside its serialized operation slot. This is a command precondition,
+not part of the numerical kernel interface or an operation receipt; stale retries
+do not advance again. Public pause/resume and step-budget scheduling must not be
+implemented by calling this terminal stop and later pretending it can resume.
 
 ## Complete checkpoints and observations
 
@@ -89,14 +94,48 @@ the owner advances. Sampling executes in an isolated disposable guest; a stale
 query source, malformed request, trap or cancellation does not alter run state.
 One lease permits at most one simultaneous sampling invocation.
 
-Default observer policy is eight leases and 128 MiB of retained field-state bytes.
+`acquire_objects` returns an `ObjectSnapshot`: the whole canonical object packet
+and optional reduced-force packet from one committed boundary, sharing immutable
+buffers without a numerical copy or guest invocation. The source names workload,
+run descriptor, epoch, boundary and SI simulation time. Initial force absence
+remains None rather than invented zeroes; later forces were evaluated at the
+predecessor's kinematics. This is not an observer wire schema or checkpoint.
+
+`ObjectSnapshot::encode` now wraps those packets in the shared bounded
+[object-observation v1 payload](object-observation-v1.md). It scans/copies retained
+bytes into reusable caller storage and returns a whole-frame digest, so adapters
+must call it off the scientific executor, retaining the lease. Shared readers
+validate identity, complete dynamic-force coverage and all numeric records before
+exposing borrowed objects. The payload excludes fields and is not a subscription,
+baseline protocol or remote delivery implementation.
+
+Default observer policy is eight leases and 128 MiB shared across retained field,
+object and force bytes. Object acquisition reserves the combined packet sizes
+before sharing them; old leases remain valid through advancement and disposal.
+Object acquisition is O(1) in numerical packet bytes: it counts extents and shares
+immutable buffer handles rather than scanning objects or forces. Cold schema/source
+metadata is still cloned; this is not an allocation-free observation claim.
 Acquisition is non-waiting and rejects excess; scientific commit never acquires the
 observer-budget mutex. Duplicate leases conservatively charge the full state size.
 Dropping a lease returns its quota. State digests are computed before publication,
-so acquiring a lease does not rescan large field bytes. Other cold metadata still
+so acquiring a field lease does not rescan large field bytes. Object leases do not
+hash their packets during acquisition. Other cold metadata still
 allocates. UI/MCP routing, per-observer policies, sampled-value caches and recording
 adapters remain work. Host callers retaining arbitrary checkpoint/state clones are
 not untrusted observer admission; those adapters must impose their own quotas.
+
+The worker now acquires observations through a separate eight-request bounded
+ingress instead of its scientific command slot. It checks command ingress before
+each observer request, never waits for observer consumers and performs no sampling
+guest invocation on the acquisition lane. Idle acquisition can wait up to the
+existing 50-ms executor poll; continuous commands may starve observations rather
+than await them. Exact-boundary `acquire_field_at`/`acquire_objects_at` validate
+against committed state inside the executor. A stale request refuses rather than
+combining boundaries. Queued observations are discarded on revocation/publication
+loss; field sampling remains detached after a lease is acquired. The
+[bounded object-read HTTP adapter](protocol-object-observation-v1.md) now uses
+this ingress and off-executor encoding. Field queries and resumable observation
+streaming remain unwired; the one-shot object read is not a subscription.
 
 ## Bounds, evidence and remaining delivery
 

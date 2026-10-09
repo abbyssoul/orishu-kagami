@@ -31,6 +31,77 @@ pub fn subscription(model: &Model) -> iced::Subscription<Message> {
     #[cfg(not(unix))]
     let scientific = iced::Subscription::none();
     iced::Subscription::batch([
+        {
+            #[cfg(unix)]
+            {
+                if model.catalog.is_pending() {
+                    iced::time::every(Duration::from_millis(100))
+                        .map(|_| Message::Catalog(crate::catalog_form::Action::Poll))
+                } else {
+                    iced::Subscription::none()
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                iced::Subscription::none()
+            }
+        },
+        {
+            #[cfg(unix)]
+            {
+                if model.physics_dependencies.is_pending()
+                    || model.component_dependencies.is_pending()
+                {
+                    iced::time::every(Duration::from_millis(100)).map(|_| {
+                        Message::PhysicsForm(crate::physics_form::PhysicsAction::Dependencies(
+                            crate::physics_form::dependencies::Action::Poll,
+                        ))
+                    })
+                } else {
+                    iced::Subscription::none()
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                iced::Subscription::none()
+            }
+        },
+        {
+            #[cfg(unix)]
+            {
+                if model.plugin_management.is_pending() || model.plugin_references.is_pending() {
+                    iced::time::every(Duration::from_millis(100))
+                        .map(|_| Message::Plugins(crate::plugins::window::Action::Poll))
+                } else {
+                    iced::Subscription::none()
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                iced::Subscription::none()
+            }
+        },
+        {
+            #[cfg(unix)]
+            {
+                if model.workload_preparation.is_pending() {
+                    iced::time::every(Duration::from_millis(100))
+                        .map(|_| Message::Workload(crate::workload_preparation::Action::Poll))
+                } else {
+                    iced::Subscription::none()
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                iced::Subscription::none()
+            }
+        },
+        if model.run.is_pending() {
+            iced::time::every(Duration::from_millis(100))
+                .map(|_| Message::Run(crate::run::Action::Poll))
+        } else {
+            iced::Subscription::none()
+        },
         timer,
         mcp_poll,
         scientific,

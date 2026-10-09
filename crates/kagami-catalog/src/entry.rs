@@ -89,7 +89,7 @@ impl CatalogEntry {
     /// are never instantiable in the first place.
     pub fn provenance(&self) -> Option<TemplateProvenance> {
         Some(TemplateProvenance {
-            api_version: crate::document::API_VERSION.to_owned(),
+            api_version: self.result.template()?.api_version().to_owned(),
             identity: self.identity.clone()?,
             source: self.source.clone(),
             fingerprint: self.fingerprint?,
@@ -124,6 +124,32 @@ pub struct CatalogSet {
 }
 
 impl CatalogSet {
+    /// Revalidate this exact loaded content under explicitly supplied schemas
+    /// and receiving limits, without reading files or changing the source.
+    /// This is a cold derived projection, not catalog authority or automatic
+    /// promotion of an unavailable entry. Fingerprints remain content identities.
+    pub fn revalidate(&self, schemas: &crate::SchemaRegistry, limits: &crate::Limits) -> Self {
+        let parsed = self
+            .entries
+            .iter()
+            .map(|entry| {
+                let outcome = match &entry.result {
+                    LoadResult::Available { template }
+                    | LoadResult::Unavailable { template, .. } => {
+                        Template::from_document(&template.to_document(), limits)
+                    }
+                    LoadResult::Invalid { diagnostics } => Err(diagnostics.clone()),
+                };
+                crate::resolve::ParsedDocument {
+                    source: entry.source.clone(),
+                    identity: entry.identity.clone(),
+                    outcome,
+                }
+            })
+            .collect();
+        crate::resolve::resolve(parsed, self.file_errors.clone(), schemas, limits)
+    }
+
     /// Build a set from already-resolved parts. Callers normally go through
     /// [`crate::resolve::resolve()`] or [`crate::load::load_directory()`].
     pub fn new(

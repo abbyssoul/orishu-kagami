@@ -317,15 +317,16 @@ pub fn save(
     target: &DocumentTarget,
     document: &ExperimentDocument,
 ) -> Result<(), SaveError> {
-    let bytes = if document.experiment.setup.scientific().is_some() {
-        crate::container::encode(document, crate::container::ContainerLimits::default())
-            .map_err(|source| SaveError::NotReadable { source })?
-    } else {
-        serde_json::to_vec_pretty(document).map_err(|error| SaveError::Io {
-            step: "encode the document",
-            source: io::Error::other(error),
-        })?
-    };
+    let bytes =
+        if document.experiment.setup.scientific().is_some() || document.dependencies.is_some() {
+            crate::container::encode(document, crate::container::ContainerLimits::default())
+                .map_err(|source| SaveError::NotReadable { source })?
+        } else {
+            serde_json::to_vec_pretty(document).map_err(|error| SaveError::Io {
+                step: "encode the document",
+                source: io::Error::other(error),
+            })?
+        };
 
     // Step 2, before anything is moved: bytes that cannot be read back are
     // not a document, whatever produced them. Verified through the same

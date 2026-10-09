@@ -17,7 +17,20 @@ pub fn view(model: &Model) -> Element<'_, Message> {
     // Built from the current view every frame rather than held: the camera is
     // the model's, so there is exactly one of it and it cannot be reset by a
     // change to the widget tree.
-    shader(SceneProgram::new(camera_for(model.current_view())))
+    let mut program = SceneProgram::new(camera_for(model.current_view()));
+    if model.run.attached()
+        && let Some(frame) = model.run.objects()
+        && frame.geometry.scale == model.current_view().scale()
+    {
+        program = program.with_markers(frame.geometry.markers.clone());
+    }
+    if model.run.attached()
+        && let Some(vectors) = model.run.fields.vectors()
+        && vectors.scale == model.current_view().scale()
+    {
+        program = program.with_arrows(vectors.arrows.clone());
+    }
+    shader(program)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -72,9 +85,8 @@ fn camera_for(view: AuthoringView) -> Camera {
 /// instead would put it somewhere it is not, which is worse than not drawing
 /// it — a viewer cannot tell a saturated position from a real one.
 ///
-/// Nothing renders document geometry yet; this is the conversion every later
-/// object, field and trail consumer must use rather than casting metres to
-/// `f32` directly.
+/// Committed run markers use this conversion off-window. Future authoring,
+/// field and trail consumers must use it rather than casting metres directly.
 pub fn geometry_units(scale: SceneScale, world_metres: [f64; 3]) -> Option<[f32; 3]> {
     let mut units = [0.0_f32; 3];
     for (slot, metres) in units.iter_mut().zip(world_metres) {

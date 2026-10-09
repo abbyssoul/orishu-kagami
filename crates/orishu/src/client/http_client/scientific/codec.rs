@@ -1,9 +1,14 @@
 //! Preflight the narrow receipt/descriptor response before serde allocates or
 //! buffers internally tagged data. This is not the workload's identity codec or
 //! the peer membership codec: the fact profile contains only maps, text, unsigned
-//! integers and null. No arbitrary API collection is accepted by this client.
+//! integers and null, plus finite simulation-time floats for command/status IO.
+//! No arbitrary API collection is accepted by this client.
 
+#[cfg(test)]
 pub(super) fn validate(bytes: &[u8]) -> Result<(), ()> {
+    validate_profile(bytes, false)
+}
+pub(super) fn validate_profile(bytes: &[u8], finite_floats: bool) -> Result<(), ()> {
     if bytes.len() > super::MAX_RESPONSE_BYTES {
         return Err(());
     }
@@ -11,6 +16,7 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), ()> {
         bytes,
         at: 0,
         items: 256,
+        finite_floats,
     };
     scan.value(0)?;
     if scan.at != bytes.len() {
@@ -22,6 +28,7 @@ struct Scan<'a> {
     bytes: &'a [u8],
     at: usize,
     items: usize,
+    finite_floats: bool,
 }
 impl<'a> Scan<'a> {
     fn take(&mut self, count: usize) -> Result<&'a [u8], ()> {
@@ -46,7 +53,15 @@ impl<'a> Scan<'a> {
             _ => return Err(()),
         };
         if byte >> 5 == 7 && byte != 0xf6 {
-            return Err(());
+            let finite = match byte {
+                0xf9 => argument & 0x7c00 != 0x7c00,
+                0xfa => f32::from_bits(argument as u32).is_finite(),
+                0xfb => f64::from_bits(argument).is_finite(),
+                _ => false,
+            };
+            if !self.finite_floats || !finite {
+                return Err(());
+            }
         }
         Ok((byte >> 5, argument))
     }

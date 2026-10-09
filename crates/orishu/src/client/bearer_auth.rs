@@ -23,11 +23,12 @@ impl Middleware for BearerMiddleware {
         extensions: &mut Extensions,
         next: Next<'_>,
     ) -> Result<Response> {
-        req.headers_mut().insert(
-            reqwest::header::AUTHORIZATION,
+        let mut authorization =
             reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
-                .map_err(reqwest_middleware::Error::middleware)?,
-        );
+                .map_err(reqwest_middleware::Error::middleware)?;
+        authorization.set_sensitive(true);
+        req.headers_mut()
+            .insert(reqwest::header::AUTHORIZATION, authorization);
         next.run(req, extensions).await
     }
 }
@@ -40,6 +41,21 @@ mod tests {
     use reqwest_middleware::ClientBuilder;
     use wiremock::matchers::{bearer_token, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    struct AssertSensitive;
+    #[async_trait]
+    impl Middleware for AssertSensitive {
+        async fn handle(
+            &self,
+            req: Request,
+            extensions: &mut Extensions,
+            next: Next<'_>,
+        ) -> Result<Response> {
+            assert!(req.headers()[reqwest::header::AUTHORIZATION].is_sensitive());
+            assert!(!format!("{req:?}").contains("hunter2"));
+            next.run(req, extensions).await
+        }
+    }
 
     #[tokio::test]
     async fn test_init() {
@@ -69,6 +85,7 @@ mod tests {
 
         let status = ClientBuilder::new(Client::new())
             .with(BearerMiddleware::with_token("hunter2"))
+            .with(AssertSensitive)
             .build()
             .get(format!("{}/collection", server.uri()))
             .send()

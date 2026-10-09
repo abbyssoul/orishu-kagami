@@ -208,6 +208,29 @@ impl<'a> Inventory<'a> {
         requirement: &RequirementKey,
         offset: usize,
     ) -> Result<CandidatePageResponse, Error> {
+        self.provider_page(request, requirement, offset, false)
+    }
+
+    /// Browse compatible enabled installed providers for an explicit user choice,
+    /// including non-default releases. This never changes automatic eligibility:
+    /// the caller must submit the chosen exact ProviderBinding and resolve again.
+    /// As with candidate_page, only external scientific requirements have choices.
+    pub fn explicit_provider_page(
+        &self,
+        request: &ResolutionRequest,
+        requirement: &RequirementKey,
+        offset: usize,
+    ) -> Result<CandidatePageResponse, Error> {
+        self.provider_page(request, requirement, offset, true)
+    }
+
+    fn provider_page(
+        &self,
+        request: &ResolutionRequest,
+        requirement: &RequirementKey,
+        offset: usize,
+        explicit_browse: bool,
+    ) -> Result<CandidatePageResponse, Error> {
         if request.roots.len() > self.limits.max_roots
             || request.bindings.len() > self.limits.max_bindings
         {
@@ -257,7 +280,12 @@ impl<'a> Inventory<'a> {
         let mut candidates = Vec::new();
         for provider in self.providers.get(contract).into_iter().flatten() {
             work = work.checked_sub(1).ok_or_else(|| over("candidate page"))?;
-            if self.eligible(provider, &explicit) {
+            let eligible = if explicit_browse {
+                self.releases[&provider.release].enabled
+            } else {
+                self.eligible(provider, &explicit)
+            };
+            if eligible {
                 if total >= offset && candidates.len() < self.limits.max_candidates {
                     candidates.push(provider.clone());
                 }
@@ -279,6 +307,55 @@ impl<'a> Inventory<'a> {
     fn eligible(&self, provider: &ContributionRef, explicit: &BTreeSet<ContributionRef>) -> bool {
         let entry = &self.releases[&provider.release];
         entry.enabled && (entry.is_default || explicit.contains(provider))
+    }
+
+    /// Revalidate persisted complete provider intent against this inventory.
+    /// Missing/disabled providers remain structured availability failures. A
+    /// graph that omits a declared dependency is rejected, never silently filled
+    /// in from current defaults. This does not install or execute any code.
+    pub fn resolve_lock(
+        &self,
+        lock: &crate::authoring_lock::SelectionLock,
+        expected_inventory_revision: u64,
+    ) -> Result<ResolutionOutcome, Error> {
+        let selection = lock.selection();
+        // Check the receiving boundary's limits before cloning a lock that may
+        // have been constructed under a more permissive caller's budgets.
+        if selection.roots.len() > self.limits.max_roots {
+            return Err(over("roots"));
+        }
+        if selection.contributions.len() > self.limits.max_contributions {
+            return Err(over("contributions"));
+        }
+        if selection.bindings.len() > self.limits.max_bindings {
+            return Err(over("bindings"));
+        }
+        // Recheck the complete longest path, including shared dependencies that
+        // the resolver may already have visited through a shorter/root path.
+        // Structural graph work and declaration traversal are each bounded by
+        // max_work; neither a persisted caller budget nor a previous pass grants
+        // the new inventory permission to exceed its own limits.
+        lock.validate(crate::authoring_lock::LockLimits {
+            items: self
+                .limits
+                .max_contributions
+                .max(self.limits.max_roots)
+                .max(self.limits.max_bindings),
+            work: self.limits.max_work,
+            dependency_depth: self.limits.max_dependency_depth,
+            ..Default::default()
+        })?;
+        let outcome = self.resolve(&lock.request(expected_inventory_revision))?;
+        if let ResolutionOutcome::Resolved {
+            selection: actual, ..
+        } = &outcome
+            && actual != selection
+        {
+            return Err(invalid(
+                "authoring lock differs from declared dependency closure",
+            ));
+        }
+        Ok(outcome)
     }
 
     /// Resolve an experiment's roots and persisted provider bindings atomically.

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "X-PLUGIN standalone authoring dependency lock v1",
+  "$comment": "Structural schema only. The Rust bounded reader additionally enforces caller-owned byte/count/work/depth budgets, unique sorted requirement keys, canonical reference order, closure, reachability and acyclicity. Inventory revalidation proves declared dependency compatibility and availability; this lock is not workload evidence. Relative references resolve only to the adjacent checked-in declaration schema.",
+  "type": "object",
+  "properties": {
+    "apiVersion": { "const": "orishu.plugin-authoring-lock/v1" },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "roots": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "plugin-v1.schema.json#/$defs/contributionRef" }
+        },
+        "contributions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "plugin-v1.schema.json#/$defs/contributionRef" }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "requirement": {
+                "type": "object",
+                "properties": {
+                  "consumer": { "$ref": "plugin-v1.schema.json#/$defs/contributionRef" },
+                  "slot": { "$ref": "plugin-v1.schema.json#/$defs/localId" }
+                },
+                "required": ["consumer", "slot"],
+                "additionalProperties": false
+              },
+              "provider": { "$ref": "plugin-v1.schema.json#/$defs/contributionRef" }
+            },
+            "required": ["requirement", "provider"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["roots", "contributions", "bindings"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["apiVersion", "selection"],
+  "additionalProperties": false
+}

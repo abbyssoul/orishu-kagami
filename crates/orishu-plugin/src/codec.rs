@@ -310,6 +310,36 @@ pub(crate) fn structured_from_cbor<T: serde::de::DeserializeOwned>(
 ) -> Result<T, Error> {
     T::deserialize(Value(&cbor(bytes, limits, max)?))
 }
+/// The same bounded tree adapter for versioned authoring metadata. Collection
+/// limits are enforced before asking serde to consume a rejected next element.
+pub(crate) fn structured_from_json<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    limits: &Limits,
+    max: usize,
+) -> Result<T, Error> {
+    T::deserialize(Value(&json(bytes, limits, max)?))
+}
+/// Embedded authoring metadata (for example YAML). The enclosing adapter owns
+/// the input byte cap; this seed bounds collection reads, depth and value work.
+pub(crate) fn structured_from_deserializer<'de, T, D>(
+    deserializer: D,
+    limits: &Limits,
+) -> Result<T, D::Error>
+where
+    T: serde::de::DeserializeOwned,
+    D: Deserializer<'de>,
+{
+    let mut remaining = limits.max_values;
+    let value = Seed {
+        limits,
+        depth: 0,
+        key: String::new(),
+        remaining: &mut remaining,
+        failure: &mut None,
+    }
+    .deserialize(deserializer)?;
+    T::deserialize(Value(&value)).map_err(de::Error::custom)
+}
 fn read_release(v: &V, l: &Limits) -> Result<Release, Error> {
     let release = Release::deserialize(Value(v))?;
     release.validate(l)?;

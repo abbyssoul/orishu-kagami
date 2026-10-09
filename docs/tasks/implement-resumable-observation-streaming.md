@@ -24,6 +24,29 @@ or delta baseline. The client protocol now specifies the required resume and
 fallback semantics, but the shared model, baseline store, and transport adapters
 do not implement them.
 
+Implemented runtime prerequisite: bounded immutable complete-object/force leases
+now share the field-snapshot count/byte budget. Worker acquisition has independent
+eight-request ingress with scientific-command priority and exact-boundary checks.
+Observer pressure no longer occupies the step slot; queued reads cannot expose an
+unaccepted candidate. A shared [complete-object payload codec](../object-observation-v1.md)
+now adds source correlation, whole-frame content identity, bounded immutable
+numeric packets and explicit predecessor-force semantics. Runtime leases can
+encode it off-executor. This payload is not the stream envelope: subscription
+identity/revisions, baselines and consumer adoption below remain open. Initial
+[authenticated whole-object HTTP reads](../protocol-object-observation-v1.md)
+and a shared client are now implemented with separate observer admission and
+encoded-allocation lifetime budgets. They do not implement subscription/delta
+delivery, resume or historical retrieval. Separate
+[exact field descriptor/query routes](../protocol-field-observation-v1.md) now
+reuse the observer pool and shared sampling ABI, without pinning state across
+requests or implicitly refreshing stale boundaries. Kagami headless `workload field/sample`
+now reports exact descriptors and typed point readings; instrument/window/MCP
+consumers remain open. Kagami headless
+`workload objects` now reports validated one-shot projections. The initial
+[K-RUN window adapter](implement-kagami-run-workflow.md) displays numeric objects
+and forces from explicit refreshes. Neither adapter implements the streaming,
+baseline recovery or historical projection work below.
+
 ## Implementation slices
 
 ### 1. Define observation identity and compatibility

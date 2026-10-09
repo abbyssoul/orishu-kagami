@@ -1041,12 +1041,14 @@ async fn main() {
         let prepared = tokio::task::spawn_blocking(move || {
             let receipts = orishu_worker::workload_receipts::ReceiptStore::open(&directory)
                 .map_err(|_| "cannot open scientific receipt history")?;
+            let commands = orishu_worker::workload_receipts::CommandReceiptStore::open(&directory)
+                .map_err(|_| "cannot open scientific command history")?;
             let sandbox = orishu_runtime::Sandbox::new(Default::default())
                 .map_err(|_| "cannot initialize scientific sandbox")?;
-            Ok::<_, &'static str>((receipts, Arc::new(sandbox)))
+            Ok::<_, &'static str>((receipts, commands, Arc::new(sandbox)))
         })
         .await;
-        let (receipts, sandbox) = match prepared {
+        let (receipts, commands, sandbox) = match prepared {
             Ok(Ok(value)) => value,
             _ => {
                 eprintln!("scientific serving initialization failed");
@@ -1058,6 +1060,13 @@ async fn main() {
             .is_err()
         {
             eprintln!("scientific coordinator installation failed");
+            std::process::exit(2);
+        }
+        if state
+            .install_run_command_coordinator(commands, std::time::Duration::from_secs(60))
+            .is_err()
+        {
+            eprintln!("scientific command coordinator installation failed");
             std::process::exit(2);
         }
     }
@@ -1129,6 +1138,8 @@ async fn main() {
     let mutation_capacity = Arc::new(tokio::sync::Semaphore::new(16));
     #[cfg(unix)]
     let scientific_capacity = Arc::new(tokio::sync::Semaphore::new(8));
+    #[cfg(unix)]
+    let observer_capacity = Arc::new(tokio::sync::Semaphore::new(2));
     let inspection_capacity = Arc::new(tokio::sync::Semaphore::new(16));
     #[cfg(feature = "otlp-tracing")]
     let tracing = tracing.map(|(queue, exporter)| {
@@ -1217,7 +1228,12 @@ async fn main() {
                 }),
             );
         #[cfg(unix)]
-        let router = scientific_api::routes(router, state.clone(), scientific_capacity.clone());
+        let router = scientific_api::routes(
+            router,
+            state.clone(),
+            scientific_capacity.clone(),
+            observer_capacity.clone(),
+        );
         let service = Service::new(router);
         #[cfg(feature = "otlp-tracing")]
         let service = if let Some((queue, _, _, _)) = &tracing {

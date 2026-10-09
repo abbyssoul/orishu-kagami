@@ -1,16 +1,20 @@
 //! Client-local editing of an explicit complete scientific-setup proposal.
 //! No kernel choice or domain change is silently inferred from a legacy file.
 use crate::{
-    plugins::KernelChoice, scientific::InitializationRequest, scientific_effect::SetupRequest,
+    document::{AuthoringGuard, Document},
+    plugins::KernelChoice,
+    scientific::InitializationRequest,
+    scientific_effect::SetupRequest,
 };
 use orishu_plugin::{
     ExecutionContractId, FiniteF64,
     execution::{ComputePrecision, DOMAIN_SCHEMA, DomainDescriptor, SpatialDiscretization},
-    resolution::ResolutionRequest,
+    resolution::{ProviderBinding, RequirementKey, ResolutionRequest},
     selected::SelectedKernel,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+pub mod dependencies;
 mod parameters;
 pub use parameters::{ParameterAction, Parameters};
 
@@ -31,12 +35,18 @@ pub enum PhysicsAction {
     Step(String),
     /// Edit an exact selected kernel's declarative configuration input.
     Parameter(ParameterAction),
+    /// Read-only resolution/paging or an explicit local provider choice.
+    Dependencies(dependencies::Action),
     /// Copy exact captured settings into the local form without running code.
     LoadCaptured,
     /// Explicitly abandon form settings and pins; does not edit the experiment.
     Reset,
     /// Acknowledge replacing domain/physics and resetting initial state.
     Confirm(bool),
+    /// Acknowledge resetting only this captured field's initial state.
+    ConfirmField(usize, bool),
+    /// Apply parameters only to this field, preserving other captures/history.
+    ApplyField(usize),
     /// Propose initialization; never adopts any partial candidate.
     Apply,
 }
@@ -53,6 +63,13 @@ pub struct PhysicsForm {
     /// Bounded client-local explicit overrides, distinct from declared defaults.
     pub parameters: Parameters,
     captured: Option<SetupRequest>,
+    captured_guard: Option<AuthoringGuard>,
+    field_confirmed: Option<usize>,
+    generation: uuid::Uuid,
+    bindings: BTreeMap<RequirementKey, orishu_plugin::ContributionRef>,
+    // Only a staged captured replacement may substitute proposed component
+    // intent. Ordinary physics Apply refuses this form; the reset adapter owns it.
+    component_intent: Option<std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>>,
 }
 impl Default for PhysicsForm {
     fn default() -> Self {
@@ -66,14 +83,288 @@ impl Default for PhysicsForm {
             confirmed: false,
             parameters: Parameters::default(),
             captured: None,
+            captured_guard: None,
+            field_confirmed: None,
+            generation: uuid::Uuid::new_v4(),
+            bindings: BTreeMap::new(),
+            component_intent: None,
         }
     }
 }
 impl PhysicsForm {
+    pub(crate) fn for_component_reset(
+        document: &Document,
+        lock: std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>,
+    ) -> Result<Self, &'static str> {
+        let setup = document
+            .snapshot()
+            .setup()
+            .scientific()
+            .ok_or("No captured setup to replace.")?;
+        lock.validate(document.limits().dependencies)
+            .map_err(|_| "Replacement choices exceed limits.")?;
+        let domain = setup.domain();
+        let mut form = Self {
+            lower: domain.lower_metres.map(|v| number_text(v.get())),
+            upper: domain.upper_metres.map(|v| number_text(v.get())),
+            step: number_text(setup.time_step().seconds()),
+            component_intent: Some(lock),
+            ..Default::default()
+        };
+        if let SpatialDiscretization::CartesianCells { cells } = domain.discretization {
+            form.grid = true;
+            form.cells = cells.map(|n| n.to_string());
+        }
+        Ok(form)
+    }
+
+    pub(crate) fn generation(&self) -> uuid::Uuid {
+        self.generation
+    }
+
+    /// Explicit local decisions only. Resolution must revalidate these pins;
+    /// neither this form nor a candidate page grants execution permission.
+    pub fn bindings(&self) -> impl Iterator<Item = ProviderBinding> + '_ {
+        self.bindings
+            .iter()
+            .map(|(requirement, provider)| ProviderBinding {
+                requirement: requirement.clone(),
+                provider: provider.clone(),
+            })
+    }
+
+    pub(crate) fn bind(&mut self, binding: ProviderBinding) -> Result<(), &'static str> {
+        if self.is_captured() {
+            return Err(
+                "Captured dependency pins are immutable here; start a new proposal explicitly.",
+            );
+        }
+        if !self.bindings.contains_key(&binding.requirement)
+            && self.bindings.len()
+                >= orishu_plugin::resolution::ResolutionLimits::default().max_bindings
+        {
+            return Err("Provider bindings exceed the form limit.");
+        }
+        self.bindings.insert(binding.requirement, binding.provider);
+        self.confirmed = false;
+        self.field_confirmed = None;
+        self.generation = uuid::Uuid::new_v4();
+        Ok(())
+    }
+
+    pub(crate) fn clear_bindings(&mut self) {
+        self.bindings.clear();
+        self.confirmed = false;
+        self.field_confirmed = None;
+        self.generation = uuid::Uuid::new_v4();
+    }
+    pub(crate) fn forget_binding(
+        &mut self,
+        requirement: &RequirementKey,
+    ) -> Result<(), &'static str> {
+        if self.is_captured() {
+            return Err("Captured provider choices cannot be discarded here.");
+        }
+        self.bindings
+            .remove(requirement)
+            .ok_or("No such local binding.")?;
+        self.confirmed = false;
+        self.field_confirmed = None;
+        self.generation = uuid::Uuid::new_v4();
+        Ok(())
+    }
+
+    /// The same bounded selection used by read-only dependency inspection and
+    /// Apply, including exact components from the current document. It does not
+    /// require reset consent, validate numeric inputs, or execute guests.
+    pub fn selection_with_scene(
+        &self,
+        choices: &[KernelChoice],
+        revision: u64,
+        snapshot: &kagami_document::ExperimentSnapshot,
+    ) -> Result<ResolutionRequest, &'static str> {
+        let mut selection = self.selection(choices, revision)?;
+        let mut roots: BTreeSet<_> = selection.roots.into_iter().collect();
+        let mut add_root = |pin: &orishu_plugin::ContributionRef| -> Result<(), &'static str> {
+            if !roots.contains(pin) {
+                if roots.len() == orishu_plugin::selected::SelectionLimits::default().contributions
+                {
+                    return Err("Scene contribution roots exceed the selection budget.");
+                }
+                roots.insert(pin.clone());
+            }
+            Ok(())
+        };
+        if let Some(lock) = &self.component_intent {
+            for pin in &lock.selection().roots {
+                add_root(pin)?;
+            }
+        } else {
+            for object in snapshot.objects().values() {
+                for kind in object.components.keys() {
+                    add_root(kind.contribution().ok_or("Legacy components require explicit migration before configuring plugin physics.")?)?;
+                }
+            }
+        }
+        selection.roots = roots.into_iter().collect();
+        if let Some(lock) = self
+            .component_intent
+            .as_ref()
+            .or_else(|| snapshot.dependencies())
+        {
+            let mut bindings: BTreeMap<_, _> = selection
+                .bindings
+                .into_iter()
+                .map(|b| (b.requirement, b.provider))
+                .collect();
+            for binding in &lock.selection().bindings {
+                if bindings
+                    .get(&binding.requirement)
+                    .is_some_and(|p| p != &binding.provider)
+                {
+                    return Err(
+                        "Physics proposal conflicts with saved component providers; change component intent explicitly first.",
+                    );
+                }
+                if bindings.len()
+                    == orishu_plugin::resolution::ResolutionLimits::default().max_bindings
+                    && !bindings.contains_key(&binding.requirement)
+                {
+                    return Err("Combined component/physics bindings exceed the proposal budget.");
+                }
+                bindings.insert(binding.requirement.clone(), binding.provider.clone());
+            }
+            selection.bindings = bindings
+                .into_iter()
+                .map(|(requirement, provider)| ProviderBinding {
+                    requirement,
+                    provider,
+                })
+                .collect();
+        }
+        Ok(selection)
+    }
+
+    fn selection(
+        &self,
+        choices: &[KernelChoice],
+        revision: u64,
+    ) -> Result<ResolutionRequest, &'static str> {
+        if let Some(captured) = &self.captured {
+            if captured.selection.expected_inventory_revision != revision {
+                return Err("Inventory changed; copy captured settings again.");
+            }
+            return Ok(captured.selection.clone());
+        }
+        if self.selected.is_empty() || self.selected.len() > 65 {
+            return Err("Select one integrator and up to 64 fields.");
+        }
+        let mut roots = BTreeSet::new();
+        for i in &self.selected {
+            roots.insert(
+                choices
+                    .get(*i)
+                    .ok_or("Model choices changed; refresh before retrying.")?
+                    .contribution
+                    .clone(),
+            );
+        }
+        Ok(ResolutionRequest {
+            expected_inventory_revision: revision,
+            roots: roots.into_iter().collect(),
+            bindings: self.bindings().collect(),
+        })
+    }
     /// Captured-provider pins and per-use policies are being preserved. Choosing
     /// different models requires an explicit new proposal, not silent rebinding.
     pub fn is_captured(&self) -> bool {
         self.captured.is_some()
+    }
+
+    /// Copy a coherent authoring revision and retain its asynchronous edit guard.
+    pub fn from_document(
+        document: &Document,
+        choices: &[KernelChoice],
+        revision: u64,
+    ) -> Result<Self, &'static str> {
+        let guard = document
+            .authoring_guard()
+            .ok_or("Return to Authoring before copying settings.")?;
+        let setup = document
+            .snapshot()
+            .setup()
+            .scientific()
+            .ok_or("No captured scientific setup to copy.")?;
+        let mut form = Self::from_captured(setup, choices, revision)?;
+        form.captured_guard = Some(guard);
+        Ok(form)
+    }
+
+    /// Whether reset consent was given for precisely this field and these inputs.
+    pub fn field_confirmed(&self, index: usize) -> bool {
+        self.field_confirmed == Some(index)
+    }
+
+    /// Build a field-only proposal from the copied revision. Reject unrelated
+    /// pending edits instead of silently dropping them or resetting extra state.
+    pub fn field_request(
+        &self,
+        document: &Document,
+        choices: &[KernelChoice],
+        revision: u64,
+        index: usize,
+    ) -> Result<(AuthoringGuard, InitializationRequest), &'static str> {
+        if !self.field_confirmed(index) {
+            return Err("Confirm resetting this field's initial state first.");
+        }
+        let guard = self
+            .captured_guard
+            .filter(|guard| document.accepts_effect(*guard))
+            .ok_or("The copied document context changed; copy captured settings again.")?;
+        let choice = choices
+            .get(index)
+            .filter(|c| c.contract == ExecutionContractId::Field)
+            .ok_or("Only a captured field supports a field-only parameter edit.")?;
+        let setup = document
+            .snapshot()
+            .setup()
+            .scientific()
+            .ok_or("No captured scientific setup.")?;
+        let request = self.build_request(choices, revision)?;
+        let instance = request
+            .kernels
+            .iter()
+            .find(|k| k.contribution == choice.contribution)
+            .ok_or("Select a captured field.")?
+            .instance_id
+            .clone();
+        if request.time_step != setup.time_step()
+            || request
+                .initialization
+                .iter()
+                .any(|input| &input.domain != setup.domain())
+        {
+            return Err(
+                "Domain/timestep changes require the whole-setup reset; restore those inputs first.",
+            );
+        }
+        if request.initialization.iter().any(|input| {
+            input.instance != instance
+                && setup
+                    .captures()
+                    .get(&input.instance)
+                    .is_none_or(|c| c.authored != input.configuration)
+        }) {
+            return Err(
+                "Other models have pending parameter edits; restore them before applying only this field.",
+            );
+        }
+        let input = request
+            .initialization
+            .into_iter()
+            .find(|i| i.instance == instance)
+            .ok_or("No captured field input.")?;
+        Ok((guard, input))
     }
 
     /// Copy saved settings only. Requires every exact model in this inventory;
@@ -162,6 +453,9 @@ impl PhysicsForm {
         let mut changed = true;
         match action {
             PhysicsAction::Kernel(i) if i < choices.len() && self.captured.is_none() => {
+                // Changing roots can make prior slot bindings unreachable. Never
+                // let them grant eligibility to an unrelated new proposal.
+                self.bindings.clear();
                 if !self.selected.remove(&i) {
                     if choices[i].contract == ExecutionContractId::Dynamics {
                         self.selected.retain(|n| {
@@ -184,12 +478,20 @@ impl PhysicsForm {
             PhysicsAction::Reset => *self = Self::default(),
             PhysicsAction::Confirm(value) => {
                 self.confirmed = value;
+                self.field_confirmed = None;
+                changed = false;
+            }
+            PhysicsAction::ConfirmField(index, value) => {
+                self.field_confirmed = value.then_some(index);
+                self.confirmed = false;
                 changed = false;
             }
             _ => changed = false,
         }
         if changed {
             self.confirmed = false;
+            self.field_confirmed = None;
+            self.generation = uuid::Uuid::new_v4();
         }
     }
     /// Convert explicit UI choices to the shared effect request. Omitted values
@@ -200,9 +502,33 @@ impl PhysicsForm {
         choices: &[KernelChoice],
         revision: u64,
     ) -> Result<SetupRequest, &'static str> {
+        if self.component_intent.is_some() {
+            return Err(
+                "Use the explicit component replacement/full-reset consent, not ordinary physics Apply.",
+            );
+        }
         if !self.confirmed {
             return Err("Confirm replacing the domain/physics and resetting initial states first.");
         }
+        self.build_request(choices, revision)
+    }
+
+    pub(crate) fn component_reset_request(
+        &self,
+        choices: &[KernelChoice],
+        revision: u64,
+    ) -> Result<SetupRequest, &'static str> {
+        if self.component_intent.is_none() {
+            return Err("Stage component replacement choices before configuring the reset.");
+        }
+        self.build_request(choices, revision)
+    }
+
+    fn build_request(
+        &self,
+        choices: &[KernelChoice],
+        revision: u64,
+    ) -> Result<SetupRequest, &'static str> {
         if self
             .lower
             .iter()
@@ -325,21 +651,7 @@ impl PhysicsForm {
             return Err("Captured choices changed; start a new proposal explicitly.");
         }
         kernels.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
-        let mut roots: Vec<_> = kernels.iter().map(|k| k.contribution.clone()).collect();
-        roots.sort();
-        roots.dedup();
-        let selection = if let Some(captured) = &self.captured {
-            if captured.selection.expected_inventory_revision != revision {
-                return Err("Inventory changed; copy captured settings again.");
-            }
-            captured.selection.clone()
-        } else {
-            ResolutionRequest {
-                expected_inventory_revision: revision,
-                roots,
-                bindings: vec![],
-            }
-        };
+        let selection = self.selection(choices, revision)?;
         Ok(SetupRequest {
             selection,
             kernels,

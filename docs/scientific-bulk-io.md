@@ -115,6 +115,11 @@ O(fields log fields + coupled records log dynamic entities + dynamic entities),
 with O(fields + dynamic entities) storage. Errors return no reduced result.
 Scientific commit and integration remain outside this helper.
 
+The [committed object observation](object-observation-v1.md) wraps existing object
+and reduced-force packets with exact source identity and a whole-frame digest.
+It preserves SI/binary64 semantics and force-evaluation phase; it is not a field
+snapshot, checkpoint, or resumable stream.
+
 ## Instance and validation envelopes
 
 ### Resolved configuration and domain

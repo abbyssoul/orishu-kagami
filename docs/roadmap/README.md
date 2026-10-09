@@ -108,21 +108,21 @@ Recheck the affected task's source and acceptance evidence before assigning work
   also revalidates ingestion, security/pressure, alerts and dashboard queries.
   Reviewed overhead and final M4 acceptance remain open; workload/storage instruments follow
   their owning stages.
-- [Kagami](../../apps/kagami/) opens a native window and has an offscreen-capable renderer, but its
-  scene tree, open/save, playback, simulation, networking, and run controls are
-  prototypes or stubs rather than the accepted experiment authority. The
-  authority itself now exists beside it: `crates/kagami-document` holds the
-  sans-IO experiment model and `crates/kagami-session` the document server the
-  app has not yet been rewired to. Persistence, catalog instantiation and that
-  rewiring remain open. A downstream review also identified a bounded
-  [K1/K3 follow-up](../tasks/kagami/harden-document-boundaries.md) for unavailable
-  schemas, schema refresh, replay binding, revision-qualified save completion,
-  and serializable adapter values; it is planned work, not landed behavior.
-- The tracked workload-format, catalog, MCP, live-observation, and
-  historical-playback tasks are specified but not implemented.
+- [Kagami](../../apps/kagami/) now renders the real document projection, routes
+  edits through `kagami-session`, persists experiments and supports captured
+  plugin-backed scientific setup and headless export. Initial window attachment
+  to externally submitted runs displays numeric objects/forces and supports
+  manual step/finish/reconciliation. Unix window captured-document preparation,
+  export and identified submission are also implemented. Committed-object position
+  markers now provide the initial 3D projection; field visualization, streaming,
+  durable client recovery and playback remain open; see [K-RUN](../tasks/implement-kagami-run-workflow.md).
+- Workload, catalog and MCP foundations have implemented slices; their work-package
+  rows below distinguish remaining integration. Resumable observation streaming
+  and historical playback are not implemented by one-shot scientific reads.
 - The restored Orishu runtime, storage, provenance, configuration, scaling,
   protocol, and user-story documents now pass link validation, but they do not
-  make the placeholder worker a runtime. Several transferred wire and lifecycle
+  establish complete distributed execution. The worker's opt-in scientific profile
+  now runs a single-node workload; several transferred wire and lifecycle
   details remain explicitly open and need bounded tasks before coding.
 
 Do not infer implementation from the amount of protocol or user-story text.
@@ -153,9 +153,83 @@ X-PLUGIN's [concrete v1 contract](../plugin-contract-v1-draft.md) was accepted o
 2026-09-16. R1–R8 design decisions are settled; declarations and pure provider
 resolution and the stored-ZIP byte codec are implemented in `orishu-plugin`,
 pending review, with focused fixtures.
-Initial Unix source/inventory/CLI management also exists; authoring adoption,
-remaining adapter parity, ABI and integration evidence remain work. Runtime and format migrations
+Initial Unix source/inventory/CLI management and a native panel now exist. The panel
+supports inspection, local install/update, defaults, enablement and explicit guarded
+vocabulary refresh without rewriting document pins. Scientific-setup dependency
+checks, candidate paging and explicit provider choices now feed normal capture/export.
+Explicit browsing can also pin compatible enabled non-default providers without
+changing inventory defaults. Component-only dependency dialogs,
+MCP management and remaining runtime/ABI
+integration evidence remain work. Runtime and format migrations
 retain their specific integration gates.
+
+Open-reference integration: the shared document authority now reports bounded exact
+release references across current state, scientific selection, undo/redo and
+retained requests, exposed by the native Plugins → References action. The window
+now reconciles this immutable image into live cross-process leases under a coarse
+removal gate, including receipt-only generation changes. Native removal is exact,
+revision-checked and acknowledgement-aware; incomplete scans cannot be bypassed.
+Unopened-file discovery, physical garbage collection and automatic inventory
+watching are not supplied by these leases; other adapters need lifetime integration.
+
+X-PLUGIN's Unix inventory now retains bounded first-known local acquisition origin,
+outside release/workload identity. Inventory v1 upgrades to v2 only on accepted
+management mutation; CLI JSON v2 and native Inspect expose that historical
+metadata. [Migration details](../plugin-authoring-tools.md#store-and-reader-safety)
+do not imply automatic fetching, registry support or completion of management parity.
+
+Source tooling now accepts [v2 local aliases](../plugin-source-v2.md) for explicit
+scientific dependencies and artifacts, lowering in dependency order through shared
+validation. Equivalent exact inputs produce identical release/bundle bytes; it is
+not code compilation, provider discovery or guest execution. Source v1 remains
+supported. Linux publication-barrier tests now cover inventory mutations and bundle
+output under injected errors and process death; cache reuse flushes verified files
+and parents before publishing an index. Non-Unix secure IO, root provisioning,
+broader storage/syscall fault coverage and remaining management parity stay open.
+
+The shared [standalone authoring dependency lock](../plugin-contract-v1-draft.md#standalone-authoring-dependency-lock)
+now has bounded codecs, structural graph validation and strict inventory
+revalidation. It requires no scientific setup and never substitutes current
+defaults for pinned providers. Atomic document adoption, model wire v4 and
+[container v5](../experiment-container-v5.md) now retain it, with undo/receipt weight,
+dependency-only release references and captured-selection/export reconciliation.
+Unlocked JSON v3/container v4 and workload identities remain unchanged.
+[Catalog v3](../catalog-template-v3.md) now carries scoped locks into atomic
+document instantiation with conflict-refusing merges; shared explicit closure
+extraction supports pruning. The [Unix existing-component choice form](../component-provider-choices.md)
+now provides guarded, leased adoption and offline persistence without physics
+setup. A nonempty two-body fixture survives capture/export and fresh real runtime
+execution. Native object/component removal now prunes locks in the same batch,
+with atomic history replacement when required. Unavailable first attachment and
+new roots in locked uncaptured documents now resolve before atomic schema/component/
+lock adoption. Native exact Add now also captures complete choices for previously
+unlocked uncaptured documents. Bounded property entry and read-only selected-schema
+inspection now cover all uncaptured exact attachments, including repeated roots.
+Explicit uncaptured replacement now accepts detach/new values/scoped lock atomically,
+preserving shared providers without inferred value conversion. Coordinated
+compound planning and general multi-object migration after capture, plus MCP
+adoption, remain open. Ordinary captured Add now stages properties/choices in the inspector,
+then requires input-specific consent for guarded scientific preparation/adoption
+with unchanged kernels/providers/fields and regenerated history. Cancellation and
+stale context prevent acceptance on either side of handoff.
+Captured provider replacement now has a separate guarded full-reset backend:
+explicit edits, complete new component/physics intent and schemas are accepted
+atomically after fresh initialization, without requiring old providers or reusing
+old state. Native selected-component replacement and binding-only changes now stage
+component intent before complete physics and consent tied to both input generations.
+The exact displayed resolved graph feeds independently guarded reset/adoption;
+changed inputs, cancellation and stale context cannot publish partial state.
+The guarded addition backend now prepares compound objects/new definitions and
+exact-fingerprint catalog instantiation against a retained snapshot, using the
+shared session materializer and real allocation counters. Complete provider locks,
+unchanged fields and atomic copied-data/history/schema adoption are covered by real
+Newtonian/Euler tests through offline reopen/export and inventory-free execution.
+Native single-template creation now loads/reloads through the catalog authority,
+offers bounded instance inputs and provider choices, and uses proposal-specific
+history consent after capture. Unavailable entries are revalidated under selected
+schemas before atomic adoption. Arbitrary compound planning, catalog-file editing
+and MCP/headless adapters remain open.
+X-PLUGIN remains in progress.
 
 The accepted Field CAD review adds exported constants, explicit timestep
 admissibility, entity-lifecycle history and flat quality-bearing sample buffers
@@ -170,29 +244,29 @@ slices and acceptance criteria before implementation begins.
 | ID | Work package | Lane | State | Depends on |
 | --- | --- | --- | --- | --- |
 | S-RESOURCE | [Shared Kubernetes-style resource envelope](../tasks/extract-shared-resource-envelope.md) | S | **Implemented and accepted**; both consumers migrated, wire compatibility pinned, and verification findings resolved | M0 complete; the deferred `metadata.id` vs `metadata.uid` spelling has since been settled in favour of `uid` (see O-API-SHAPE) |
-| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Partial: v2 slices 1–2 and structural slice 3 implemented and accepted; [v3 composed root and fixed scientific-profile compilation/admission](../workload-v3.md) implemented, review pending. Captured-scene compilation and Unix headless portable export are implemented; window export, worker endpoints, emitter inputs, distribution seams and protocol/CLI migration remain | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
+| S-WORKLOAD | [Shared workload format](../tasks/define-and-adopt-shared-workload-format.md) | S | Partial: v2 slices 1–2 and structural slice 3 implemented and accepted; [v3 composed root and fixed scientific-profile compilation/admission](../workload-v3.md) implemented, review pending. Captured-scene compilation, Unix headless/window portable export and identified worker upload are implemented; emitter inputs, distribution seams and protocol/CLI migration remain | M0; S-RESOURCE for the generic envelope; S-VARIABLES for expression integration |
 | S-VARIABLES | [Shared variables and expressions](../tasks/migrate-and-integrate-variables-subsystem.md) | S | Partial: generic and dimensioned evaluation, the declared shared-engine resource bounds, and experiment integration through [K2](../tasks/kagami/integrate-document-variables.md) have landed; slice 4 workload integration remains | S-WORKLOAD for slice 4 |
 | S-IDENTITY | Formation, cluster-assigned node, cluster projection, membership-tombstone and run-identity contracts from [ADR 0013](../adr/0013-cluster-formation-and-node-identity.md) | S/N | Membership identity/tombstone types and formation-v1 projection implemented; [run identity/descriptor and single-node owner allocation](../run-descriptor-v1.md) now implemented. Public run references, distributed/reset allocation and broader runtime projection reconciliation remain | M0 |
 | S-OBSERVE | Observation/run identity and frame types from [resumable streaming](../tasks/implement-resumable-observation-streaming.md) slices 1–2 | S/V | Ready | S-IDENTITY; coordinate public model edits with S-WORKLOAD |
 | S-PROVENANCE | Versioned [committed checkpoint/result provenance](../orishu-provenance.md) and diagnostic-provenance separation | S/O | **Task specification required** | S-IDENTITY; S-WORKLOAD; S-OBSERVE; X-PLUGIN identity |
-| K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1, K3, the boundary follow-up, and K4 implemented; X-PLUGIN adds exact component pins in experiment JSON v3 (v1/v2 still readable), atomic scientific-capture adoption/undo with model wire v3 read projections, and [scientific file v4](../experiment-container-v4.md) with durable offline reopen. Authority scientific retention spans current/history/replay; Unix inspector field reset and complete scientific-setup creation/replacement use a guarded, bounded background adapter. Other effect/IO reservations remain open. K2/K5 core and K6's non-gesture app adoption landed; Unix startup supplies installed component schemas/overrides; K7 core stories captured | K2/K5 live symbol sources, dependency-selection dialogs and open-document leases remain. K6's gesture bracket is unblocked but unimplemented; K8 needs X-PLUGIN observation identities |
-| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Declarations, resolution, bundle bytes, initial Unix source/inventory/CLI, exact component pins, verified authoring-schema projection and [pure selected-closure compilation/verification](../plugin-selected-closure.md) implemented, review pending; retained selections feed local initialization, validated document capture, v4 persistence and retention admission. Unix physics form creates/replaces a setup with explicit models/domain/grid/timestep and schema-driven parameters; copying captured settings preserves exact pins/instance IDs/policies; captured-field reset uses the same guarded background adoption. Captured scene compilation preserves composition/source evidence. Unix headless [portable export](../workload-bundle-v1.md) reaches fresh real runtime admission from actual CLI output without an inventory. Emitter/dynamic-membership and worker delivery remain open. [End-to-end delivery](../tasks/x-plugin-delivery-ledger.md) remains active through targeted parameter edits and dependency-choice dialogs, object-edit history regeneration, remaining effect/IO reservations, window export, management parity and runtime execution | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination; O-WASM and version fixtures for later integration |
+| K-DOCUMENT | [Kagami capability programme](../tasks/kagami/README.md): authoritative experiment model, commands, revisions, persistence and undo | K | K1, K3, the boundary follow-up, and K4 implemented; X-PLUGIN adds exact component pins in experiment JSON v3 (v1/v2 still readable), atomic scientific-capture adoption/undo with model wire v4 provider-intent read projections, and [scientific file v4](../experiment-container-v4.md) with durable offline reopen. Authority scientific retention spans current/history/replay; Unix inspector field reset and complete scientific-setup creation/replacement use a guarded, bounded background adapter. Other effect/IO reservations remain open. K2/K5 core and K6's non-gesture app adoption landed; shared catalog materialization and native single-template creation now feed guarded captured-addition preparation; Unix startup supplies installed component schemas/overrides; window document/history/request leases and guarded plugin removal are implemented; K7 core stories captured | K2/K5 live symbol sources, catalog-file editing, general compound/migration and headless adapters remain; other adapters need reference-lifetime integration. K6's gesture bracket is unblocked but unimplemented; K8 needs X-PLUGIN observation identities |
+| X-PLUGIN | [Shared plugin contributions, immutable releases and management](../tasks/define-and-implement-plugin-contract.md) | X/K/S | Declarations, resolution, bundle bytes, initial Unix source/inventory/CLI, exact component pins, verified authoring-schema projection and [pure selected-closure compilation/verification](../plugin-selected-closure.md) implemented, review pending; retained selections feed local initialization, validated document capture, v4 persistence and retention admission. Unix physics form creates/replaces a setup with explicit models/domain/grid/timestep and schema-driven parameters; copying captured settings preserves exact pins/instance IDs/policies. Captured-field reset and targeted parameter edits use guarded background adoption; field-only edits preserve unrelated fields/history and require separate consent. Object edits now regenerate required initial Dynamics history atomically while retaining fields, with shared non-adoptable preparation and existing Unix object/component/property actions wired. Captured scene compilation preserves composition/source evidence. Guarded compound/catalog addition preparation and the native single-template picker share the session materializer; native selected-component/binding-only replacement uses explicit full reset. Unix headless [portable export](../workload-bundle-v1.md) reaches fresh real runtime admission from actual CLI output without an inventory. Opt-in single-node worker delivery and real execution are implemented; emitter/dynamic-membership and distributed delivery remain open. [End-to-end delivery](../tasks/x-plugin-delivery-ledger.md) remains active through general compound/migration and catalog-editing/headless adapters, gesture/MCP and configuration-affecting variable adapters, remaining effect/IO reservations, durable client recovery, management parity and complete runtime integration | S-WORKLOAD identity model; S-VARIABLES dimensions; X-FIELDS/X-COMPOSITION payload coordination; O-WASM and version fixtures for later integration |
 | X-COMPOSITION | [Composed object execution](../tasks/kagami/define-composed-object-execution.md) | X/S/O | Specified; host-orchestrated component graph accepted | X-PLUGIN; S-WORKLOAD; O-WASM; X-FIELDS |
 | X-FIELDS | [Field families and computational-model selection](../tasks/kagami/define-fields-and-model-selection.md) | X/K/S/V | Specified; required before executable model composition | K-DOCUMENT; X-PLUGIN; S-WORKLOAD; S-OBSERVE |
 | X-BUILTINS | Gravity and electrodynamics plugins using the public plugin contract | X | [Newtonian/Euler reference bundles](../../plugins/reference/README.md), actual runtime evidence and local Kagami CLI installation implemented; electrodynamics and full authoring/distributed product scope still require task specification | X-COMPOSITION; O-WASM host contract |
 | X-DIST-PROFILE | Concrete first distributed scientific schema, fixtures, limits and validation plan for proposed ADR 0016 or an explicit replacement | X/O/N | **Decision and task specification required**; proposal only until M5 evidence | S-WORKLOAD; X-PLUGIN; O-WASM lifecycle |
 | K-CATALOG | [Kagami object catalog](../tasks/implement-kagami-object-catalog.md) and [catalog-variable workload capture](../tasks/capture-catalog-values-in-expressions.md) | K/S | Catalog crate, authority, shared-dimension variable projection, and materialization core implemented and accepted, including the [authority-boundary correction](../tasks/fix-kagami-catalog-authority-boundaries.md); [K5](../tasks/kagami/instantiate-catalog-templates.md)'s document command and bridge have landed; workload/UI/MCP integration remains gated | X-PLUGIN/K2/K5 for remaining live symbol sources; accepted ADR 0018 and S-WORKLOAD for expression capture |
 | K-MCP | [Embedded Kagami MCP server](../tasks/kagami-mcp-server.md) | K | Slices 1–7 ready; slice 8's core authoring, expression, lifecycle, and serializable-authority prerequisites have landed, while full parity remains incrementally gated; slice 9 gated | X-PLUGIN/K8/K11 and catalog integration for the remaining slice-8 surface; K-OBSERVATION for sensor reads; O-CLIENT/K-RUN for run parity |
-| K-OBSERVATION | [Compile and query observation instruments](../tasks/kagami/compile-and-query-observation-instruments.md) | K/S/V | Specified | K-DOCUMENT K8; S-WORKLOAD; S-OBSERVE; K-RUN/K-PREVIEW |
-| K-VIEW | [Kagami viewport workflows](../tasks/kagami/implement-kagami-viewport-workflows.md) and [scene scale](../tasks/kagami/choose-scene-scale.md) | K/V | K11 slices 1–2 implemented: mode machine/gate, orthographic projection, and persisted default view with its own revision. Nothing enters Observation/replay yet. K14 scene scale implemented: `SceneScale`, camera reach declared in render units with the metre-space limit derived from it, `defaultView` section version 2 with the envelope version unchanged, and the view control. Minimal field visualization in M3, richer replay in M6; distant-origin precision remains follow-up work, not a claim of K14 | K-RUN/K-PREVIEW to enter observation; K-RUN/S-OBSERVE/X-FIELDS for follow/fields; V-LIVE for best-effort trails; V-REPLAY/K-OBSERVATION for exact trajectories. Later object/field/trail consumers must convert through `SceneScale` at the render boundary |
+| K-OBSERVATION | [Compile and query observation instruments](../tasks/kagami/compile-and-query-observation-instruments.md) | K/S/V | Specified; shared field sampling and one-shot window numeric queries provide a transport prerequisite, not persistent instruments, geometric generators, histories or sensor MCP | K-DOCUMENT K8; S-WORKLOAD; S-OBSERVE; K-RUN/K-PREVIEW |
+| K-VIEW | [Kagami viewport workflows](../tasks/kagami/implement-kagami-viewport-workflows.md) and [scene scale](../tasks/kagami/choose-scene-scale.md) | K/V | K11 slices 1–2 implemented: mode machine/gate, orthographic projection, and persisted default view with its own revision. K-RUN now enters Observation/replay for numeric snapshots, bounded 3D position markers and one-shot normalized field direction glyphs (partial slice 4; flow lines remain). K14 scene scale implemented: `SceneScale`, camera reach declared in render units with the metre-space limit derived from it, `defaultView` section version 2 with the envelope version unchanged, and the view control. Minimal field visualization in M3, richer replay in M6; distant-origin precision remains follow-up work, not a claim of K14 | K-RUN/K-PREVIEW for complete remote/local observation; K-RUN/S-OBSERVE/X-FIELDS for follow/fields; V-LIVE for best-effort trails; V-REPLAY/K-OBSERVATION for exact trajectories. Later field/trail consumers must convert through `SceneScale` at the render boundary |
 | X-EMITTER | [Particle emitters](../tasks/kagami/implement-particle-emitters.md) | X/K/O/N | Specified | K-CATALOG/K5; X-COMPOSITION; S-WORKLOAD; O-RUNTIME; N-CLUSTER for distributed proof |
 | O-WASM | [Multi-component WebAssembly host](../tasks/implement-wasm-component-graph-host.md) and admitted step plan, reconciling legacy lifecycle with role-specific worlds | O | ABI/lifecycle, actual Newtonian/Euler atomic-owner and selected admission evidence; [security/integration gates](../runtime-component-abi.md), reusable stores/arenas and product integration remain | S-WORKLOAD graph/descriptors; versioned X-PLUGIN selection; protocol-workload contract |
-| O-RUNTIME | [Single-node admission, fixed-step component-plan authority and commit loop](../tasks/implement-single-node-workload-runtime.md) | O | Fixed-profile library owner, selected scientific-workload admission, complete in-memory portable checkpoints and bounded field leases implemented. Worker [fenced admission and retained single-node execution](../adr/0028-fence-worker-scientific-admission-through-formation-owner.md) publish initial/step/stop boundaries using [owner-issued run descriptors](../run-descriptor-v1.md), with actual Component, cancellation and late-candidate evidence. Lease-bound complete-body input checks size/EOF/deadline and expected root before allocation of a run epoch/JIT. [Durable load receipts and daemon coordinator](../run-load-receipts-v1.md) retain intent/history/runs independently of responses, with restart/retry, shutdown/drop and final-write failure evidence. Explicitly enabled [HTTP load/receipt/current-run serving](../protocol-scientific-load-v1.md) is implemented and reports scientific occupancy through summary v2. The bounded shared scientific HTTP client now submits and retrieves correlated facts with actual worker/restart evidence. Kagami submission adapters, public run control/observations, distributed/reset allocation, continuous control and RSS/hot-store hardening remain. M2/M3 prerequisite to M5 | S-IDENTITY; S-WORKLOAD; X-COMPOSITION; O-WASM; S-OBSERVE |
+| O-RUNTIME | [Single-node admission, fixed-step component-plan authority and commit loop](../tasks/implement-single-node-workload-runtime.md) | O | Fixed-profile library owner, selected scientific-workload admission, complete in-memory portable checkpoints and bounded field leases implemented. Worker [fenced admission and retained single-node execution](../adr/0028-fence-worker-scientific-admission-through-formation-owner.md) publish initial/step/stop boundaries using [owner-issued run descriptors](../run-descriptor-v1.md), with actual Component, cancellation and late-candidate evidence. Lease-bound complete-body input checks size/EOF/deadline and expected root before allocation of a run epoch/JIT. [Durable load receipts and daemon coordinator](../run-load-receipts-v1.md) retain intent/history/runs independently of responses, with restart/retry, shutdown/drop and final-write failure evidence. Explicitly enabled [HTTP load/receipt/current-run serving](../protocol-scientific-load-v1.md) is implemented and reports scientific occupancy through summary v2. The bounded shared scientific HTTP client and Kagami's [headless workload commands](../../apps/kagami/README.md#headless-workload-submission) submit and retrieve correlated facts with actual worker/restart evidence. [Manual command/status routes and shared client](../protocol-scientific-command-v1.md) now support guarded step/terminal finish and durable reconciliation. Kagami headless step/finish/receipt/status controls are implemented with real executable/restart evidence. Initial window manual controls/numeric observations are implemented under K-RUN; complete window integration, broader run lifecycle/observations, distributed/reset allocation, continuous control and RSS/hot-store hardening remain. M2/M3 prerequisite to M5 | S-IDENTITY; S-WORKLOAD; X-COMPOSITION; O-WASM; S-OBSERVE |
 | O-STORAGE | Local content-addressed inputs plus checkpoint/result records, [lifecycle states](../storage-spec.md), persistence and coverage index | O | **Task specification required** | S-IDENTITY; S-WORKLOAD artifact identity; S-PROVENANCE; O-RUNTIME boundaries |
 | O-ARTIFACT-ADMIN | [Node artifact inventory, pre-positioning, safe eviction/purge and digest admission policy](../tasks/implement-artifact-cache-administration.md) | O/P/N | Backlog follow-up to workload delivery; security/protocol design gates remain open; does not expand X-PLUGIN local-package MVP or imply worker plugin installation | O-STORAGE; S-WORKLOAD; O-RUNTIME; O-API-SHAPE/O-CLIENT; N-TRANSFER/N-PURGE; CLI/TUI adapters coordinated with P-MONITOR |
 | O-API-SHAPE | Resolve imported [client-API compaction findings](../orishu-runtime-future-work.md#client-api-compaction-review) and version the initial resource surface | O/P/S | **Decision/task specification required before O-CLIENT**; the `metadata.uid` spelling is decided and implemented (`ResourceUid`, node resources project their `NodeId`) | S-IDENTITY; runtime data model; storage authority model |
 | O-CLIENT | Implement authenticated client API and align `orishuctl` with real server behavior | O/P | **Task specification required** | O-API-SHAPE; O-RUNTIME; O-STORAGE; S-OBSERVE |
-| K-RUN | Kagami Orishu adapter, workload submission, run projection and renderer handoff | K/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
+| K-RUN | [Kagami authoring, submission and run observation](../tasks/implement-kagami-run-workflow.md) | K/V | In progress: headless export/submission, captured-revision window preparation/export/submission, external-run attachment, numeric object observations, bounded 3D position markers, one-shot exact-boundary field inspection/point sampling, explicitly mapped normalized direction glyphs and manual controls/reconciliation implemented. Capability negotiation, durable client recovery, field flow lines/magnitude mapping, instruments and local/proxy parity remain | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
 | K-PREVIEW | Local preview of a supported pinned workload through the same sandbox lifecycle and observation semantics | K/O/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-WASM; S-OBSERVE; coordinate projection interface with K-RUN |
 | V-LIVE | [Resumable live observation streaming](../tasks/implement-resumable-observation-streaming.md) slices 3–6 | V/O | Ready after shared frame types | S-OBSERVE; O-RUNTIME; O-CLIENT |
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |
@@ -211,6 +285,32 @@ slices and acceptance criteria before implementation begins.
 | P-MONITOR | [`orishu-monitor` admin TUI shell](../tasks/implement-orishu-monitor-admin-tui.md), followed by [operator API integration and parity](../tasks/integrate-orishu-monitor-operator-api.md); raw formation-admission secrets remain CLI-only | P | Shell task implemented; integration task recorded in backlog | No API gate for the shell; N-FORMATION membership projection for first live views; O-CLIENT and owning mutation contracts for later parity |
 
 ## Dependency graph
+
+Run-control prerequisite update: [identified command facts and their separate
+bounded journal](../run-command-receipts-v1.md) now implement guarded step/terminal
+finish intent, historical outcomes and conservative restart recovery. This does
+not close O-RUNTIME/O-CLIENT or K-RUN. Explicit internal daemon command ownership,
+guarded execution and committed-status projection are now tested. Opt-in command
+startup, authenticated serving and shared-client controls now have real-worker
+step/finish/replay/restart evidence. Kagami headless controls now exercise this
+path with explicit run/operation/boundary intent and separate historical/live
+reports. Initial window manual controls and numeric observations now use that path;
+complete rendering, durable client recovery and sustained history retention remain gates.
+Observation foundation: complete object/force leases now share the runtime field
+snapshot budget, and worker acquisition has independent bounded ingress with
+scientific-command priority and exact-boundary checks. The bounded shared
+[object payload](../object-observation-v1.md) now frames complete numeric objects
+and predecessor forces with exact source/content identity. Its
+[bounded HTTP read and shared client](../protocol-object-observation-v1.md) now
+retain separate observer capacity through actual encoded-chunk lifetimes. Remote
+stream envelopes, subscriptions/baselines and field/instrument adoption remain open.
+[Field descriptor/query delivery](../protocol-field-observation-v1.md) now runs
+through bounded authenticated worker/shared-client adapters, with off-executor
+guest sampling and exact state/context checks. Kagami headless `workload field/sample`
+now reports channel descriptors and exact typed point readings; instrument/window/MCP
+consumers remain open.
+Kagami's headless `workload objects` now reports exact validated object/force
+projections without editing the experiment or advancing the run.
 
 This graph shows the main integration gates. Edges consume the required
 contract or slice, not necessarily completion of the whole upstream package.
@@ -617,9 +717,9 @@ workload it would submit, before attempting distributed execution.
   symbol-source half after those schemas are ready.
 - Implement S-WORKLOAD Kagami compilation and Orishu admission slices. Prove a
   deterministic closure with golden fixtures and a thin in-memory/file
-  admission round trip. Unix headless captured-file portable export is now
-  implemented as foundation evidence; the complete researcher-facing authoring,
-  window export and submission workflow remains Milestone 7 work.
+  admission round trip. Unix headless and guarded window captured-revision export/
+  submission are now implemented as foundation evidence. Full researcher-facing
+  authoring, durable recovery and rendering remain Milestone 7 work.
 - Implement O-WASM validation, capability filtering, multi-instance phase
   coordination, typed bulk channels, metering, cancellation, atomic failure,
   checkpoint-part handling, and hostile-guest tests without yet requiring a

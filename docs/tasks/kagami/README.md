@@ -13,10 +13,12 @@ the cross-lane capabilities that consume it.
 Each file is independently assignable: it names its owning boundary, the
 contracts it consumes, its acceptance criteria, and its non-goals.
 
-`apps/kagami` currently renders a demo scene tree that
-[migration.md](../../migration.md) marks as placeholder. Until this programme
-lands, catalog instantiation, MCP authoring parity, workload compilation, and
-local preview all have nothing authoritative to command.
+`apps/kagami` now renders the document authority's scene projection and routes
+edits and persistence through `kagami-session`. Plugin-backed captured experiments
+can be exported headlessly. [K-RUN](../implement-kagami-run-workflow.md) now adds
+external-run attachment, numeric observations, 3D position markers and manual worker controls; window
+captured-document compilation/export/submission now shares the headless compiler;
+full visualization, durable client recovery, local preview and adapter parity remain.
 
 ## Outcome
 
@@ -50,7 +52,7 @@ crates/kagami-document  -- pure sans-IO model, commands, transition, history
 | K8 | [Model requested observations](implement-requested-observations.md) | Specified; blocked | K4; X-PLUGIN observation-channel schema contract (K7 probe story satisfied) |
 | K9 | [Define composed object execution](define-composed-object-execution.md) | Specified; topology accepted, implementation blocked | X-PLUGIN, S-WORKLOAD, O-WASM, X-FIELDS |
 | K10 | [Compile and query observation instruments](compile-and-query-observation-instruments.md) | Specified; blocked | K8, S-WORKLOAD, S-OBSERVE, K-RUN/K-PREVIEW |
-| K11 | [Implement Kagami viewport workflows](implement-kagami-viewport-workflows.md) | Slices 1–2 implemented: mode machine and gate, orthographic projection, persisted default view; nothing enters Observation/replay yet | K-RUN/K-PREVIEW to enter observation; K-RUN/S-OBSERVE for follow and fields; V-REPLAY for trails |
+| K11 | [Implement Kagami viewport workflows](implement-kagami-viewport-workflows.md) | Slices 1–2 implemented: mode machine and gate, orthographic projection, persisted default view; K-RUN enters remote observation with numeric snapshots and position markers | K-PREVIEW for local entry; K-RUN/S-OBSERVE for follow and fields; V-REPLAY for trails |
 | K12 | [Implement particle emitters](implement-particle-emitters.md) | Specified; cross-lane | K5, K9, S-WORKLOAD, O-RUNTIME; N-CLUSTER for distributed proof |
 | K13 | [Define fields and computational-model selection](define-fields-and-model-selection.md) | Specified; cross-lane | K-DOCUMENT, X-PLUGIN, S-WORKLOAD, S-OBSERVE |
 | K14 | [Choose the scene scale](choose-scene-scale.md) | Implemented; `SceneScale`, scale-relative camera bounds, `defaultView` version 2, view control. The shared prefix-selecting formatter stays S-VARIABLES' | none |

@@ -6,6 +6,8 @@
 //! [`resolution`] provides deterministic exact provider selection, and [`bundle`]
 //! validates/packs caller-owned stored-ZIP bytes without extraction. [`selected`]
 //! compiles and independently verifies exact selected declaration/code closure.
+//! [`authoring_lock`] retains bounded exact provider intent independently of
+//! scientific setup; inventory revalidation is required before using it.
 //! Package IO, Wasm inspection and run admission belong to consuming owners. A
 //! verified declaration or resolved selection is not runnable.
 //!
@@ -34,6 +36,7 @@
 #![warn(missing_docs)]
 
 pub mod archive;
+pub mod authoring_lock;
 pub mod bundle;
 mod codec;
 pub mod execution;
@@ -42,6 +45,7 @@ mod model;
 mod projection;
 pub mod resolution;
 pub mod selected;
+pub mod source;
 mod validation;
 pub mod workload;
 

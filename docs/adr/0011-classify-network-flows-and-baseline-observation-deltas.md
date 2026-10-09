@@ -102,6 +102,70 @@ backpressure, and recovery.
 Implementation is tracked in
 [Implement resumable observation streaming](../tasks/implement-resumable-observation-streaming.md).
 
+## Full-object projection refinement — 2026-09-17
+
+The first shared scientific observation payload is a bounded, content-identified
+[complete numeric-object projection](../object-observation-v1.md), produced from
+an immutable runtime lease. It reuses shared canonical source metadata and existing
+portable object/force packets. It is not the stream envelope or a whole-world
+snapshot: fields are absent, forces explicitly belong to the preceding evaluation
+boundary, and subscription/baseline/resume identity remains the streaming task.
+
+Raw numeric packets alone were rejected because they cannot bind themselves to a
+run/boundary. Per-object JSON was rejected here because it expands the hot numeric
+payload and duplicates the existing portable scientific schema. Embedding opaque
+whole-run checkpoints was rejected because observation neither requires private
+integrator/field state nor grants restart/adoption authority. The selected frame
+keeps those distinctions while supporting the same validation for local and
+remote producers. Its format does not replace or relax the stream requirements
+above. Dynamic membership must revisit the fixed-membership force-coverage rule.
+
+## Initial delivery refinement — 2026-09-17
+
+An [exact-boundary authenticated POST read](../protocol-object-observation-v1.md)
+now delivers the complete-object payload. It is deliberately not an alias for
+the prototype SimulationFrame or a claim that subscriptions/resume are implemented.
+The bounded typed request identifies formation/root/epoch and boundary; the client
+correlates these against the payload and canonical descriptor digest. No automatic
+current-run selection or refresh is permitted. Existing command receipt authority
+and wire formats remain unchanged.
+
+Observer serving uses its own two-permit lane across listeners. Reusing the
+scientific handler pool was rejected because stalled observers could consume
+command admission. Releasing permits on handler return was rejected because
+queued transport chunks could retain large allocations after admission capacity
+had returned. Each response allocation instead owns its snapshot lease and permit;
+all zero-copy chunks retain them until disposal. Encoding runs off-executor.
+
+The 16-MiB complete-response ceiling is an initial policy, not permission for partial
+object coverage. Larger runs need future chunk/stream work. Field queries, client
+adoption, baseline recovery and local/proxy parity remain explicit follow-ups.
+
+## Initial field query refinement — 2026-09-17
+
+[Field observation HTTP v1](../protocol-field-observation-v1.md) delivers a bounded
+exact-source descriptor followed by the existing OSQ1/OSP1 sampling contract.
+Opaque state remains with the runtime; the observer receives context, typed
+channel vocabulary and snapshot identity, then supplies the point geometry.
+Sampling executes in a disposable guest off the scientific executor and shares
+the independent observer lane and allocation-owned delivery budgets.
+
+Requiring clients to already know the private state's digest was rejected: an
+exported initial workload cannot identify later computed state. Sending private
+field buffers for Kagami to interpret was rejected because the selected kernel
+owns that interpretation. A single semantic query with server-invented query
+metadata could avoid the descriptor/query race, but would introduce a second
+sampling envelope and change who captures exact query intent. The initial profile
+instead reuses the accepted scientific packets and explicitly refuses stale
+boundaries. A descriptor is not a persistent server lease. Continuous playback
+and subscriptions must later add explicit retention/baseline semantics; they
+must not silently refresh the user's query to another state.
+
+No workload, guest ABI, command journal or scientific pipeline version changes.
+The descriptor and read-intent schemas are additive and independently versioned.
+This implements one-shot remote sampling, not instrument geometry, historical
+queries, distributed partition routing or Kagami UI/MCP adoption.
+
 ## References
 
 - [Fabien Sanglard's Quake III networking review](https://fabiensanglard.net/quake3/network.php)

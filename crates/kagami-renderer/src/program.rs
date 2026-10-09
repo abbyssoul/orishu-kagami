@@ -61,16 +61,34 @@ pub struct PointerState {
 ///
 /// Holds the camera as a value the application supplies each frame, so the
 /// window's pose is the one thing being drawn and the one thing being saved.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SceneProgram {
     /// The camera to draw through.
     pub camera: Camera,
+    /// Optional immutable position glyphs, prepared by the caller outside draw.
+    pub markers: Option<std::sync::Arc<crate::MarkerBatch>>,
+    /// Optional direction glyphs; the caller owns their scientific interpretation.
+    pub arrows: Option<std::sync::Arc<crate::ArrowBatch>>,
 }
 
 impl SceneProgram {
     /// Draw through `camera`.
     pub const fn new(camera: Camera) -> Self {
-        Self { camera }
+        Self {
+            camera,
+            markers: None,
+            arrows: None,
+        }
+    }
+    /// Add fixed-screen-size glyphs with depth ordering between markers.
+    pub fn with_markers(mut self, markers: std::sync::Arc<crate::MarkerBatch>) -> Self {
+        self.markers = Some(markers);
+        self
+    }
+    /// Add direction glyphs sharing depth with the position markers.
+    pub fn with_arrows(mut self, arrows: std::sync::Arc<crate::ArrowBatch>) -> Self {
+        self.arrows = Some(arrows);
+        self
     }
 }
 
@@ -166,6 +184,8 @@ where
         };
 
         ScenePrimitive {
+            markers: self.markers.clone(),
+            arrows: self.arrows.clone(),
             view_proj: self
                 .camera
                 .view_projection_matrix(aspect_ratio)

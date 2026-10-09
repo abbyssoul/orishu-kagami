@@ -10,10 +10,16 @@
 /// Bounds applied while loading and validating catalog content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
+    /// Receiving bounds for a template's closed component provider graph.
+    /// Embedded serde decoding additionally imposes the shared default ceiling.
+    pub dependencies: orishu_plugin::authoring_lock::LockLimits,
     /// Largest catalog file accepted, in bytes. A larger file is refused
     /// before it is read into memory.
     pub max_file_bytes: u64,
     /// Largest number of files scanned in one catalog directory.
+    /// Directory enumeration has a separate work ceiling of sixteen times this
+    /// value, counting ignored entries and symlinks too; exhaustion refuses the
+    /// directory before reading a filesystem-order-dependent prefix.
     pub max_files: usize,
     /// Largest number of `---`-separated documents read from one file.
     pub max_documents_per_file: usize,
@@ -42,12 +48,27 @@ pub struct Limits {
 }
 
 impl Limits {
+    /// A caller may tighten but never raise the format's embedded-lock ceiling.
+    /// Keep direct typed validation and decoding in agreement so every accepted
+    /// template can round-trip through the standard document reader.
+    pub(crate) fn dependency_limits(&self) -> orishu_plugin::authoring_lock::LockLimits {
+        let max = orishu_plugin::authoring_lock::LockLimits::DEFAULT;
+        let own = self.dependencies;
+        orishu_plugin::authoring_lock::LockLimits {
+            bytes: own.bytes.min(max.bytes),
+            items: own.items.min(max.items),
+            work: own.work.min(max.work),
+            dependency_depth: own.dependency_depth.min(max.dependency_depth),
+        }
+    }
+
     /// Bounds sized for an interactive Kagami installation.
     ///
     /// Chosen to be comfortably above any plausible hand-authored catalog
     /// (the shipped `planets` catalog is ~40 templates in ~12 KiB) while
     /// keeping the worst case a single load can cost bounded and small.
     pub const DEFAULT: Self = Self {
+        dependencies: orishu_plugin::authoring_lock::LockLimits::DEFAULT,
         max_file_bytes: 1024 * 1024,
         max_files: 1024,
         max_documents_per_file: 1024,

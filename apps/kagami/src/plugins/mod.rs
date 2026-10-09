@@ -4,15 +4,23 @@
 //! separate runtime boundary. This module is intentionally app-local.
 
 pub mod cli;
+#[cfg(unix)]
+pub mod references;
+#[cfg(unix)]
+pub mod window;
 
 #[cfg(unix)]
 pub(crate) mod files;
 #[cfg(unix)]
 mod inventory;
 #[cfg(unix)]
+mod origin;
+#[cfg(unix)]
 mod package;
 #[cfg(unix)]
 pub use inventory::*;
+#[cfg(unix)]
+pub use origin::{LocalOrigin, OriginKind};
 #[cfg(unix)]
 pub use package::*;
 

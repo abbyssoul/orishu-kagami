@@ -124,6 +124,9 @@ pub struct ObjectComponent {
 /// revision.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectCandidate {
+    /// Template-scoped exact dependency intent. The document authority composes
+    /// this with existing intent atomically, refusing conflicting choices.
+    pub dependencies: Option<std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>>,
     /// Where it came from. Historical evidence, never a live link.
     pub provenance: TemplateProvenance,
     /// The namespace the definitions live in.
@@ -281,6 +284,7 @@ pub fn materialize(
     let components = materialize_components(template, registry, &definitions)?;
 
     let candidate = ObjectCandidate {
+        dependencies: template.dependencies.clone(),
         provenance: entry
             .provenance()
             .expect("an available entry has an identity and a fingerprint"),

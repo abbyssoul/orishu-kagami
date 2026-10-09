@@ -184,6 +184,8 @@ pub struct TemplateSpec {
 /// A structurally valid object template.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Template {
+    /// Self-contained component provider intent, not proof of availability.
+    pub dependencies: Option<std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>>,
     /// The catalog/template identity.
     pub identity: TemplateIdentity,
     /// Human-facing metadata.
@@ -193,6 +195,22 @@ pub struct Template {
 }
 
 impl Template {
+    /// Canonical format needed to retain this template's authored semantics.
+    /// No re-serialization or component/property copying is required.
+    pub fn api_version(&self) -> &'static str {
+        if self.dependencies.is_some() {
+            crate::document::LOCKED_API_VERSION
+        } else if self
+            .spec
+            .components
+            .iter()
+            .any(|c| c.type_id.contribution().is_some() || c.name != c.type_id.local_name())
+        {
+            crate::document::PINNED_API_VERSION
+        } else {
+            crate::document::API_VERSION
+        }
+    }
     /// Validate a decoded document into a template, or report every problem
     /// found. Pure: no filesystem, no schema registry, no ambient state.
     pub fn from_document(
@@ -200,7 +218,22 @@ impl Template {
         limits: &Limits,
     ) -> Result<Self, Vec<Diagnostic>> {
         let mut diagnostics = Vec::new();
-        if document.api_version().as_str() != crate::document::PINNED_API_VERSION
+        let version = document.api_version().as_str();
+        if !matches!(
+            version,
+            crate::document::API_VERSION
+                | crate::document::PINNED_API_VERSION
+                | crate::document::LOCKED_API_VERSION
+        ) {
+            diagnostics.push(Diagnostic::at(
+                "apiVersion",
+                InvalidReason::UnsupportedApiVersion {
+                    found: version.into(),
+                    expected: crate::document::LOCKED_API_VERSION.into(),
+                },
+            ));
+        }
+        if version == crate::document::API_VERSION
             && document
                 .spec
                 .components
@@ -221,9 +254,39 @@ impl Template {
         );
         let metadata = validate_metadata(&document.metadata, limits, &mut diagnostics);
         let spec = validate_spec(&document.spec, limits, &mut diagnostics);
+        if let Some(lock) = &document.spec.dependencies {
+            let problem = if version != crate::document::LOCKED_API_VERSION {
+                Some("provider dependencies require kagami.catalog/v3".to_owned())
+            } else if let Err(error) = lock.validate(limits.dependency_limits()) {
+                Some(error.to_string())
+            } else {
+                let roots: BTreeSet<_> = spec
+                    .components
+                    .iter()
+                    .filter_map(|c| c.type_id.contribution())
+                    .collect();
+                (!roots.iter().copied().eq(lock.selection().roots.iter())).then(|| {
+                    "dependency roots must exactly match the template's exact components".to_owned()
+                })
+            };
+            if let Some(message) = problem {
+                diagnostics.push(Diagnostic::at(
+                    "spec.dependencies",
+                    InvalidReason::SchemaMismatch { message },
+                ));
+            }
+        } else if version == crate::document::LOCKED_API_VERSION {
+            diagnostics.push(Diagnostic::at(
+                "spec.dependencies",
+                InvalidReason::SchemaMismatch {
+                    message: "kagami.catalog/v3 requires an explicit dependency lock".into(),
+                },
+            ));
+        }
 
         if diagnostics.is_empty() {
             Ok(Self {
+                dependencies: document.spec.dependencies.clone(),
                 identity,
                 metadata,
                 spec,
@@ -249,6 +312,7 @@ impl Template {
                 annotations: self.metadata.annotations.clone(),
             },
             SpecDocument {
+                dependencies: self.dependencies.clone(),
                 parameters: self
                     .spec
                     .parameters

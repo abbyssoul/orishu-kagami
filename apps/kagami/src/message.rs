@@ -186,6 +186,16 @@ pub enum WorkspaceIntent {
 /// One thing the window was asked to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
+    #[cfg(unix)]
+    Catalog(crate::catalog_form::Action),
+    #[cfg(unix)]
+    ComponentForm(crate::component_form::Action),
+    #[cfg(unix)]
+    Plugins(crate::plugins::window::Action),
+    #[cfg(unix)]
+    Workload(crate::workload_preparation::Action),
+    /// Run adapter intent; never an authoring command or numerical payload.
+    Run(crate::run::Action),
     /// Client-local edits of the explicit physics-selection form.
     #[cfg(unix)]
     PhysicsForm(crate::physics_form::PhysicsAction),
@@ -216,9 +226,18 @@ impl Message {
     pub fn intent(&self) -> Option<&Authoritative> {
         match self {
             #[cfg(unix)]
+            Self::Catalog(_) => None,
+            #[cfg(unix)]
+            Self::Plugins(_) => None,
+            #[cfg(unix)]
+            Self::Workload(_) => None,
+            Self::Run(_) => None,
+            #[cfg(unix)]
             Self::Scientific(_) => None,
             #[cfg(unix)]
             Self::PhysicsForm(_) => None,
+            #[cfg(unix)]
+            Self::ComponentForm(_) => None,
             Self::Authoritative(intent) => Some(intent),
             Self::Local(_)
             | Self::Workspace(_)

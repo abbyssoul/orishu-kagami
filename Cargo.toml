@@ -22,7 +22,7 @@ repository = "https://github.com/abbyssoul/orishu-kagami"
 # `allowed_hosts` default, session-table visibility, request-body cap, and
 # cancellation-token integration were verified against its vendored source
 # before adoption.
-rmcp = { version = "3.3", default-features = false, features = [
+rmcp = { version = "3.4", default-features = false, features = [
     "server",
     "transport-streamable-http-server",
     "macros",
@@ -57,6 +57,8 @@ orishu-variables = { path = "crates/orishu-variables" }
 orishu-workload = { path = "crates/orishu-workload" }
 orishu-runtime = { path = "crates/orishu-runtime" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Descriptor-checked Unix IO in imperative shells only; callers select features.
+rustix = "=1.1.4"
 serde = { version = "1", features = ["derive", "rc"] }
 # `float_roundtrip` is load-bearing, not a tuning choice: without it
 # serde_json's fast float parser is not bit-exact, so a saved coordinate,
@@ -78,3 +80,11 @@ serde_yaml = "0.9"
 sha2 = "0.11"
 tempfile = "3"
 thiserror = "2"
+
+# Optimize third-party dependencies in development and test builds. A debug
+# Wasmtime/Cranelift makes each real-Component Kagami test take about 9 times
+# longer, which exceeds scientific effect and test deadlines under the default
+# parallel test runner. Workspace crates stay unoptimized for debugging; the
+# release profile is unchanged.
+[profile.dev.package."*"]
+opt-level = 2

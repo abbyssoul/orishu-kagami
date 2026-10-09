@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use rmcp::{
     ErrorData, ServerHandler,
     handler::server::router::tool::ToolRouter,
-    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig},
     tool, tool_handler, tool_router,
 };
 use serde::Serialize;
@@ -69,8 +69,8 @@ impl McpServer {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for McpServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "Kagami's live session over MCP (ADR 0006). This is a transport over the \
              same session the UI drives, not a second authority. The tool surface is \
              read-only in this build; authoring and run-control tools arrive with the \

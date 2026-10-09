@@ -51,8 +51,10 @@ formation-fault-test = []
 opentelemetry-proto = { version = "=0.32.0", default-features = false, features = ["gen-tonic-messages", "trace"], optional = true }
 prost = { version = "=0.14.4", optional = true }
 # Explicit collector-only HTTP client; TLS configuration is supplied by the worker.
-reqwest = { version = "=0.13.4", default-features = false, features = ["rustls-no-provider"], optional = true }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
 ciborium = "=0.2.2"
+# Already resolved by Salvo; share bounded observation chunks without copying.
+bytes = "=1.12.1"
 thiserror = { workspace = true }
 orishu-membership = { workspace = true }
 # Shared scientific admission; no worker-side plugin installation or second engine.
@@ -70,7 +72,7 @@ sha2 = { workspace = true }
 socket2 = "=0.6.5"
 serde_json = { workspace = true }
 subtle = "=2.6.1"
-clap = { version = "4.5.60", features = ["derive", "env"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
 orishu = { workspace = true }
 pretty_assertions = "1.4.1"
 salvo = { version = "0.96", default-features = false, features = [
@@ -84,19 +86,19 @@ salvo = { version = "0.96", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-tokio = { version = "1.50.0", features = ["macros", "signal"] }
+tokio = { version = "1.53.1", features = ["macros", "signal"] }
 
 [target.'cfg(unix)'.dependencies]
 # Descriptor-relative credential access, advisory instance lock and interface
 # index lookup, without unsafe code.
-rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
+rustix = { workspace = true, features = ["fs", "net", "process"] }
 
 [dev-dependencies]
 criterion = { workspace = true }
 dhat = { workspace = true }
 tempfile = "=3.27.0"
 # Bounded subprocess checks for hostile environment variables, without global mutation.
-tokio = { version = "1.50.0", features = ["process"] }
+tokio = { version = "1.53.1", features = ["process"] }
 # Real collector TLS fixtures, using the already resolved worker TLS adapter.
 tokio-rustls = { version = "=0.26.5", default-features = false, features = ["aws_lc_rs"] }
 

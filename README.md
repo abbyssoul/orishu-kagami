@@ -140,8 +140,23 @@ cluster. Kagami never joins peer membership. See the full
 
 This is an early research project. The Orishu command-line and worker crates are
 present, and Kagami has a functional native application shell and GPU scene
-renderer. Kagami can select an Orishu endpoint, but remote workload control and
-observation streaming are not connected yet.
+renderer. Unix headless Kagami can manage local plugins, export captured experiments,
+submit portable workloads, manually step/finish exact worker runs and inspect
+committed numeric objects/forces. The worker and shared Rust client also support
+[exact field descriptors and batched sampling](docs/protocol-field-observation-v1.md);
+Kagami headless `workload field/sample` exposes those descriptors and typed point
+readings. The window can explicitly observe an externally submitted run as a
+3D position-marker view or numeric object/force table, inspect/sample fields and
+draw explicitly selected normalized field directions, and manually refresh, step or finish it. On Unix it can
+also compile the open captured revision, export its portable workload and submit
+those exact bytes with identified reconciliation. Field visualization/instruments and observation streaming remain
+unfinished; see the
+[headless commands](apps/kagami/README.md#headless-manual-run-controls).
+The Unix **Plugins** panel also manages local bundle installation/update, default
+selection and enablement, and explicitly refreshes authoring availability through
+the same inventory authority as the CLI without migrating exact experiment pins.
+It also provides guarded release de-registration with open-reference warnings;
+document-lifetime leases protect known readers, not unopened files on disk.
 
 ## Build and run from source
 
@@ -210,8 +225,10 @@ Select an Orishu endpoint explicitly with:
 make run-kagami ARGS="--host cluster.example.com:6680"
 ```
 
-The selected endpoint is visible in the prototype UI. Network connection and
-streaming remain implementation work. To exercise only the offscreen renderer,
+The selected endpoint is visible in the UI. Supply `--operator-token-file PATH`
+for authenticated, user-initiated access through the Remote run panel; see the
+[window workflow](apps/kagami/README.md#window-remote-run-workflow). Streaming
+remains implementation work. To exercise only the offscreen renderer,
 without opening a window, run `make smoke-kagami`.
 
 ## Repository map

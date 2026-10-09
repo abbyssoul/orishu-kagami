@@ -55,15 +55,12 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use kagami_catalog::materialize::{InstantiationRequest, ObjectCandidate, materialize};
 use kagami_catalog::{CatalogSet, SchemaRegistry};
 use kagami_document::scientific::{ScientificError, ScientificRetention};
 use kagami_document::{
-    AuthoredValue, CapabilityReport, CommitReport, ComponentProperties, EditHistory, Experiment,
-    ExperimentCommand, ExperimentRevision, ExperimentSnapshot, GestureId, Limits, ObjectSpec,
-    VariableSpec, resolve_variables, restore, update,
+    CapabilityReport, CommitReport, EditHistory, Experiment, ExperimentCommand, ExperimentRevision,
+    ExperimentSnapshot, GestureId, Limits, restore, update,
 };
-use orishu_variables::Namespace;
 
 use crate::command::{ExperimentCommandEnvelope, InstantiationSpec, SessionCommand};
 use crate::identity::{ActorId, CommandId};
@@ -71,13 +68,27 @@ use crate::outcome::{Acceptance, EventSeq, ExperimentChange, ExperimentEvent, Se
 use crate::persist::{DocumentTarget, SaveAcknowledgement};
 use crate::view::{HistoryStatus, SessionView};
 
+mod plugin_references;
+pub use plugin_references::{
+    PluginReferenceError, PluginReferenceLimits, PluginReferenceReport, PluginReferenceSnapshot,
+    PluginReferenceUse,
+};
+
 fn receives_scientific_state(command: &SessionCommand) -> bool {
     match command {
-        SessionCommand::Edit(commands) => commands
-            .iter()
-            .any(|c| matches!(c, ExperimentCommand::AdoptScientificSetup(_))),
+        // Materialization can introduce template-owned locks, even though the
+        // submitted command carries only a catalog identity/fingerprint.
+        SessionCommand::InstantiateObjectTemplate(_) => true,
+        SessionCommand::Edit(commands) => commands.iter().any(|c| {
+            matches!(
+                c,
+                ExperimentCommand::AdoptScientificSetup(_)
+                    | ExperimentCommand::AdoptDependencies(_)
+            )
+        }),
         SessionCommand::Open { experiment, .. } => {
             experiment.snapshot().setup().scientific().is_some()
+                || experiment.snapshot().dependencies().is_some()
         }
         _ => false,
     }
@@ -93,9 +104,15 @@ fn include_command(
                 if let ExperimentCommand::AdoptScientificSetup(setup) = command {
                     tally.include(setup)?;
                 }
+                if let ExperimentCommand::AdoptDependencies(lock) = command {
+                    tally.include_dependencies(lock)?;
+                }
             }
         }
         SessionCommand::Open { experiment, .. } => {
+            if let Some(lock) = experiment.snapshot().dependencies() {
+                tally.include_dependencies(lock)?;
+            }
             if let Some(setup) = experiment.snapshot().setup().scientific() {
                 tally.include(setup)?;
             }
@@ -154,7 +171,7 @@ pub struct DocumentAuthority {
     capabilities: Arc<CapabilityReport>,
     limits: Limits,
     history: EditHistory,
-    accepted: VecDeque<AcceptedRecord>,
+    accepted: VecDeque<Arc<AcceptedRecord>>,
     retained_commands: usize,
     events: VecDeque<ExperimentEvent>,
     next_event: EventSeq,
@@ -226,6 +243,37 @@ impl DocumentAuthority {
             return Ok(accepted);
         }
         self.submit_inner(envelope)
+    }
+
+    /// Atomically accept a command using a caller-verified schema projection.
+    ///
+    /// This cold plugin-adoption path stages capabilities, events, receipts and
+    /// history together. Refusal changes none of them; replay returns the original
+    /// receipt without adopting the supplied schemas. The caller still owns
+    /// inventory validation and availability guards. Schemas are capabilities,
+    /// not new persisted command intent or a bypass of normal validation.
+    ///
+    /// # Errors
+    /// Returns the normal submission or aggregate retention rejection.
+    pub fn submit_with_schemas(
+        &mut self,
+        envelope: ExperimentCommandEnvelope,
+        schemas: SchemaRegistry,
+    ) -> Result<Acceptance, SessionRejection> {
+        if let Some(recorded) = self.replay(&envelope)? {
+            return Ok(recorded);
+        }
+        self.check_batch_size(&envelope)?;
+        self.check_revision(&envelope)?;
+        let mut next = self.fork_for_admission();
+        if next.schemas != schemas {
+            next.adopt_schemas(schemas, envelope.actor.clone());
+        }
+        let accepted = next.submit_inner(envelope)?;
+        next.bound_scientific_retention()
+            .map_err(kagami_document::Rejection::from)?;
+        *self = next;
+        Ok(accepted)
     }
 
     fn submit_inner(
@@ -372,7 +420,7 @@ impl DocumentAuthority {
         self.experiment.revision()
     }
 
-    /// Unique scientific buffer bytes plus canonical metadata retention weight,
+    /// Unique scientific buffer bytes plus scientific/provider-lock metadata weight,
     /// across current state, undo/redo and accepted request receipts. This is not
     /// total heap usage and does not include shell-owned pending effects/saves.
     pub fn scientific_retained_bytes(&self) -> Result<usize, ScientificError> {
@@ -390,6 +438,14 @@ impl DocumentAuthority {
         }
         for setup in self.history.scientific_setups() {
             tally.include(setup)?;
+        }
+        if let Some(lock) = self.experiment.snapshot().dependencies() {
+            tally.include_dependencies(lock)?;
+        }
+        for snapshot in self.history.snapshots() {
+            if let Some(lock) = snapshot.dependencies() {
+                tally.include_dependencies(lock)?;
+            }
         }
         Ok(tally)
     }
@@ -418,7 +474,8 @@ impl DocumentAuthority {
     }
 
     // Only scientific capture/Open use this transaction copy. Snapshot/blob
-    // ownership stays shared; bounded registry/receipt metadata is copied on
+    // ownership and immutable receipt bodies stay shared; bounded registry
+    // metadata and receipt handles are copied on
     // this cold path. It is intentionally not a public Clone/fork authority API.
     fn fork_for_admission(&self) -> Self {
         Self {
@@ -469,6 +526,17 @@ impl DocumentAuthority {
     /// author everything by hand.
     pub fn catalog(&self) -> Option<&CatalogSet> {
         self.catalog.as_deref()
+    }
+    /// Retain the exact immutable catalog for an explicitly guarded cold effect.
+    /// A later reload does not mutate this snapshot or any materialized object.
+    pub fn catalog_snapshot(&self) -> Option<Arc<CatalogSet>> {
+        self.catalog.clone()
+    }
+
+    /// Adopt the catalog authority's immutable read projection without copying
+    /// templates or creating another mutable catalog authority.
+    pub fn adopt_catalog_snapshot(&mut self, catalog: Arc<CatalogSet>) {
+        self.catalog = Some(catalog);
     }
 
     /// Adopt a catalog snapshot for instantiation to resolve against.
@@ -790,30 +858,13 @@ impl DocumentAuthority {
             .clone()
             .ok_or(SessionRejection::NoCatalogLoaded)?;
 
-        // The object's own scope has to be known before it exists, because the
-        // copied definitions are rewritten into it. The next identity the
-        // counters will mint is the one this batch is about to use.
-        let scope = Namespace::new(format!(
-            "objects.object_{}",
-            self.experiment.counters().objects_minted()
-        ));
-
-        // Instantiation *materialises*: a document variable an override reads
-        // is captured as the literal it resolves to now, not as a live
-        // reference (ADR 0018).
-        let document_values = resolve_variables(&self.experiment.snapshot(), &self.limits)?;
-
-        let request = InstantiationRequest {
-            identity: spec.template.clone(),
-            expected_fingerprint: spec.expected_fingerprint,
-            bindings: spec.bindings.clone(),
-            object_scope: scope.clone(),
-            document_values,
-        };
-        let candidate = materialize(&catalog, &self.schemas, &request)
-            .map_err(|source| SessionRejection::Instantiation(Box::new(source)))?;
-
-        let commands = instantiation_commands(spec, &scope, &candidate)?;
+        let commands = crate::instantiation::prepare(
+            &self.experiment,
+            &catalog,
+            &self.schemas,
+            spec,
+            &self.limits,
+        )?;
         self.apply_edit(&commands, gesture)
     }
 
@@ -834,6 +885,11 @@ impl DocumentAuthority {
     ) -> Result<ExperimentChange, SessionRejection> {
         if self.is_dirty() && !discard_unsaved {
             return Err(SessionRejection::UnsavedChanges);
+        }
+        if let Some(lock) = experiment.snapshot().dependencies() {
+            lock.validate(self.limits.dependencies)
+                .map_err(kagami_document::dependencies::DependencyError::from)
+                .map_err(kagami_document::Rejection::from)?;
         }
         if let Some(setup) = experiment.snapshot().setup().scientific() {
             setup
@@ -893,7 +949,7 @@ impl DocumentAuthority {
             acceptance: acceptance.clone(),
         };
         self.retained_commands += record.weight();
-        self.accepted.push_back(record);
+        self.accepted.push_back(Arc::new(record));
         while self.accepted.len() > MAX_COMMAND_HISTORY
             || self.retained_commands > MAX_REPLAY_COMMANDS
         {
@@ -948,57 +1004,6 @@ impl DocumentAuthority {
     }
 }
 
-/// Turn a materialised candidate into the document commands that commit it.
-///
-/// Two kinds of command, in one batch: the copied definitions become variable
-/// definitions in the object's own scope, and the components become one
-/// object. Going through the ordinary command path is what makes an
-/// instantiated object validated, undoable and revisioned exactly like a
-/// hand-authored one — and what stops this becoming a second way to put
-/// objects in an experiment.
-fn instantiation_commands(
-    spec: &InstantiationSpec,
-    scope: &Namespace,
-    candidate: &ObjectCandidate,
-) -> Result<Vec<ExperimentCommand>, SessionRejection> {
-    let mut commands = Vec::with_capacity(candidate.definitions.len() + 1);
-    for (name, definition) in &candidate.definitions {
-        commands.push(ExperimentCommand::DefineVariable(Box::new(
-            VariableSpec::new(name.clone(), definition.source.clone()).in_namespace(scope.clone()),
-        )));
-    }
-
-    let mut object = ObjectSpec::new(spec.name.clone())
-        .with_transform(spec.transform)
-        .with_velocity(spec.velocity)
-        .from_template(candidate.provenance.clone());
-    for component in &candidate.components {
-        let mut properties = ComponentProperties::new();
-        for (property, value) in &component.properties {
-            properties.insert(property.clone(), authored_value(value));
-        }
-        object = object.with_component(component.type_id.clone(), properties);
-    }
-    commands.push(ExperimentCommand::CreateObject(Box::new(object)));
-    Ok(commands)
-}
-
-/// A materialised value as the authoring command that reproduces it.
-///
-/// The catalog already resolved these, but the document re-derives every
-/// magnitude from the source it is given — that invariant is the reason a
-/// value cannot enter an experiment except through validation, and an
-/// instantiation is not an exception to it.
-fn authored_value(value: &kagami_catalog::ObjectPropertyValue) -> AuthoredValue {
-    match value {
-        kagami_catalog::ObjectPropertyValue::Quantity { source, .. } => {
-            AuthoredValue::si(source.clone())
-        }
-        kagami_catalog::ObjectPropertyValue::Boolean(value) => AuthoredValue::Boolean(*value),
-        kagami_catalog::ObjectPropertyValue::Text(value) => AuthoredValue::Text(value.clone()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use kagami_catalog::SchemaRegistry;
@@ -1050,7 +1055,7 @@ mod tests {
             authority
                 .accepted
                 .iter()
-                .map(AcceptedRecord::weight)
+                .map(|record| record.weight())
                 .sum::<usize>(),
             "the running total must agree with what is retained"
         );

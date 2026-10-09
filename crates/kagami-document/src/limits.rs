@@ -13,6 +13,8 @@
 /// Bounds applied while validating a candidate experiment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Limits {
+    /// Standalone provider-intent metadata bounds, independent of scientific setup.
+    pub dependencies: orishu_plugin::authoring_lock::LockLimits,
     /// Captured scientific setup/state policy, independent of executable sandbox limits.
     pub scientific: crate::scientific::ScientificLimits,
     /// Largest number of objects one experiment may hold.
@@ -55,6 +57,7 @@ impl Limits {
     /// *distinct* experiments reachable through the stack rather than the
     /// depth itself.
     pub const DEFAULT: Self = Self {
+        dependencies: orishu_plugin::authoring_lock::LockLimits::DEFAULT,
         scientific: crate::scientific::ScientificLimits::DEFAULT,
         max_objects: 65_536,
         max_components_per_object: 64,

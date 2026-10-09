@@ -57,8 +57,12 @@ Scientific execution has an experimental, explicitly enabled
 [load/receipt/current-run HTTP profile](protocol-scientific-load-v1.md), backed by
 the [durable daemon coordinator](run-load-receipts-v1.md). It accepts a complete
 portable workload only in the locked standalone profile. Default startup remains
-formation-only. This does not implement the imported workload API sketches below,
-public run control/observations or distributed execution. Summary v1-only clients
+formation-only. [Manual step/finish and status](protocol-scientific-command-v1.md)
+and [bounded complete-object reads](protocol-object-observation-v1.md), plus
+[exact field descriptors/batched queries](protocol-field-observation-v1.md), now have
+their own versioned routes and shared clients. These do not implement the imported
+workload API sketches below, continuous control, window/instrument field consumers, resumable
+observations or distributed execution. Summary v1-only clients
 must be upgraded before inspecting an occupied scientific worker; mutation schemas
 and peer capabilities are unchanged.
 

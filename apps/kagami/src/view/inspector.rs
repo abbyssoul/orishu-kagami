@@ -109,7 +109,18 @@ fn view_object<'a>(model: &'a Model, id: ObjectId, object: &'a Object) -> Elemen
     }
 
     if let Some(attachable) = view_attachable(model, id, object) {
-        sections = sections.push(view_section("Add component", attachable));
+        let title = "Add component";
+        #[cfg(unix)]
+        let title = if model
+            .component_form
+            .replacement()
+            .is_some_and(|(target, _)| *target == id)
+        {
+            "Choose replacement"
+        } else {
+            title
+        };
+        sections = sections.push(view_section(title, attachable));
     }
 
     if let Some(provenance) = &object.provenance {
@@ -179,6 +190,21 @@ fn view_component<'a>(
             .on_press(Authoritative::DetachComponent(object, type_id.clone()).into())
             .padding(4),
     );
+    #[cfg(unix)]
+    {
+        let active = model.is_authoring()
+            && !model.scientific_effects.is_pending()
+            && !model.physics_dependencies.is_pending()
+            && !model.component_dependencies.is_pending();
+        rows = rows.push(
+            button("Choose replacement…").on_press_maybe(active.then(|| {
+                Message::ComponentForm(crate::component_form::Action::BeginReplacement {
+                    object,
+                    component: type_id.clone(),
+                })
+            })),
+        );
+    }
     rows.into()
 }
 
@@ -257,21 +283,86 @@ fn view_attachable<'a>(
     object: ObjectId,
     carried: &'a Object,
 ) -> Option<Element<'a, Message>> {
-    let mut buttons = column![text("Adding authors the plugin's declared defaults. Missing required values are not invented.").size(11)].spacing(4);
+    let mut buttons = column![text("Adding authors the plugin's declared defaults. New exact roots are proposed first: check dependencies and save to attach. Missing required values are not invented.").size(11)].spacing(4);
     let mut any = false;
     for schema in model.document.schemas().schemas() {
         if carried.components.contains_key(&schema.type_id) {
             continue;
         }
+        #[cfg(unix)]
+        if model
+            .component_form
+            .replacement()
+            .is_some_and(|(target, _)| *target == object)
+            && schema.type_id.contribution().is_none()
+        {
+            continue;
+        }
         any = true;
         buttons = buttons.push(
             button(text(component_title(&schema.type_id)).size(11))
-                .on_press(Authoritative::AttachComponent(object, schema.type_id.clone()).into())
+                .on_press(component_choice(model, object, schema.type_id.clone()))
                 .width(Length::Fill)
                 .padding(4),
         );
     }
+    #[cfg(unix)]
+    {
+        for pin in &model.unresolved_components {
+            let Ok(component) = ComponentTypeId::exact(pin.clone()) else {
+                continue;
+            };
+            if carried.components.contains_key(&component)
+                || model.document.schemas().get(&component).is_some()
+            {
+                continue;
+            }
+            any = true;
+            let action = if model
+                .component_form
+                .replacement()
+                .is_some_and(|(target, _)| *target == object)
+            {
+                "Resolve replacement"
+            } else {
+                "Resolve and add"
+            };
+            buttons = buttons.push(
+                button(text(format!("{action} {component}")).size(11))
+                    .on_press(component_choice(model, object, component))
+                    .width(Length::Fill)
+                    .padding(4),
+            );
+        }
+        if model
+            .component_form
+            .attachment()
+            .is_some_and(|(target, _)| *target == object)
+            || model
+                .component_form
+                .replacement()
+                .is_some_and(|(target, _)| *target == object)
+        {
+            any = true;
+            buttons = buttons.push(super::component_choices::view(model));
+        }
+    }
     any.then(|| buttons.into())
+}
+
+fn component_choice(_model: &Model, object: ObjectId, component: ComponentTypeId) -> Message {
+    #[cfg(unix)]
+    if _model
+        .component_form
+        .replacement()
+        .is_some_and(|(target, _)| *target == object)
+    {
+        return Message::ComponentForm(crate::component_form::Action::ReplaceWith {
+            proposal: _model.component_form.proposal_id(),
+            component,
+        });
+    }
+    Authoritative::AttachComponent(object, component).into()
 }
 
 /// A component type's name, as a heading.

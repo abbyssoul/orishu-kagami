@@ -17,7 +17,9 @@
 //! order in the file a user actually edited.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use orishu_plugin::authoring_lock::{LockLimits, SelectionLock};
 use orishu_resource::{ApiVersion, DenyUnknown, Kind, NoStatus, Resource};
 use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeMap;
@@ -28,10 +30,12 @@ use crate::name::{
     ComponentName, ComponentTypeId, HelperName, ParameterName, PropertyName, TemplateName,
 };
 
-/// The only document format version this crate reads or writes.
+/// Legacy logical-component document format.
 pub const API_VERSION: &str = "kagami.catalog/v1";
 /// Explicit template profile supporting immutable component contribution pins.
 pub const PINNED_API_VERSION: &str = "kagami.catalog/v2";
+/// Component pins plus complete template-scoped dependency choices.
+pub const LOCKED_API_VERSION: &str = "kagami.catalog/v3";
 
 /// The only document kind this crate reads or writes.
 pub const KIND: &str = "ObjectTemplate";
@@ -69,7 +73,9 @@ pub type TemplateDocument = Resource<MetadataDocument, SpecDocument, NoStatus, D
 
 /// Build a document with this crate's format version and kind.
 pub fn new(metadata: MetadataDocument, spec: SpecDocument) -> TemplateDocument {
-    let version = if spec
+    let version = if spec.dependencies.is_some() {
+        ApiVersion::from_static(LOCKED_API_VERSION)
+    } else if spec
         .components
         .iter()
         .any(|c| c.component_type.contribution().is_some() || c.name.is_some())
@@ -121,6 +127,16 @@ impl MetadataDocument {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpecDocument {
+    /// Complete exact provider intent for this template's exact component roots.
+    /// Presence requires v3; null is refused. Embedded decoding has the shared
+    /// default lock ceiling, with tighter receiving limits checked on validation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "read_dependencies",
+        serialize_with = "write_dependencies"
+    )]
+    pub dependencies: Option<Arc<SelectionLock>>,
     /// Inputs an instantiation may override, each with a default so the
     /// template is always previewable.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -131,6 +147,21 @@ pub struct SpecDocument {
     /// The components this template composes, in authored order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub components: Vec<ComponentDocument>,
+}
+
+fn read_dependencies<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Arc<SelectionLock>>, D::Error> {
+    SelectionLock::deserialize_bounded(d, LockLimits::DEFAULT).map(|lock| Some(Arc::new(lock)))
+}
+fn write_dependencies<S: Serializer>(
+    lock: &Option<Arc<SelectionLock>>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match lock {
+        Some(lock) => lock.serialize(s),
+        None => s.serialize_none(),
+    }
 }
 
 /// A template parameter: a dimensioned input with a default.

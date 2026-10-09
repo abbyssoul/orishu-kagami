@@ -58,9 +58,21 @@ pub struct AuthoringGuard {
     scope: uuid::Uuid,
     revision: kagami_document::ExperimentRevision,
 }
+impl AuthoringGuard {
+    /// Process-local document incarnation, not persisted scientific identity.
+    pub(crate) fn context_id(self) -> uuid::Uuid {
+        self.scope
+    }
+}
 
 /// The authority, plus the little the shell needs to talk to it.
 pub struct Document {
+    #[cfg(unix)]
+    reference_store: Option<std::sync::Arc<crate::plugins::PluginStore>>,
+    #[cfg(unix)]
+    reference_gate: Option<crate::plugins::ReferenceGate>,
+    #[cfg(unix)]
+    reference_generation: u64,
     effect_scope: uuid::Uuid,
     authority: DocumentAuthority,
     /// The projection the window is currently drawing.
@@ -101,6 +113,12 @@ impl Document {
     pub fn new(schemas: SchemaRegistry, limits: Limits) -> Self {
         let authority = DocumentAuthority::new(schemas, limits);
         Self {
+            #[cfg(unix)]
+            reference_store: None,
+            #[cfg(unix)]
+            reference_gate: None,
+            #[cfg(unix)]
+            reference_generation: 0,
             effect_scope: uuid::Uuid::new_v4(),
             view: authority.view(),
             authority,
@@ -118,6 +136,55 @@ impl Document {
     /// Adopt a catalog snapshot for instantiation to resolve against.
     pub fn adopt_catalog(&mut self, catalog: CatalogSet) {
         self.authority.adopt_catalog(catalog);
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn configure_plugin_references(
+        &mut self,
+        store: std::sync::Arc<crate::plugins::PluginStore>,
+    ) -> Result<(), crate::plugins::Error> {
+        self.reference_store = Some(store);
+        self.mark_reference_update()
+    }
+    #[cfg(unix)]
+    pub(crate) fn mark_reference_update(&mut self) -> Result<(), crate::plugins::Error> {
+        if let Some(store) = &self.reference_store {
+            if let Some(gate) = &mut self.reference_gate {
+                gate.hold()?;
+            } else {
+                self.reference_gate = Some(store.reference_gate()?);
+            }
+            self.reference_generation = self
+                .reference_generation
+                .checked_add(1)
+                .expect("reference generation exhausted");
+        }
+        Ok(())
+    }
+    #[cfg(unix)]
+    pub(crate) fn reference_generation(&self) -> u64 {
+        self.reference_generation
+    }
+    #[cfg(unix)]
+    pub(crate) fn finish_reference_update(
+        &mut self,
+        generation: u64,
+    ) -> Result<bool, crate::plugins::Error> {
+        if self.reference_generation != generation {
+            return Ok(false);
+        }
+        if let Some(gate) = &mut self.reference_gate {
+            gate.release()?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    #[cfg(unix)]
+    pub(crate) fn reference_snapshot(
+        &self,
+        limits: kagami_session::PluginReferenceLimits,
+    ) -> Result<kagami_session::PluginReferenceSnapshot, kagami_session::PluginReferenceError> {
+        self.authority.plugin_reference_snapshot(limits)
     }
 
     /// Adopt a new snapshot of the installed component schemas.
@@ -141,9 +208,25 @@ impl Document {
         &self.view.experiment
     }
 
+    /// Retain the actual allocator high-water marks for a guarded preparation.
+    /// A snapshot alone cannot safely predict IDs after deletion/undo.
+    pub(crate) fn experiment(&self) -> &kagami_document::Experiment {
+        self.authority.experiment()
+    }
+
     /// What can be attached, for the inspector to offer.
     pub fn schemas(&self) -> &SchemaRegistry {
         self.authority.schemas()
+    }
+
+    /// Cold bounded query over current state, history and retained requests.
+    /// Reports logical references only; the inventory shell separately acquires
+    /// filesystem leases. This never searches unopened files or selects providers.
+    pub fn plugin_references(
+        &self,
+        limits: kagami_session::PluginReferenceLimits,
+    ) -> Result<kagami_session::PluginReferenceReport, kagami_session::PluginReferenceError> {
+        self.authority.plugin_references(limits)
     }
 
     /// The same caller-owned policy used by document validation and effects.
@@ -159,6 +242,15 @@ impl Document {
     /// Whether there is a catalog to instantiate from.
     pub fn has_catalog(&self) -> bool {
         self.authority.catalog().is_some()
+    }
+    #[cfg(unix)]
+    pub(crate) fn catalog_snapshot(&self) -> Option<std::sync::Arc<CatalogSet>> {
+        self.authority.catalog_snapshot()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn adopt_catalog_snapshot(&mut self, catalog: std::sync::Arc<CatalogSet>) {
+        self.authority.adopt_catalog_snapshot(catalog);
     }
 
     /// Which workspace mode this window is in.
@@ -331,13 +423,49 @@ impl Document {
         self.submit_guarded(command, None)
     }
 
+    /// Accept verified capabilities and an authoring edit together. A stale or
+    /// rejected proposal changes neither the schema projection nor the document.
+    pub fn edit_guarded_with_schemas(
+        &mut self,
+        guard: AuthoringGuard,
+        commands: Vec<ExperimentCommand>,
+        schemas: SchemaRegistry,
+    ) -> bool {
+        if !self.accepts_effect(guard) {
+            self.notice = Some(
+                "Component edit discarded: the authoring context changed. Retry explicitly.".into(),
+            );
+            return false;
+        }
+        self.submit_prepared(
+            SessionCommand::Edit(commands),
+            Some(guard.revision),
+            Some(schemas),
+        )
+    }
+
     fn submit_guarded(
         &mut self,
         command: SessionCommand,
         expected_revision: Option<kagami_document::ExperimentRevision>,
     ) -> bool {
+        self.submit_prepared(command, expected_revision, None)
+    }
+
+    fn submit_prepared(
+        &mut self,
+        command: SessionCommand,
+        expected_revision: Option<kagami_document::ExperimentRevision>,
+        schemas: Option<SchemaRegistry>,
+    ) -> bool {
         if let Err(rejection) = self.workspace.admit(&command) {
             self.notice = Some(rejection.to_string());
+            return false;
+        }
+
+        #[cfg(unix)]
+        if let Err(error) = self.mark_reference_update() {
+            self.notice = Some(error.to_string());
             return false;
         }
 
@@ -348,9 +476,16 @@ impl Document {
             command,
         );
         envelope.expected_revision = expected_revision;
-        match self.authority.submit(envelope) {
+        let changed_schemas = schemas
+            .as_ref()
+            .is_some_and(|s| s != self.authority.schemas());
+        let result = match schemas {
+            Some(schemas) => self.authority.submit_with_schemas(envelope, schemas),
+            None => self.authority.submit(envelope),
+        };
+        match result {
             Ok(_) => {
-                if replaces {
+                if replaces || changed_schemas {
                     self.effect_scope = uuid::Uuid::new_v4();
                 }
                 self.view = self.authority.view();

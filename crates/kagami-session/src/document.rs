@@ -64,7 +64,7 @@ use kagami_catalog::{
 };
 use kagami_document::{
     ComponentRecord, DocumentRecord, Experiment, ExperimentSnapshot, Limits, ObjectRecord,
-    ObjectShape, Rejection, Setup, Transform, VariableRecord, Velocity, hydrate,
+    ObjectShape, Rejection, Setup, Transform, VariableRecord, Velocity,
 };
 use orishu_variables::{Name, Namespace};
 use serde::{Deserialize, Serialize};
@@ -480,10 +480,20 @@ impl StoredDefaultView {
 }
 
 /// A whole normalized `kagami.experiment` document. Legacy values serialize as
-/// JSON; scientific values require the blob container codec, never bare serde.
+/// JSON; scientific or provider-locked values require the blob container codec,
+/// never bare serde. The normalized version is not an on-disk format claim.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ExperimentDocument {
+    /// Standalone provider intent. Only the explicit v5 codec persists it;
+    /// legacy bare JSON must fail rather than silently drop this authored data.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "refuse_dependencies",
+        deserialize_with = "reject_dependencies"
+    )]
+    pub dependencies: Option<std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>>,
     /// Always [`FORMAT`]. Checked before anything else is read.
     pub format: String,
     /// The format version. Checked second, and never partially interpreted.
@@ -499,6 +509,22 @@ pub struct ExperimentDocument {
     /// Version 1 had no such field at all and converts to `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_view: Option<StoredDefaultView>,
+}
+
+fn refuse_dependencies<S: serde::Serializer>(
+    _: &Option<std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>>,
+    _: S,
+) -> Result<S::Ok, S::Error> {
+    Err(serde::ser::Error::custom(
+        "provider dependencies require experiment container v5",
+    ))
+}
+fn reject_dependencies<'de, D: serde::Deserializer<'de>>(
+    _: D,
+) -> Result<Option<std::sync::Arc<orishu_plugin::authoring_lock::SelectionLock>>, D::Error> {
+    Err(serde::de::Error::custom(
+        "legacy JSON cannot carry provider dependencies",
+    ))
 }
 
 /// The two fields that decide how the rest of a document is read.
@@ -533,6 +559,7 @@ struct DocumentV1 {
 impl From<DocumentV1> for ExperimentDocument {
     fn from(value: DocumentV1) -> Self {
         Self {
+            dependencies: None,
             format: value.format,
             // Converted *up*. Everything above the codec deals with one
             // shape, so a re-save of an opened version-1 document writes
@@ -638,6 +665,7 @@ impl ExperimentDocument {
     ) -> Self {
         let counters = experiment.counters();
         Self {
+            dependencies: snapshot.dependencies().cloned(),
             format: FORMAT.to_owned(),
             format_version: FORMAT_VERSION,
             metadata,
@@ -778,7 +806,12 @@ impl ExperimentDocument {
                 .collect::<Result<Vec<_>, DocumentError>>()?,
         };
 
-        Ok(hydrate(&record, schemas, limits)?)
+        Ok(kagami_document::hydrate::hydrate_with_dependencies(
+            &record,
+            self.dependencies,
+            schemas,
+            limits,
+        )?)
     }
 }
 

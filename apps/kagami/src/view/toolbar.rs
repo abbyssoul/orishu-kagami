@@ -33,22 +33,42 @@ pub fn view(model: &Model) -> Element<'_, Message> {
         history_controls(model, controls)
     } else {
         controls.push(
-            button(text("Edit initial conditions"))
-                .on_press(WorkspaceIntent::EditInitialConditions.into())
-                .style(button::secondary),
+            button(text(if model.run.attached() {
+                "Return to authoring"
+            } else {
+                "Edit initial conditions"
+            }))
+            .on_press(WorkspaceIntent::EditInitialConditions.into())
+            .style(button::secondary),
         )
     };
 
+    #[cfg(unix)]
+    let controls = controls
+        .push(
+            button("Catalog").on_press_maybe(
+                model
+                    .is_authoring()
+                    .then_some(Message::Catalog(crate::catalog_form::Action::Open)),
+            ),
+        )
+        .push(
+            button(text("Plugins"))
+                .on_press(Message::Plugins(crate::plugins::window::Action::Open)),
+        );
     container(
         controls
             .push(rule::vertical(1))
-            // No run authority exists yet, so this says so rather than
-            // pretending (K-RUN owns it).
-            .push(text("Run: unavailable"))
+            // Explicit entry to the remote projection; no automatic attachment.
+            .push(button(text("Remote run")).on_press(Message::Run(crate::run::Action::Open)))
             .push(rule::vertical(1))
             .push(text(format!("Queue {}", model.queue_len)))
             .push(rule::vertical(1))
-            .push(text(format!("Orishu: {} (offline)", model.cluster_address))),
+            .push(text(if model.run.is_pending() {
+                "Run request pending"
+            } else {
+                "Run reads are manual snapshots"
+            })),
     )
     .padding([4, 8])
     .width(Length::Fill)

@@ -1,4 +1,4 @@
-//! Bounded leases over committed fields. No live advancing guest or run borrow
+//! Bounded leases over committed fields and objects. No advancing guest or run borrow
 //! crosses this seam. The run's commit path never acquires an observer mutex.
 use super::*;
 use std::sync::{
@@ -53,6 +53,67 @@ struct Sampling<'a>(&'a AtomicBool);
 impl Drop for Sampling<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Complete committed object packet and optional reduced forces from one
+/// boundary. Immutable buffers are shared, not copied per observer. Holding this
+/// lease cannot affect advancement; callers must retain it through delivery.
+/// This is a host-side lease, not a wire snapshot, checkpoint or editable state.
+pub struct ObjectSnapshot {
+    source: SnapshotSource,
+    objects: Buffer,
+    forces: Option<Buffer>,
+    _lease: Lease,
+}
+impl ObjectSnapshot {
+    pub(super) fn new(
+        state: &CommittedState,
+        source: SnapshotSource,
+        budget: Arc<SnapshotBudget>,
+    ) -> wasmtime::Result<Self> {
+        let bytes = state
+            .objects
+            .bytes
+            .len()
+            .checked_add(state.forces.as_ref().map_or(0, |forces| forces.bytes.len()))
+            .ok_or(RunRejection::Limit)?;
+        let lease = budget.reserve(bytes)?;
+        Ok(Self {
+            source,
+            objects: state.objects.clone(),
+            forces: state.forces.clone(),
+            _lease: lease,
+        })
+    }
+    /// Workload, run descriptor, epoch, accepted boundary and SI simulation time.
+    pub fn source(&self) -> &SnapshotSource {
+        &self.source
+    }
+    /// Complete schema-tagged canonical object packet, including static objects.
+    pub fn objects(&self) -> &Buffer {
+        &self.objects
+    }
+    /// Forces that produced this boundary, evaluated at the predecessor's
+    /// kinematics. None at boundary zero means uncomputed, never invented zeroes.
+    pub fn forces(&self) -> Option<&Buffer> {
+        self.forces.as_ref()
+    }
+    /// Encode the shared full-object observation into reusable caller storage.
+    /// Call off the scientific executor: encoding scans/copies the retained
+    /// buffers and cannot participate in commit. This projection excludes fields.
+    pub fn encode(
+        &self,
+        output: &mut Vec<u8>,
+        limits: ObjectObservationLimits,
+    ) -> Result<ArtifactDigest, ObjectObservationError> {
+        encode_object_observation(
+            &self.source,
+            &self.objects.bytes,
+            self.forces.as_ref().map(|forces| forces.bytes.as_ref()),
+            output,
+            limits,
+        )
     }
 }
 
@@ -161,5 +222,59 @@ impl FieldSnapshot {
             FieldResult::Samples(buffer) => Ok(buffer),
             _ => Err(RunRejection::Definition.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_lease_reserves_combined_bytes_before_sharing_and_releases_quota() {
+        // Byte-budget unit fixture, not a scientific packet validation test.
+        let buffer = |size| Buffer {
+            schema: "fixture".into(),
+            value_count: 0,
+            bytes: vec![0; size].into(),
+        };
+        let state = CommittedState {
+            boundary: 1,
+            time: FiniteF64::new(0.5).unwrap(),
+            objects: buffer(16),
+            forces: Some(buffer(8)),
+            fields: vec![],
+            field_identities: vec![],
+            history: buffer(0),
+        };
+        let source = SnapshotSource::Committed {
+            workload: ArtifactDigest::sha256_of(b"workload")
+                .to_string()
+                .parse()
+                .unwrap(),
+            run: ArtifactDigest::sha256_of(b"descriptor"),
+            epoch: 1,
+            boundary: 1,
+            time_seconds: state.time,
+        };
+        let too_small = Arc::new(SnapshotBudget::new(8, 23));
+        assert!(ObjectSnapshot::new(&state, source.clone(), too_small.clone()).is_err());
+        assert_eq!(*too_small.held.lock().unwrap(), (0, 0));
+        let budget = Arc::new(SnapshotBudget::new(2, 24));
+        let snapshot = ObjectSnapshot::new(&state, source.clone(), budget.clone()).unwrap();
+        assert_eq!(*budget.held.lock().unwrap(), (1, 24));
+        assert!(Arc::ptr_eq(&state.objects.bytes, &snapshot.objects().bytes));
+        assert!(ObjectSnapshot::new(&state, source.clone(), budget.clone()).is_err());
+        drop(snapshot);
+        assert_eq!(*budget.held.lock().unwrap(), (0, 0));
+        let guard = budget.held.lock().unwrap();
+        assert!(
+            ObjectSnapshot::new(&state, source.clone(), budget.clone()).is_err(),
+            "acquisition never waits on another observer"
+        );
+        drop(guard);
+        let snapshot = ObjectSnapshot::new(&state, source.clone(), budget.clone()).unwrap();
+        assert_eq!(snapshot.source(), &source);
+        drop(snapshot);
+        assert_eq!(*budget.held.lock().unwrap(), (0, 0));
     }
 }

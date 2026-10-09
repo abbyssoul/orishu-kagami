@@ -54,8 +54,32 @@ admission/runs, reads use bounded durable-history projections, and exact-identit
 run retrieval survives client-handle loss. Daemon shutdown/drop revokes ownership.
 Explicit scientific enablement now opens the journal/sandbox before serving and
 adds authenticated complete-upload, receipt lookup and retained-run discovery.
-Distributed/reset allocation, public step/stop/unload, continuous control and
-observations remain unwired; distributed execution capability is not advertised.
+Distributed/reset allocation, public pause/resume/unload, continuous control and
+full observation streaming remain unwired; distributed execution capability is not advertised.
+
+Opt-in [complete-object reads](../../docs/protocol-object-observation-v1.md) now
+serve exact committed run/boundary projections via `POST /api/v1/run/objects`.
+They require operator authentication, enforce a 16-MiB whole-frame limit and use
+two observer permits separate from controls, retained through response delivery.
+The shared Rust client validates source, digest and scientific packets. This is
+not a resumable stream or Kagami window adoption. Separate opt-in
+[field descriptor/query reads](../../docs/protocol-field-observation-v1.md) now
+use `POST /api/v1/run/field` and `/api/v1/run/samples`, the same observer budget and
+the shared batched sampling contract. Sampling executes in an isolated guest off
+the scientific executor. Descriptor/query races explicitly refuse stale state;
+private field bytes are not sent. Kagami headless `workload field/sample` now
+consumes them; window/instrument/MCP adoption remains open.
+
+`RunningWorker::install_run_command_coordinator` now explicitly installs internal
+identified step/terminal-finish execution over the existing retained run and an
+already opened [command journal](../../docs/run-command-receipts-v1.md). Detached
+commands survive dropped responses, preserve exact run/boundary intent and retain
+conservative historical outcomes across journal reopen. Live committed status is
+independent of receipt history. Explicit scientific startup now opens/installs
+both journals/coordinators and enables [command/lookup/status routes](../../docs/protocol-scientific-command-v1.md).
+The shared client and Kagami's headless controls support guarded manual stepping
+and terminal finish; window controls remain pending. Internal coordinator
+installation alone enables no route.
 
 ## Experimental scientific admission
 
@@ -70,13 +94,15 @@ specifies `POST /api/v1/run-loads`, `POST /api/v1/run-loads/lookup` and
 `GET /api/v1/run`. Every route requires the worker-local operator credential,
 including Unix reads. A Pending/202 response is not scientific acceptance;
 reconcile the original request through receipt lookup. Accepted runs remain
-daemon-owned, not HTTP-owned. This surface loads/publishes initial state only;
-it is not yet an end-to-end Kagami run workflow. Summary v2 reports scientific
+daemon-owned, not HTTP-owned. These load routes publish initial state; the separate
+manual-control profile can step and terminally finish it. Neither completes the
+Kagami window workflow. Summary v2 reports scientific
 occupancy; v1-only summary clients need updating for occupied workers.
 The shared `HttpClusterClient::scientific()` now provides bounded upload, receipt
 lookup and current-run discovery with full request correlation; actual worker
-tests exercise that client through upload and process restart. Kagami command/
-window adapters are still pending.
+tests exercise that client through upload and process restart. Kagami's
+[headless workload commands](../kagami/README.md#headless-workload-submission)
+now use this path and separate manual controls; window integration remains pending.
 
 ## Identity and local inspection
 

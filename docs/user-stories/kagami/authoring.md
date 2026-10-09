@@ -222,6 +222,72 @@ component contributes.
 - An invalid or conflicting composition is refused atomically with component-
   specific diagnostics and creates no revision or partial object.
 
+### Choose component providers before configuring physics
+
+As a researcher, I want to resolve and save my objects' component dependencies
+before adding fields or selecting an integrator, so authoring reusable objects
+does not require initializing an unrelated simulation.
+
+**Acceptance criteria:**
+
+- Checking and browsing dependencies do not modify the experiment or execute
+  kernels. Ambiguity presents exact compatible providers, including explicitly
+  browsable enabled non-default releases.
+- Saving a complete choice is an ordinary undoable edit. Save/open, template
+  instantiation and later physics compilation preserve the chosen providers;
+  an inventory update cannot silently substitute defaults.
+- Adding the first exact plugin component also captures its complete dependency
+  choices, even when the component was immediately available. Merely having one
+  eligible provider today must not leave tomorrow's authoring intent unpinned.
+- A component without required defaults can be configured before attachment.
+  Read-only field inspection and local quantity/text/boolean edits do not mutate
+  the document; valid values and the complete lock are one undoable acceptance.
+  Another object can use the same component with different values and unchanged
+  provider choices. Invalid units, expressions or constraints leave the proposal
+  available for correction, without partially attaching it.
+- Stale documents, inventories and candidate pages require an explicit recheck.
+  Required edges cannot be omitted. Discarding an obsolete local binding is an
+  explicit proposal change, not silent removal of accepted intent.
+- A provider already governing captured physics cannot be rebound without the
+  coordinated migration/reset required to make that scientific state coherent.
+  For a full reset, I explicitly supply new component values and complete physics
+  choices and consent to reinitialize all fields/history. No old values or opaque
+  buffers are implicitly converted; failure changes nothing, and undo restores
+  components, provider choices and scientific state together.
+- After scientific capture, I can still add a component, configure its values and
+  resolve its dependencies. I explicitly consent to regenerating initial
+  integrator history; existing fields and providers stay unchanged. Changing the
+  proposed inputs invalidates consent. Cancellation, withdrawn consent or stale
+  context cannot accept a partial component/history change, and Undo restores both.
+- Before scientific capture, I can explicitly replace a component with a different
+  exact component. I configure the new declaration's defaults/values; old values
+  are not implicitly copied or converted. The old component remains until the
+  complete replacement is accepted. Shared provider choices survive; undo restores
+  old values and the old lock together. Cancellation or invalid/stale input leaves
+  the original component untouched.
+- Removing an object or component removes only dependency choices no longer
+  reachable from the remaining component roots. Removal, its revised lock and
+  any required integrator history are one undoable edit; surviving providers
+  and field state do not change.
+
+The [current Unix workflow and remaining adapters](../../component-provider-choices.md)
+cover existing-component repair, first unavailable attachment, locked-root addition
+and explicit uncaptured replacement. Ordinary captured attachment now uses the
+consented history-extension path, distinct from provider migration and other adapters.
+Captured provider replacement has a guarded full-reset backend and native two-stage
+workflow for one selected component or binding-only changes. I stage new intent,
+choose complete physics and confirm a reset naming both current proposals. Changing
+inputs invalidates consent; ordinary physics/history confirmation cannot authorize
+the replacement. Captured compound/catalog addition preparation now exists behind
+the guarded backend, including copied definitions, exact template fingerprints,
+complete provider choices and regenerated history with unchanged fields. The native
+single-template picker now connects these: load/reload a catalog, select its exact
+content, enter instance values, resolve provider choices and explicitly create.
+Captured creation needs consent bound to current inputs; stale/cancelled/invalid
+work cannot accept partial state. Reloading a template never changes the object.
+Catalog-file editing, live catalog expression sources, arbitrary multi-object
+planning and MCP/headless adapters remain open.
+
 ### Configure a particle emitter
 
 As a scientist-researcher, I want an emitter to create particles from catalog

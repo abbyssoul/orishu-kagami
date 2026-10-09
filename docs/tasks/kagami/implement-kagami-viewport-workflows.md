@@ -1,8 +1,11 @@
 # Implement Kagami viewport workflows
 
-Status: **slices 1–2 implemented**, except that nothing yet *enters*
-Observation/replay through the UI — submitting or opening a run is K-RUN's and
-K-PREVIEW's. Slices 3–6 remain gated: follow and fields on run observations,
+Status: **slices 1–2 implemented**. K-RUN now enters remote Observation/replay
+through explicit exact-run attachment, with numeric snapshots and 3D position
+markers; local entry remains K-PREVIEW's. Slice 4 now includes one-shot normalized
+direction glyphs through K-RUN (explicit vector-3 world-X/Y/Z interpretation,
+invalid/zero/range omissions, shared object depth); flow lines remain open.
+Remaining slices depend on run observations,
 live trails on V-LIVE, exact trails on K-OBSERVATION/V-REPLAY  
 Work package: **K-VIEW** ([roadmap](../../roadmap/README.md))  
 Decision: [ADR 0022](../../adr/0022-persist-default-view-outside-experiment-intent.md)
@@ -16,7 +19,7 @@ lines, plus bounded best-effort live trails and exact retained trajectories.
 
 ## Slices
 
-1. **Implemented** (except the entry point). Add an explicit workspace-mode
+1. **Implemented** (remote entry through K-RUN; local entry remains open). Add an explicit workspace-mode
    state machine. Starting/opening a run enters
    Observation/replay; Edit initial conditions returns to Authoring, stopping a
    local preview or detaching from (not stopping) a remote run. Gate UI and MCP
@@ -31,7 +34,8 @@ lines, plus bounded best-effort live trails and exact retained trajectories.
    authoritative observed pose in Observation/replay; clear invalid targets.
 4. Render bounded vector-glyph and flow-line layers from valid field
    observations, with explicit stale/undefined behavior and presentation-only
-   interpolation.
+   interpolation. **Partial:** one-shot normalized direction glyphs are implemented;
+   full instrument layers, magnitude mapping, transforms and flow lines remain.
 5. Add a bounded best-effort live trail from received V-LIVE object-position
    observations, visibly breaking across dropped coverage. After V-REPLAY and
    recorded trajectory observations are available, add an exact replay trail;

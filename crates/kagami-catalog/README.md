@@ -25,6 +25,13 @@ explicit component aliases use `kagami.catalog/v2`; v1 cannot carry those fields
 Old templates retain their logical references and canonical fingerprints. No
 installed provider is silently selected when reading them.
 
+[Catalog v3](../../docs/catalog-template-v3.md) adds required structured
+`spec.dependencies`: a complete template-scoped provider lock. It contributes to
+the template fingerprint and materialized candidate. Document instantiation merges
+it atomically without replacing conflicting choices; availability of its provider
+closure still needs strict plugin-inventory verification before computational use.
+V1/v2 remain readable and never silently gain a lock.
+
 Each document uses the
 [shared resource envelope](../../docs/resource-envelope.md), the same
 `apiVersion`/`kind`/`metadata`/`spec` shape Orishu's resources use. Only the
@@ -166,6 +173,24 @@ contain a *pre-existing* hostile link — what an untrusted MCP client can plant
 but not a process concurrently swapping a directory for a link between one
 check and the next. Closing that would need directory-handle-relative,
 no-follow operations, which this crate does not claim.
+
+## Snapshots and availability
+
+`CatalogAuthority::snapshot` shares an immutable read projection with the native
+picker and document session. Reload/write replaces the authority's handle; existing
+selections and materialized objects do not change. `ReloadWithSchemas` explicitly
+refreshes capability-based availability through the normal revision/replay-guarded
+command path. `CatalogSet::revalidate` instead derives a temporary projection of
+exact already-loaded content under selected schemas/limits without file IO or source
+mutation. Kagami's creation adapter uses it after independent provider verification,
+not as permission to promote an unavailable entry automatically.
+
+Directory enumeration is bounded at 16 × the receiving `max_files`, counting
+ignored entries and symlinks too. Exhaustion reports a directory-level limit before
+reading any filesystem-order-dependent prefix; scans within that bound preserve
+sorted file selection and per-file failure isolation. The
+[native single-template workflow](../../docs/component-provider-choices.md#native-catalog-creation)
+uses tighter installation bounds and the existing materialization/authority APIs.
 
 ## Examples
 

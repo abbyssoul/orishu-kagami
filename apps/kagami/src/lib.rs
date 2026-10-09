@@ -5,6 +5,10 @@
 //! authoritative and client-local queues, and the document lifecycle are all
 //! ordinary functions over values; only `view` needs a window.
 
+#[cfg(unix)]
+pub mod catalog_form;
+#[cfg(unix)]
+pub mod component_form;
 pub mod document;
 pub mod export;
 pub mod launch;
@@ -14,6 +18,7 @@ pub mod model;
 #[cfg(unix)]
 pub mod physics_form;
 pub mod plugins;
+pub mod run;
 #[cfg(unix)]
 pub mod scientific;
 #[cfg(unix)]
@@ -24,3 +29,6 @@ pub mod view;
 pub mod viewport;
 #[cfg(unix)]
 pub mod workload;
+pub mod workload_cli;
+#[cfg(unix)]
+pub mod workload_preparation;

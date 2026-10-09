@@ -17,9 +17,9 @@ researcher picks a template, supplies parameter bindings, and gets a complete
 object in the current experiment — one document revision, one undo entry — that
 resolves without the catalog that produced it.
 
-This closes [the catalog task](../implement-kagami-object-catalog.md)'s
-remaining integration gate, which reads "document/workload/UI/MCP integration
-gated" in the roadmap registry today.
+This supplies the document bridge for
+[the catalog task](../implement-kagami-object-catalog.md). It does not by itself
+close native catalog selection, scientific consent or MCP integration gates.
 
 ## Owning boundary
 
@@ -102,8 +102,24 @@ Instantiation must not become a prerequisite for either behavior.
 
 `SessionCommand::InstantiateObjectTemplate` carries an `InstantiationSpec`; the
 authority resolves it against one adopted `CatalogSet` and commits the result
-through the ordinary command path. 10 acceptance tests in
+through the ordinary command path. 12 acceptance/preparation tests in
 `crates/kagami-session/tests/instantiate.rs`.
+
+X-PLUGIN now shares this translation as `kagami_session::instantiation::prepare`.
+The guarded captured-scientific adapter retains one catalog snapshot, requires a
+matching fingerprint and a complete independently verified provider lock, and
+regenerates initial history before atomic command/capture/schema adoption. It
+preserves fields and existing provider/kernel choices, and uses the same real
+allocation counters for copied definitions. See
+[captured catalog preparation](../../component-provider-choices.md#captured-compound-and-catalog-preparation).
+Native single-template selection/instance inputs, provider choices and captured-
+history consent are now connected through the catalog authority and guarded
+preparation. Real native-message tests cover unavailable-schema revalidation,
+unbound-provider choices versus locked bindings, cancellation/stale inputs,
+undo/redo, offline reopen and portable runtime execution. Scientific MCP/headless
+adapters remain open; the ordinary session command still refuses edits with
+incoherent captured history. Catalog-file editing and live symbol sources remain
+separate work, not completed by this picker.
 
 Slice 3's two halves separated in practice. `Object::provenance` records the
 template, fingerprint and source location an object was materialised from, so a

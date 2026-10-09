@@ -189,3 +189,44 @@ delivery, retrieval and summary-v2 occupancy by
 Distributed/reset allocation, continuous/public run control and checkpoint/
 observation wire adapters remain O-RUNTIME/O-CLIENT work. Internal retained
 execution is not public API parity.
+
+### Boundary-guarded retained execution
+
+Before public run control is connected, the retained executor also exposes
+`step_at(expected_boundary, control)` and `stop_at(expected_boundary, control)`.
+The precondition is checked against committed state **inside the single operation
+slot**, before reserving publication capacity or invoking any guest. A mismatch
+returns `StaleBoundary { expected, actual }` without changing scientific state or
+terminating the run. Unconditional internal methods retain their existing meaning.
+
+A transport-side read followed by an unconditional step was rejected: another
+caller can commit between those actions. Automatically refreshing the boundary
+after a lost reply was also rejected: it turns retry into an additional scientific
+step. The caller must preserve the original boundary and exact run identity.
+Boundary preconditions prevent duplicate advancement but do not identify which
+operation committed; they are not a substitute for correlated command receipts.
+
+The current internal stop is terminal integration shutdown, not the planned
+resumable public pause/step-budget lifecycle. Public adapters must not expose it
+as though those semantics were already implemented. No HTTP route, workload
+format or shared wire schema changes in this prerequisite.
+
+### Observation-capacity isolation refinement
+
+The original retained adapter put field acquisition in the same one-operation
+slot as step/stop. Before public observation delivery, that coupling is removed:
+observer pressure must not cause scientific command Busy or participate in commit.
+Observer acquisition now has its own eight-request nonblocking ingress. The
+executor checks command ingress before each observation, skips abandoned reads,
+and never waits for a reader or executes a sampling guest while granting a lease.
+An idle request may wait for the existing bounded executor poll; under continuous
+command pressure observations may starve, not scientific commands.
+
+`acquire_field_at` and `acquire_objects_at` compare the requested boundary with
+whole committed state in the executor. Read-then-acquire was rejected for the same
+race reason as read-then-step. A stale request refuses; a complete candidate whose
+publication was refused cannot leak to queued readers. Shared-runtime immutable
+object/force leases now use the same count/byte budget as field leases, and remain
+valid after advancement/disposal. No heavy buffer enters formation ownership and
+commit never acquires the observer-budget mutex. Public framing, subscriptions,
+baselines and observation delivery remain separate work.

@@ -123,8 +123,10 @@ this path through real Component admission and an accepted fixed step.
 
 The [opt-in scientific HTTP profile](protocol-scientific-load-v1.md) now wraps this
 receiver with authenticated framing and durable identified receipts. It does not
-provide a cache, missing-blob negotiation or resumable transfer. Public run control
-and client adapters remain open; successful byte delivery or admission alone must
+provide a cache, missing-blob negotiation or resumable transfer. The shared client
+and Kagami's [headless workload commands](../apps/kagami/README.md#headless-workload-submission)
+now submit verified bundles and retrieve correlated receipts. Public run control
+and window integration remain open; successful byte delivery or admission alone must
 not be reported as an accepted/published run.
 
 ## Encoding choice and evidence
@@ -170,6 +172,11 @@ missing blobs, wrong root type, truncation/corruption, bounds, stale/disabled
 selections, process-only overrides, source preservation and new-only/symlink
 refusals. General traversal/duplicate/overlap cases are shared archive-codec tests.
 
-Emitter blueprints/dynamic membership, GUI export controls, worker delivery/run
-endpoints and the other [delivery gates](tasks/x-plugin-delivery-ledger.md) are
-not implied complete by this fixed-membership headless path.
+Unix window preparation now reuses the same captured-snapshot compiler and packs
+the same bytes as headless export. Guarded adoption freezes exact source and
+inventory revisions; explicit new-file export/upload cannot silently reinitialize
+fields or add unused kernels. Identified worker load/manual-control/object/field
+routes and initial numeric window observation are implemented. See
+[K-RUN](tasks/implement-kagami-run-workflow.md) for lineage, limits and remaining
+recovery/rendering work. Emitter blueprints/dynamic membership and the other
+[delivery gates](tasks/x-plugin-delivery-ledger.md) remain open.

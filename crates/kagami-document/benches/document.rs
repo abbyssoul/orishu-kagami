@@ -95,7 +95,9 @@ fn bench_create_batch(c: &mut Criterion) {
         let commands = create_commands(count);
         group.throughput(Throughput::Elements(count as u64));
         group.bench_with_input(BenchmarkId::new("create", count), &count, |b, _| {
-            b.iter(|| std::hint::black_box(update(&empty, &commands, &schemas, &limits).unwrap()))
+            // The candidate holds a whole cloned experiment; drop it outside the
+            // timing loop so this measures the transition, not the teardown.
+            b.iter_with_large_drop(|| update(&empty, &commands, &schemas, &limits).unwrap())
         });
     }
     group.finish();
@@ -109,7 +111,9 @@ fn bench_incremental(c: &mut Criterion) {
     for existing in existing_counts() {
         let experiment = grown(existing);
         group.bench_with_input(BenchmarkId::new("add_one", existing), &existing, |b, _| {
-            b.iter(|| std::hint::black_box(update(&experiment, &one, &schemas, &limits).unwrap()))
+            // The candidate clones the existing experiment; drop it outside the
+            // timing loop so this measures one edit's cost, not the teardown.
+            b.iter_with_large_drop(|| update(&experiment, &one, &schemas, &limits).unwrap())
         });
     }
     group.finish();

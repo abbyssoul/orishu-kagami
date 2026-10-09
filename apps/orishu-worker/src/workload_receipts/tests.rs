@@ -1,5 +1,6 @@
 use super::*;
 use orishu::model::run::{RunDescriptor, RunIdentity, WorkloadEpoch};
+use orishu::model::run_load::{LoadOutcome, LoadRequest, LoadState};
 use std::os::unix::fs::{PermissionsExt, symlink};
 
 fn private_dir() -> tempfile::TempDir {
@@ -32,7 +33,7 @@ fn accepted(request: &LoadRequest) -> LoadOutcome {
 fn write_snapshot(path: &Path, receipts: Vec<LoadReceipt>) {
     let directory = credentials::open_private_directory(path).unwrap();
     let bytes = codec::encode(&Snapshot {
-        api_version: Version::V1,
+        api_version: LoadReceipt::VERSION.into(),
         receipts,
     })
     .unwrap();
@@ -430,6 +431,7 @@ fn extra_receipt_is_refused_without_deserializing_it_even_without_a_size_hint() 
                 .map_err(de::Error::custom)
         }
     }
-    let error = bounded_receipts(SeqAccessDeserializer::new(Entries(0))).unwrap_err();
+    let error =
+        bounded_receipts::<_, LoadReceipt>(SeqAccessDeserializer::new(Entries(0))).unwrap_err();
     assert!(error.to_string().contains("count exceeded"));
 }

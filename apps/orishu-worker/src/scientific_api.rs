@@ -8,15 +8,21 @@ use std::{
     time::Duration,
 };
 
-use orishu::model::{ApiResponse, ResponseData, run_load::LoadRequest};
+use orishu::model::{
+    ApiResponse, ResponseData,
+    run_command::{MAX_RUN_COMMAND_BYTES, RunCommandRequest, RunCommandState, RunStatusRequest},
+    run_load::LoadRequest,
+};
 use orishu_worker::{
-    runtime::RunningWorker, workload_load::LoadError, workload_receipts::ReceiptStoreError,
+    run_commands::CommandError, runtime::RunningWorker, workload_load::LoadError,
+    workload_receipts::ReceiptStoreError,
 };
 use salvo::{
     http::{Body, ReqBody},
     prelude::*,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
+mod observation;
 
 const MAX_REQUEST: usize = orishu::model::run_load::MAX_LOAD_REQUEST_BYTES;
 const MAX_UPLOAD: u64 = 128 * 1024 * 1024 + MAX_REQUEST as u64 + 4;
@@ -28,13 +34,29 @@ pub(super) fn routes(
     router: Router,
     runtime: Arc<RunningWorker>,
     capacity: Arc<tokio::sync::Semaphore>,
+    observer_capacity: Arc<tokio::sync::Semaphore>,
 ) -> Router {
     if runtime.load_coordinator().is_none() {
         return router;
     }
+    let router = router.push(Router::with_path("api/v1/run/objects").post(
+        observation::ObjectHandler {
+            runtime: runtime.clone(),
+            capacity: observer_capacity.clone(),
+        },
+    ));
+    let router = [("api/v1/run/field", false), ("api/v1/run/samples", true)]
+        .into_iter()
+        .fold(router, |router, (path, sample)| {
+            router.push(Router::with_path(path).post(observation::FieldHandler {
+                runtime: runtime.clone(),
+                capacity: observer_capacity.clone(),
+                sample,
+            }))
+        });
     // Shared by every scientific route/listener; independent of membership
     // mutation capacity. The coordinator also permits only one active load.
-    router
+    let router = router
         .push(
             Router::with_path("api/v1/run-loads").post(ScientificHandler {
                 runtime: runtime.clone(),
@@ -50,10 +72,26 @@ pub(super) fn routes(
             }),
         )
         .push(Router::with_path("api/v1/run").get(ScientificHandler {
-            runtime,
-            capacity,
+            runtime: runtime.clone(),
+            capacity: capacity.clone(),
             operation: Operation::Current,
+        }));
+    if runtime.run_command_coordinator().is_none() {
+        return router;
+    }
+    [
+        ("api/v1/run-commands", Operation::Command),
+        ("api/v1/run-commands/lookup", Operation::CommandLookup),
+        ("api/v1/run/status", Operation::Status),
+    ]
+    .into_iter()
+    .fold(router, |router, (path, operation)| {
+        router.push(Router::with_path(path).post(ScientificHandler {
+            runtime: runtime.clone(),
+            capacity: capacity.clone(),
+            operation,
         }))
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -61,6 +99,9 @@ enum Operation {
     Submit,
     Lookup,
     Current,
+    Command,
+    CommandLookup,
+    Status,
 }
 struct ScientificHandler {
     runtime: Arc<RunningWorker>,
@@ -172,27 +213,39 @@ impl ScientificHandler {
                 req,
                 if matches!(self.operation, Operation::Submit) {
                     MAX_UPLOAD
+                } else if matches!(self.operation, Operation::Command | Operation::CommandLookup | Operation::Status) {
+                    MAX_RUN_COMMAND_BYTES as u64
                 } else {
                     MAX_REQUEST as u64
                 },
             )?;
             let mut body = HttpBody::new(req.take_body());
+            if matches!(self.operation, Operation::Command | Operation::CommandLookup | Operation::Status) {
+                let commands = self.runtime.run_command_coordinator()
+                    .ok_or((StatusCode::SERVICE_UNAVAILABLE, "ScientificUnavailable"))?;
+                if matches!(self.operation, Operation::Status) {
+                    let request: RunStatusRequest = metadata(&mut body, total).await?;
+                    return commands.status(request.run()).map(ResponseData::RunStatus).map_err(command_error);
+                }
+                let request: RunCommandRequest = metadata(&mut body, total).await?;
+                let receipt = if matches!(self.operation, Operation::CommandLookup) {
+                    commands.lookup(&request).map_err(command_error)?
+                        .ok_or((StatusCode::NOT_FOUND, "OperationNotFound"))?
+                } else {
+                    // Complete metadata/EOF precedes dispatch. Dropping this
+                    // response or reaching its deadline cannot undo execution.
+                    let submission = commands.submit(request).map_err(command_error)?;
+                    tokio::time::timeout(RESPONSE_TIMEOUT, submission.outcome()).await
+                        .map_err(|_| (StatusCode::GATEWAY_TIMEOUT, "OutcomeUnknown"))?
+                        .map_err(command_error)?
+                };
+                if matches!(self.operation, Operation::Command) && receipt.state() == &RunCommandState::Pending {
+                    response_status = StatusCode::ACCEPTED;
+                }
+                return Ok(ResponseData::RunCommandReceipt(receipt));
+            }
             if matches!(self.operation, Operation::Lookup) {
-                let request = tokio::time::timeout(METADATA_TIMEOUT, async {
-                    let mut bytes = Vec::new();
-                    (&mut body)
-                        .take(total + 1)
-                        .read_to_end(&mut bytes)
-                        .await
-                        .map_err(|_| (StatusCode::BAD_REQUEST, "InvalidBody"))?;
-                    if bytes.len() as u64 != total {
-                        return Err((StatusCode::BAD_REQUEST, "InvalidLength"));
-                    }
-                    orishu_worker::peer::codec::decode::<LoadRequest>(&bytes)
-                        .map_err(|_| (StatusCode::BAD_REQUEST, "InvalidRequest"))
-                })
-                .await
-                .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "MetadataDeadline"))??;
+                let request: LoadRequest = metadata(&mut body, total).await?;
                 return coordinator
                     .lookup(&request)
                     .map_err(load_error)?
@@ -251,9 +304,68 @@ impl ScientificHandler {
         match result {
             Ok(data) => {
                 res.status_code(response_status);
-                super::write_api_response(res, &ApiResponse::Ok { data: Some(data) });
+                let scientific = matches!(
+                    &data,
+                    ResponseData::RunCommandReceipt(_) | ResponseData::RunStatus(_)
+                );
+                let response = ApiResponse::Ok { data: Some(data) };
+                if scientific {
+                    match orishu_worker::peer::codec::encode_run_response(&response) {
+                        Ok(bytes) => {
+                            res.add_header("Content-Type", "application/cbor", true)
+                                .expect("static header");
+                            res.add_header("Cache-Control", "no-store", true)
+                                .expect("static header");
+                            res.write_body(bytes).expect("response body");
+                        }
+                        Err(_) => {
+                            super::api_error(res, StatusCode::SERVICE_UNAVAILABLE, "OutcomeUnknown")
+                        }
+                    }
+                } else {
+                    super::write_api_response(res, &response);
+                }
             }
             Err((status, code)) => super::api_error(res, status, code),
+        }
+    }
+}
+
+async fn metadata<T: serde::de::DeserializeOwned>(
+    body: &mut HttpBody,
+    total: u64,
+) -> Result<T, (StatusCode, &'static str)> {
+    tokio::time::timeout(METADATA_TIMEOUT, async {
+        let mut bytes = Vec::new();
+        body.take(total + 1)
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|_| (StatusCode::BAD_REQUEST, "InvalidBody"))?;
+        if bytes.len() as u64 != total {
+            return Err((StatusCode::BAD_REQUEST, "InvalidLength"));
+        }
+        orishu_worker::peer::codec::decode(&bytes)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "InvalidRequest"))
+    })
+    .await
+    .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "MetadataDeadline"))?
+}
+
+fn command_error(error: CommandError) -> (StatusCode, &'static str) {
+    match error {
+        CommandError::Busy => (StatusCode::CONFLICT, "CommandBusy"),
+        CommandError::RunUnavailable => (StatusCode::NOT_FOUND, "RunUnavailable"),
+        CommandError::Receipt(ReceiptStoreError::Conflict) => {
+            (StatusCode::CONFLICT, "OperationConflict")
+        }
+        CommandError::Receipt(ReceiptStoreError::Full) => {
+            (StatusCode::SERVICE_UNAVAILABLE, "OperationHistoryFull")
+        }
+        CommandError::Receipt(_) | CommandError::OutcomeUnknown => {
+            (StatusCode::SERVICE_UNAVAILABLE, "OutcomeUnknown")
+        }
+        CommandError::Closed | CommandError::Policy => {
+            (StatusCode::SERVICE_UNAVAILABLE, "ScientificUnavailable")
         }
     }
 }

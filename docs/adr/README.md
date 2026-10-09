@@ -36,3 +36,4 @@ consequences, and status.
 - [0029 — Bind run descriptors to owner-allocated workload epochs](0029-bind-run-descriptors-to-owner-allocated-epochs.md) (**accepted; shared descriptor and internal single-node owner allocation implemented**)
 - [0030 — Retain durable worker load receipts before admission](0030-retain-durable-worker-load-receipts.md) (**accepted implementation refinement; Unix journal and daemon coordinator implemented**)
 - [0031 — Expose bounded identified scientific load over opt-in HTTP](0031-expose-bounded-identified-scientific-load-http.md) (**accepted; load/receipt/current-run routes implemented; public stepping and observations remain open**)
+- [0032 — Retain identified run-command outcomes before execution](0032-retain-identified-run-command-outcomes.md) (**shared facts, Unix journal, daemon coordination, opt-in HTTP, shared client and Kagami headless controls implemented; window controls remain gated**)

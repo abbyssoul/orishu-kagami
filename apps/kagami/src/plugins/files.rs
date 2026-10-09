@@ -11,6 +11,9 @@ use std::{
     path::{Component, Path},
 };
 
+#[cfg(test)]
+pub(super) mod faults;
+
 fn os(error: rustix::io::Errno) -> Error {
     std::io::Error::from(error).into()
 }
@@ -61,10 +64,13 @@ impl Directory {
         single(name)?;
         if create {
             match fs::mkdirat(&self.0, name, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
-                Ok(()) => self.0.sync_all()?,
+                Ok(()) => (),
                 Err(rustix::io::Errno::EXIST) => (),
                 Err(e) => return Err(os(e)),
             }
+            // A previous creation may have returned after mkdir but before a
+            // successful parent flush. Existing names still need that barrier.
+            self.0.sync_all()?;
         }
         let fd = fs::openat(
             &self.0,
@@ -92,6 +98,13 @@ impl Directory {
             .ok_or_else(|| Error::new(Code::IoFailure, "required local file is absent"))
     }
     pub(super) fn read_optional(&self, path: &Path, max: usize) -> Result<Option<Vec<u8>>, Error> {
+        Ok(self.read_optional_file(path, max)?.map(|(bytes, _)| bytes))
+    }
+    fn read_optional_file(
+        &self,
+        path: &Path,
+        max: usize,
+    ) -> Result<Option<(Vec<u8>, File)>, Error> {
         let (dir, name) = self.parent(path)?;
         let fd = match fs::openat(
             &dir.0,
@@ -114,12 +127,13 @@ impl Directory {
         // A concurrent writer may grow the file after metadata. Never read beyond
         // max + 1, and don't reserve from an untrusted on-disk length.
         let mut bytes = Vec::new();
-        file.take((max as u64).checked_add(1).ok_or_else(limit)?)
+        (&file)
+            .take((max as u64).checked_add(1).ok_or_else(limit)?)
             .read_to_end(&mut bytes)?;
         if bytes.len() > max {
             return Err(limit());
         }
-        Ok(Some(bytes))
+        Ok(Some((bytes, file)))
     }
     pub(super) fn lock(&self, name: &str, shared: bool) -> Result<File, Error> {
         single(name.as_ref())?;
@@ -151,13 +165,23 @@ impl Directory {
     /// Immutable cache write: verify any existing bytes rather than overwriting.
     /// Callers hold the inventory mutation lock and have verified the new bytes.
     pub(super) fn put(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
-        if let Some(existing) = self.read_optional(Path::new(name), bytes.len())? {
+        single(name.as_ref())?;
+        if let Some((existing, file)) = self.read_optional_file(Path::new(name), bytes.len())? {
             if existing != bytes {
                 return Err(Error::new(
                     Code::IntegrityMismatch,
                     "content-addressed cache entry differs",
                 ));
             }
+            // Equality proves content, not persistence. A prior attempt may have
+            // renamed this entry but failed its directory flush. Re-establish
+            // both barriers before any index can reference a reused cache name.
+            file.sync_all()?;
+            #[cfg(test)]
+            faults::checkpoint(name, faults::Phase::ExistingFileSynced)?;
+            self.0.sync_all()?;
+            #[cfg(test)]
+            faults::checkpoint(name, faults::Phase::ExistingDirectorySynced)?;
             return Ok(());
         }
         self.replace(name, bytes)
@@ -182,11 +206,21 @@ impl Directory {
         )
         .map_err(os)?;
         let mut file = File::from(fd);
+        let mut visible = false;
         let result = (|| {
+            #[cfg(test)]
+            faults::checkpoint(name, faults::Phase::StageCreated)?;
             file.write_all(bytes)?;
+            #[cfg(test)]
+            faults::checkpoint(name, faults::Phase::StageWritten)?;
             file.sync_all()?;
+            #[cfg(test)]
+            faults::checkpoint(name, faults::Phase::FileSynced)?;
             if replace {
                 fs::renameat(&self.0, temp.as_str(), &self.0, name).map_err(os)?;
+                visible = true;
+                #[cfg(test)]
+                faults::checkpoint(name, faults::Phase::Published)?;
             } else {
                 // linkat publishes atomically without replacing an existing name,
                 // even if another process creates it after our caller's check.
@@ -199,15 +233,29 @@ impl Directory {
                         }
                     },
                 )?;
+                visible = true;
+                #[cfg(test)]
+                faults::checkpoint(name, faults::Phase::Published)?;
                 fs::unlinkat(&self.0, temp.as_str(), AtFlags::empty()).map_err(os)?;
+                #[cfg(test)]
+                faults::checkpoint(name, faults::Phase::StageUnlinked)?;
             }
             self.0.sync_all()?;
+            #[cfg(test)]
+            faults::checkpoint(name, faults::Phase::DirectorySynced)?;
             Ok(())
         })();
         if result.is_err() {
             let _ = fs::unlinkat(&self.0, temp.as_str(), AtFlags::empty());
         }
-        result
+        result.map_err(|error| {
+            if visible {
+                Error::new(Code::IoFailure,
+                    "file publication is visible but durability may be uncertain; inspect the output or inventory before retrying")
+            } else {
+                error
+            }
+        })
     }
 }
 fn single(name: &OsStr) -> Result<(), Error> {

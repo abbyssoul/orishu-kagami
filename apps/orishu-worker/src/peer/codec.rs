@@ -4,6 +4,8 @@
 //! serde constructs owned collections. This accepts the membership profile,
 //! not arbitrary CBOR: tags, indefinite strings/arrays and floating point are
 //! excluded. Bounded indefinite maps support serde's flattened record encoding.
+//! Scientific receipt/status helpers opt into finite floats only; ordinary
+//! membership encode/decode/validation always retain the strict profile.
 
 use std::io::Cursor;
 
@@ -61,6 +63,34 @@ pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, CodecError> {
     ciborium::from_reader(Cursor::new(bytes)).map_err(|_| CodecError::Schema)
 }
 
+/// Encode only scientific command/status responses with finite simulation time.
+/// This does not relax peer/load encodings or offer arbitrary float-bearing IO.
+pub fn encode_run_response(value: &orishu::model::ApiResponse) -> Result<Vec<u8>, CodecError> {
+    use orishu::model::{ApiResponse, ResponseData};
+    if !matches!(
+        value,
+        ApiResponse::Ok {
+            data: Some(ResponseData::RunCommandReceipt(_) | ResponseData::RunStatus(_))
+        }
+    ) {
+        return Err(CodecError::Schema);
+    }
+    let bytes = encode_receipts(value, true)?;
+    if bytes.len() > 16 * 1024 {
+        return Err(CodecError::TooLarge);
+    }
+    Ok(bytes)
+}
+
+/// Journal-only profile selection; never use this entry point for peer frames.
+pub(crate) fn decode_receipts<T: DeserializeOwned>(
+    bytes: &[u8],
+    finite_floats: bool,
+) -> Result<T, CodecError> {
+    validate_profile(bytes, finite_floats)?;
+    ciborium::from_reader(Cursor::new(bytes)).map_err(|_| CodecError::Schema)
+}
+
 /// Borrow a record's encoded fields without allocating its payload. This permits
 /// session/envelope validation before typed payload decoding and measures the
 /// actual snapshot bytes, including non-minimal (but valid) length encodings.
@@ -70,6 +100,7 @@ pub(crate) fn record_fields(bytes: &[u8]) -> Result<Vec<(&str, &[u8])>, CodecErr
         bytes,
         offset: 0,
         remaining: MAX_ITEMS,
+        finite_floats: false,
     };
     let (major, count) = scan.header()?;
     if major != 5 {
@@ -98,6 +129,7 @@ pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> Option<&str> {
         bytes,
         offset: 0,
         remaining: MAX_ITEMS,
+        finite_floats: false,
     };
     let (major, length) = scan.header().ok()?;
     if major != 3 || length > limit as u64 {
@@ -112,9 +144,17 @@ pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> Option<&str> {
 
 /// Encode a value with a hard output cap and check the same profile as receive.
 pub fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, CodecError> {
+    encode_receipts(value, false)
+}
+
+/// Internal receipt/scientific-response profile; ordinary `encode` passes false.
+pub(crate) fn encode_receipts<T: Serialize>(
+    value: &T,
+    finite_floats: bool,
+) -> Result<Vec<u8>, CodecError> {
     let mut output = CappedWriter(Vec::new(), MAX_FRAME_BYTES);
     ciborium::into_writer(value, &mut output).map_err(|_| CodecError::TooLarge)?;
-    validate(&output.0)?;
+    validate_profile(&output.0, finite_floats)?;
     Ok(output.0)
 }
 
@@ -160,6 +200,9 @@ impl std::io::Write for CappedWriter {
 }
 
 pub(crate) fn validate(bytes: &[u8]) -> Result<(), CodecError> {
+    validate_profile(bytes, false)
+}
+fn validate_profile(bytes: &[u8], finite_floats: bool) -> Result<(), CodecError> {
     if bytes.len() > MAX_FRAME_BYTES {
         return Err(CodecError::TooLarge);
     }
@@ -167,6 +210,7 @@ pub(crate) fn validate(bytes: &[u8]) -> Result<(), CodecError> {
         bytes,
         offset: 0,
         remaining: MAX_ITEMS,
+        finite_floats,
     };
     parser.value(0)?;
     if parser.offset != bytes.len() {
@@ -179,6 +223,7 @@ struct Scan<'a> {
     bytes: &'a [u8],
     offset: usize,
     remaining: usize,
+    finite_floats: bool,
 }
 
 impl<'a> Scan<'a> {
@@ -207,9 +252,18 @@ impl<'a> Scan<'a> {
             31 if initial == 0xbf => u64::MAX,
             _ => return Err(CodecError::Encoding),
         };
-        // Only direct encodings of false, true and null are admitted simple values.
+        // The peer profile excludes all floats. Scientific journal metadata may
+        // contain finite IEEE floats at any CBOR width; NaN/Inf are never valid.
         if initial >> 5 == 7 && !matches!(initial, 0xf4..=0xf6) {
-            return Err(CodecError::Encoding);
+            let finite = match initial {
+                0xf9 => argument & 0x7c00 != 0x7c00,
+                0xfa => (argument as u32) & 0x7f80_0000 != 0x7f80_0000,
+                0xfb => f64::from_bits(argument).is_finite(),
+                _ => false,
+            };
+            if !self.finite_floats || !finite {
+                return Err(CodecError::Encoding);
+            }
         }
         Ok((initial >> 5, argument))
     }
@@ -313,6 +367,77 @@ impl<'a> Scan<'a> {
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    #[test]
+    fn finite_float_journal_profile_does_not_relax_peer_frames() {
+        for bytes in [
+            vec![0xf9, 0x38, 0x00],                   // half 0.5
+            vec![0xfa, 0x3f, 0x00, 0x00, 0x00],       // single 0.5
+            vec![0xfb, 0x3f, 0xe0, 0, 0, 0, 0, 0, 0], // double 0.5
+        ] {
+            assert_eq!(decode_receipts::<f64>(&bytes, true).unwrap(), 0.5);
+            assert!(decode::<f64>(&bytes).is_err());
+            assert!(decode_receipts::<f64>(&bytes, false).is_err());
+            let mut framed = (bytes.len() as u32).to_be_bytes().to_vec();
+            framed.extend_from_slice(&bytes);
+            assert!(decode_frame::<f64>(&framed).is_err());
+        }
+        assert!(encode(&0.5).is_err());
+        assert!(encode_frame(&0.5).is_err());
+        assert!(encode_receipts(&0.5, true).is_ok());
+        for bytes in [
+            vec![0xf9, 0x7c, 0x00],
+            vec![0xf9, 0xfc, 0x00],
+            vec![0xf9, 0x7e, 0x00],
+            vec![0xfa, 0x7f, 0x80, 0x00, 0x00],
+            vec![0xfa, 0xff, 0x80, 0x00, 0x00],
+            vec![0xfa, 0x7f, 0xc0, 0x00, 0x00],
+            vec![0xfb, 0x7f, 0xf0, 0, 0, 0, 0, 0, 0],
+            vec![0xfb, 0xff, 0xf0, 0, 0, 0, 0, 0, 0],
+            vec![0xfb, 0x7f, 0xf8, 0, 0, 0, 0, 0, 0],
+            vec![0xfa, 0, 0],
+            vec![0xf8, 0x14],
+            vec![0xc0, 0],
+        ] {
+            assert!(decode_receipts::<f64>(&bytes, true).is_err());
+        }
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(encode_receipts(&value, true).is_err());
+        }
+        // Opting into finite values does not bypass structural preflight.
+        let duplicate = b"\xa2\x61x\xf9\x38\x00\x61x\xf9\x38\x00";
+        assert_eq!(
+            validate_profile(duplicate, true),
+            Err(CodecError::DuplicateKey)
+        );
+        assert!(validate_profile(&[0x9b, 255, 255, 255, 255, 255, 255, 255, 255], true).is_err());
+    }
+
+    #[test]
+    fn scientific_response_encoder_is_narrow_and_does_not_change_peer_encoding() {
+        use orishu::model::{ApiResponse, ResponseData, run::*, run_command::*};
+        let run = RunIdentity::new(
+            "formation-a".parse().unwrap(),
+            format!("sha256:{}", "01".repeat(32)).parse().unwrap(),
+            WorkloadEpoch::new(1),
+        );
+        let status = RunStatus::new(RunDescriptor::new(run), 1, 0.5, RunPhase::Ready).unwrap();
+        let reply = ApiResponse::Ok {
+            data: Some(ResponseData::RunStatus(status.clone())),
+        };
+        assert!(encode(&reply).is_err());
+        let bytes = encode_run_response(&reply).unwrap();
+        assert!(decode::<ApiResponse>(&bytes).is_err());
+        assert!(
+            matches!(ciborium::from_reader::<ApiResponse, _>(&bytes[..]).unwrap(), ApiResponse::Ok { data: Some(ResponseData::RunStatus(value)) } if value == status)
+        );
+        assert!(
+            encode_run_response(&ApiResponse::Ok {
+                data: Some(ResponseData::RetainedRun(None))
+            })
+            .is_err()
+        );
+    }
 
     #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]

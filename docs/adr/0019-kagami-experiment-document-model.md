@@ -113,6 +113,15 @@ because MCP is a first-class caller: object, component and variable counts,
 name lengths, expression source length and graph size, batch size, and history
 depth.
 
+Scientific-history preparation follows the same rule: a proposed object edit may
+need new integrator history before it is coherent. `HistoryEdit` reuses the command
+fold, schema/expression/configuration checks and source allocation counters, but
+exposes only initialization inputs, not an adoptable experiment or snapshot.
+The shell initializes history and submits the original edits plus their complete
+scientific capture through normal guarded validation. Fields are retained; no
+half-edited scene becomes authority. This implements the accepted atomic-effect
+boundary, not a second document writer or a weaker acceptance path.
+
 ### Undo restores a captured experiment, forwards
 
 An undo entry is a *captured experiment*, not an inverse command. Writing an
@@ -171,6 +180,32 @@ Separating the server from the model crate keeps the sans-IO boundary
 mechanical rather than aspirational: persistence, revision bookkeeping and
 event retention live on one side of it, and the transition that decides an edit
 lives on the other, testable as `(model, command) -> outcome` triples.
+
+### Standalone provider intent
+
+The X-PLUGIN integration additionally retains standalone complete component
+provider intent through an ordinary atomic command, independent of scientific
+setup. Final root sets must match the objects; captured scientific evidence must
+contain exactly the same dependency edges for locked members. Undo/redo, receipt
+retention and exact-release references retain that intent. The explicit
+[container v5 and model wire v4](../experiment-container-v5.md) preserve it without
+altering older unlocked file bytes. [Catalog v3](../catalog-template-v3.md) now
+materializes template-scoped locks with atomic conflict-refusing composition.
+The [existing-component Unix choice form](../component-provider-choices.md) now
+performs guarded inventory revalidation/adoption without initialized physics.
+Uncaptured attachment/replacement and native removal now submit complete root
+edits atomically. Captured additions have shared non-adoptable preparation with
+unchanged executable providers and fields, plus guarded history/evidence adoption;
+the native inspector now supplies an input-specific consented proposal and guarded
+handoff, including cancellation on either side. Explicit captured replacement now
+has separate non-adoptable preparation and a guarded full-reset backend. New
+component/lock intent is checked against new verified evidence, all fields/history
+initialize afresh, and the complete result passes ordinary authority validation
+with staged schemas. No old opaque buffers are inputs to new kernels. Native
+reset now stages selected-component replacement or binding-only intent, then
+complete physics, with combined generation-specific consent and guarded handoff.
+Compound/catalog and choice MCP adapters remain open; a read projection or
+temporary UI selection is not command acceptance.
 
 ### What the document is not
 

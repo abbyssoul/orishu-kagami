@@ -41,6 +41,38 @@ This refines [ADR 0020](0020-compose-object-behaviour-through-plugin-components.
   resulting exact selection. A missing/unavailable pin requires resolution or
   explicit migration, not automatic substitution. This selects a provider of an
   already required exact contract, not a scientific model on the user's behalf.
+  Standalone component composition needs the same durable provider intent without
+  requiring a field or initialized scientific setup. The
+  [standalone lock representation](../plugin-contract-v1-draft.md#standalone-authoring-dependency-lock)
+  separates this intent from workload declaration/code evidence. Its shared codec
+  and strict revalidation exist. [Document container v5](../experiment-container-v5.md)
+  now persists it independently of scientific setup, with atomic root-set and
+  captured-selection agreement; existing unlocked formats remain unchanged.
+  [Catalog v3](../catalog-template-v3.md) now carries scoped locks through atomic
+  document materialization, with agreement required for complete bindings of any
+  common consumer. Shared explicit closure extraction now feeds native removal
+  batches, with atomic history replacement when required. Explicit uncaptured
+  replacement now preserves surviving choices and accepts detach/new values/lock
+  atomically without implicit conversion. Native captured component attachment now
+  has guarded dependency/property preparation and input-specific consent for
+  atomic declaration/history/schema adoption, preserving fields and providers.
+  Captured-provider replacement now has a separate full-reset backend accepting
+  explicit values, complete provider intent and freshly initialized physics
+  atomically, without reinterpreting old state. Native selected-component and
+  binding-only changes now use two-stage complete-physics proposals, consent tied
+  to both input generations and guarded handoff. Captured compound/catalog addition
+  preparation and native single-template creation now preserve fields/providers
+  through guarded data/history/schema adoption. The catalog authority owns loading
+  and reload; the picker supplies bounded inputs, explicit choices and history
+  consent. General composition planning and choice MCP remain implementation work. The
+  [existing-component Unix form](../component-provider-choices.md) now saves
+  revalidated/leased choices without physics setup. First unavailable attachment
+  and new locked-document roots now resolve before atomic schema/component/lock
+  adoption. Native exact Add also captures complete choices for previously unlocked
+  uncaptured documents, including available schemas. Bounded local property entry
+  and read-only selected-schema inspection now cover repeated attachments too;
+  values, schema and lock still enter one normal acceptance. Coordinated migration after
+  scientific capture remains open.
 - Headless authoring exposes ambiguity as a structured protocol outcome with
   eligible provider choices. The caller supplies an explicit selection and
   retries through the same authority; there is no prompt, indefinite wait or
@@ -101,7 +133,26 @@ This refines [ADR 0020](0020-compose-object-behaviour-through-plugin-components.
   overrides and expected-release verification. Exact syntax is a draft in
   [the plugin design](../simulation-plugins.md#planned-kagami-plugin-commands).
 
+Implementation refinement (2026-09-17): the Unix inventory v2 records first-known
+local acquisition origin separately from immutable release data. V1 reads retain
+unknown origin and migrate only on an accepted management mutation. Different
+paths never change package/workload identity or authorize a fetch. The CLI v2
+outcome and native inspection expose bounded, escaped local metadata; see
+[the format and migration policy](../plugin-authoring-tools.md#store-and-reader-safety).
+
 ### Workload closure and shared ownership
+
+Source-tooling refinement (2026-09-17): [source v2](../plugin-source-v2.md) accepts
+explicit aliases for local scientific contracts and declared artifacts, lowered
+in dependency order before ordinary exact validation/hashing. This avoids requiring
+authors to manually propagate digests after local edits. Requiring only prehashed
+v1 inputs remains supported but is cumbersome; looking up logical names in an
+installed inventory is rejected because it would make builds depend on ambient
+provider/default state. Local cycles, absent or opaque providers and missing code
+aliases refuse. External contracts remain exact, and no build tool or guest runs.
+The alias grammar is source-only: v1 installed releases, bundle bytes and workload
+identity are unchanged for equivalent inputs. Directory/artifact acquisition stays
+in Kagami; pure bounded lowering reuses shared declaration validation and hashes.
 
 - Accept the narrow first-pass integrator profile: current state, accumulated
   forces, declared bounded history and `dt` produce candidate state/history after

@@ -19,7 +19,9 @@ pub mod node;
 pub mod quantity;
 pub mod result;
 pub mod run;
+pub mod run_command;
 pub mod run_load;
+pub mod run_observation;
 pub mod storage;
 pub mod tombstones;
 pub mod workload;
@@ -95,6 +97,12 @@ pub const API_ROUTE_CLUSTER: ApiRoute = ApiRoute::from_static("cluster");
 pub const API_ROUTE_RUN_LOADS: ApiRoute = ApiRoute::from_static("run-loads");
 /// Authenticated identified load receipt lookup with a bounded request body.
 pub const API_ROUTE_RUN_LOAD_LOOKUP: ApiRoute = ApiRoute::from_static("run-loads/lookup");
+/// Submit exact identified step/terminal-finish intent.
+pub const API_ROUTE_RUN_COMMANDS: ApiRoute = ApiRoute::from_static("run-commands");
+/// Reconcile an exact identified command without executing it.
+pub const API_ROUTE_RUN_COMMAND_LOOKUP: ApiRoute = ApiRoute::from_static("run-commands/lookup");
+/// Read committed metadata for an exact run identity.
+pub const API_ROUTE_RUN_STATUS: ApiRoute = ApiRoute::from_static("run/status");
 /// Authenticated usable retained-run descriptor projection.
 pub const API_ROUTE_RETAINED_RUN: ApiRoute = ApiRoute::from_static("run");
 pub const API_ROUTE_CLUSTER_LOCK: ApiRoute = ApiRoute::from_static("cluster/lock");
@@ -278,6 +286,8 @@ response_enum! {
         LockReceipt(cluster::LockReceipt),
         RunLoadReceipt(run_load::LoadReceipt),
         RetainedRun(Option<run::RunDescriptor>),
+        RunCommandReceipt(run_command::RunCommandReceipt),
+        RunStatus(run_command::RunStatus),
         LeaveReceipt(cluster::LeaveReceipt),
         ClusterManifest(cluster::Manifest),
         NodeManifest(node::Manifest),

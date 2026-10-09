@@ -72,7 +72,12 @@ one experiment revision and undo entry or rejects the proposal atomically.
 
 The accepted object persists all authored component/property state and the
 transitive template definitions needed to use that object without the source
-catalog. It also
+catalog. [Catalog v3](../catalog-template-v3.md) additionally retains the complete
+template-scoped component dependency lock. Instantiation merges that intent with
+the document in the same atomic command batch: common consumers must have the
+same complete bindings, including absence. Conflicting choices refuse rather than
+replace a document's providers. This is authored vocabulary intent, not implicit
+field/integrator selection or a live catalog link. It also
 persists provenance sufficient to identify the source catalog, template,
 schema version, and content fingerprint. That provenance is not a live pointer.
 Editing, reloading, removing, or losing a template never changes existing

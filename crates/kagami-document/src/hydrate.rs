@@ -122,6 +122,22 @@ pub fn hydrate(
     schemas: &SchemaRegistry,
     limits: &Limits,
 ) -> Result<Experiment, Rejection> {
+    hydrate_with_dependencies(record, None, schemas, limits)
+}
+
+/// Restore standalone provider intent together with its objects. Uses the same
+/// structure/expression checks as legacy hydration, without consulting inventory
+/// availability. Mismatching roots or captured scientific bindings refuse.
+pub fn hydrate_with_dependencies(
+    record: &DocumentRecord,
+    dependencies: Option<Arc<orishu_plugin::authoring_lock::SelectionLock>>,
+    schemas: &SchemaRegistry,
+    limits: &Limits,
+) -> Result<Experiment, Rejection> {
+    if let Some(lock) = &dependencies {
+        lock.validate(limits.dependencies)
+            .map_err(crate::dependencies::DependencyError::from)?;
+    }
     let counters = Counters::restored(record.objects_minted, record.variables_minted);
     let variables = hydrate_variables(record, limits)?;
     let mut state = ExperimentState {
@@ -129,6 +145,7 @@ pub fn hydrate(
         objects: Arc::new(BTreeMap::new()),
         variables: Arc::new(variables),
         setup: Arc::new(record.setup.clone()),
+        dependencies,
     };
 
     // The definitions the document carried are the environment its own

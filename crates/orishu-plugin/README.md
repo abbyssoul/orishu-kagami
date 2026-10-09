@@ -32,6 +32,12 @@ fixtures are **inert test data**, not a working solver or valid Wasm component.
 
 ## Acceptance layers
 
+The pure `source::SourcePayload` adapter lowers explicit source-local scientific
+and artifact aliases using caller-supplied exact maps. It uses the same bounded
+reader and re-enters normal payload validation, not an alternative identity
+projection. Kagami owns directory reads and topological packaging; no inventory,
+IO or runtime dependency enters this crate. See [source v2](../../docs/plugin-source-v2.md).
+
 1. `Release` and payload structs are raw authoring declarations. Their serde
    support is not an untrusted-input acceptance API. Use `release_from_json`,
    `release_from_cbor`, `payload_from_json` or `payload_from_cbor` with `Limits`.

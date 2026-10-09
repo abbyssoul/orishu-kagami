@@ -47,7 +47,11 @@ pub struct ExportError {
     pub resolution: Option<Box<ResolutionOutcome>>,
 }
 impl ExportError {
-    fn new(stage: &'static str, code: impl Into<String>, message: impl std::fmt::Display) -> Self {
+    pub(crate) fn new(
+        stage: &'static str,
+        code: impl Into<String>,
+        message: impl std::fmt::Display,
+    ) -> Self {
         let mut message = message.to_string();
         let mut end = message.len().min(512);
         while !message.is_char_boundary(end) {
@@ -120,12 +124,7 @@ pub fn run(args: ExportArgs) -> ExitCode {
 /// rewritten/recovered from a backup, and no default/alternate provider is chosen.
 #[cfg(unix)]
 pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
-    use crate::plugins::{self, PluginStore, PrepareSelectionOutcome, files};
-    use orishu_plugin::{
-        archive::ArchiveLimits,
-        resolution::{ProviderBinding, RequirementKey, ResolutionRequest},
-        workload::{ProfileLimits, bundle},
-    };
+    use crate::plugins::{self, PluginStore, files};
     let local =
         |stage| move |e: plugins::Error| ExportError::new(stage, format!("{:?}", e.code), e);
     let bytes = files::read_file(
@@ -140,7 +139,13 @@ pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
         .map_err(|e| ExportError::new("document", e.code(), e))?;
     drop(bytes);
     let snapshot = experiment.snapshot();
-    let setup = snapshot.setup().scientific().ok_or_else(|| ExportError::new("document", "scientific_setup_required", "legacy experiments require explicit model selection and captured initialization before export"))?;
+    if snapshot.setup().scientific().is_none() {
+        return Err(ExportError::new(
+            "document",
+            "scientific_setup_required",
+            "legacy experiments require explicit model selection and captured initialization before export",
+        ));
+    }
     let path = args
         .directory
         .map_or_else(plugins::default_directory, Ok)
@@ -150,9 +155,59 @@ pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
         Some(revision) => revision,
         None => store.list().map_err(local("inventory"))?.revision,
     };
+    let plugins = crate::scientific_effect::ScientificPlugins {
+        store: std::sync::Arc::new(store),
+        revision: expected,
+        overrides: args
+            .enable_plugin
+            .into_iter()
+            .map(|id| (id, true))
+            .chain(args.disable_plugin.into_iter().map(|id| (id, false)))
+            .collect(),
+    };
+    let prepared = compile_snapshot(
+        &snapshot,
+        &plugins,
+        args.name,
+        Default::default(),
+        Default::default(),
+        &Default::default(),
+    )?;
+    files::create_file(&args.output, &prepared.bytes).map_err(local("publish"))?;
+    Ok(prepared.report)
+}
+
+/// Immutable portable output shared by headless export and the window. These
+/// bytes contain only the selected closure; no installation is needed to run it.
+#[cfg(unix)]
+pub struct PreparedExport {
+    pub report: ExportReport,
+    pub bytes: Vec<u8>,
+}
+
+/// Compile already captured intent without initialization, IO publication or
+/// network access. Inventory reads use exact pins/revision and release leases.
+/// The window additionally guards adoption of this result against its draft.
+#[cfg(unix)]
+pub fn compile_snapshot(
+    snapshot: &kagami_document::ExperimentSnapshot,
+    plugins: &crate::scientific_effect::ScientificPlugins,
+    name: orishu_workload::WorkloadName,
+    policy: orishu_plugin::workload::ProfileLimits,
+    archive: orishu_plugin::archive::ArchiveLimits,
+    authoring: &kagami_document::Limits,
+) -> Result<PreparedExport, ExportError> {
+    use crate::plugins::{self, PrepareSelectionOutcome};
+    use orishu_plugin::{
+        resolution::{ProviderBinding, RequirementKey, ResolutionRequest},
+        workload::bundle,
+    };
+    let local =
+        |stage| move |e: plugins::Error| ExportError::new(stage, format!("{:?}", e.code), e);
+    let setup = snapshot.setup().scientific().ok_or_else(|| ExportError::new("document", "scientific_setup_required", "legacy experiments require explicit model selection and captured initialization before export"))?;
     let selected = setup.declarations().descriptor();
     let request = ResolutionRequest {
-        expected_inventory_revision: expected,
+        expected_inventory_revision: plugins.revision,
         roots: selected.roots.clone(),
         bindings: selected
             .bindings
@@ -166,17 +221,11 @@ pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
             })
             .collect(),
     };
-    let overrides: Vec<_> = args
-        .enable_plugin
-        .into_iter()
-        .map(|id| (id, true))
-        .chain(args.disable_plugin.into_iter().map(|id| (id, false)))
-        .collect();
-    let policy = ProfileLimits::default();
-    let prepared = match store
+    let prepared = match plugins
+        .store
         .prepare_selection(
             &request,
-            &overrides,
+            &plugins.overrides,
             &selected.kernel_instances,
             policy.selection,
         )
@@ -199,11 +248,11 @@ pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
         }
     };
     let compiled = crate::workload::compile_captured(
-        &snapshot,
+        snapshot,
         &prepared,
-        orishu_workload::WorkloadMeta::new(args.name),
+        orishu_workload::WorkloadMeta::new(name),
         policy,
-        &Default::default(),
+        authoring,
     )
     .map_err(|e| ExportError::new("compile", "workload_refused", e))?;
     let blobs = compiled
@@ -215,15 +264,17 @@ pub fn execute(args: ExportArgs) -> Result<ExportReport, ExportError> {
         compiled.compiled().manifest_bytes(),
         &blobs,
         policy,
-        ArchiveLimits::default(),
+        archive,
     )
     .map_err(|e| ExportError::new("pack", "workload_bundle_refused", e))?;
-    files::create_file(&args.output, &output).map_err(local("publish"))?;
-    Ok(ExportReport {
-        workload: compiled.compiled().verified().root(),
-        inventory_revision: prepared.inventory_revision(),
-        artifacts: compiled.blobs().len(),
-        bytes: output.len(),
+    Ok(PreparedExport {
+        report: ExportReport {
+            workload: compiled.compiled().verified().root(),
+            inventory_revision: prepared.inventory_revision(),
+            artifacts: compiled.blobs().len(),
+            bytes: output.len(),
+        },
+        bytes: output,
     })
 }
 

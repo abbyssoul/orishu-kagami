@@ -11,6 +11,9 @@ use iced::widget::shader::Pipeline as _;
 use iced::{Rectangle, Size};
 use kagami_renderer::{Camera, GridAxisPipeline, Projection, Uniforms};
 
+#[path = "support/marker_checks.rs"]
+mod marker_checks;
+
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -55,6 +58,8 @@ async fn run(frames: u32) {
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+    marker_checks::verify(&device, &queue, &texture);
+
     let pipeline = GridAxisPipeline::new(&device, &queue, FORMAT);
 
     let bounds = Rectangle {
@@ -94,6 +99,7 @@ async fn run(frames: u32) {
         pipeline.write_uniforms(
             &queue,
             &Uniforms {
+                viewport: [WIDTH as f32, HEIGHT as f32, 5.0, 0.0],
                 view_proj: camera
                     .view_projection_matrix(aspect_ratio)
                     .to_cols_array_2d(),

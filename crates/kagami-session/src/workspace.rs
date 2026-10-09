@@ -33,10 +33,10 @@
 //!
 //! # What is missing, and where it comes from
 //!
-//! Nothing in this build *enters* Observation/replay: submitting a run is
-//! K-RUN's and previewing one is K-PREVIEW's, and neither exists. [`RunLabel`]
-//! is a deliberate stand-in for S-OBSERVE's run identity — a bounded opaque
-//! label, so replacing it is a type substitution and not a redesign.
+//! K-RUN's initial remote adapter now enters Observation/replay for an explicitly
+//! inspected external run. Current-document submission and local preview remain
+//! separate work. [`RunLabel`] is a bounded mode/display key, not network authority;
+//! the adapter retains the full typed run identity for every read and command.
 
 use thiserror::Error;
 
@@ -46,10 +46,9 @@ use crate::identity::bounded_identity;
 bounded_identity!(
     /// Which run a window is watching.
     ///
-    /// A stand-in for the run identity S-OBSERVE will define, held opaque on
-    /// purpose: this module needs to tell two attachments apart and to name one
-    /// in a message, and it needs nothing else. When the real identity arrives
-    /// it replaces this type without changing a transition.
+    /// An opaque mode/display key: this module needs to distinguish attachments,
+    /// not authorize network actions. The remote adapter uses the canonical run
+    /// descriptor digest here and retains the full typed identity separately.
     RunLabel
 );
 

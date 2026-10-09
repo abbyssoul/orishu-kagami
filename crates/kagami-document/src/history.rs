@@ -215,6 +215,16 @@ impl EditHistory {
             .chain(&self.redo)
             .filter_map(|entry| entry.checkpoint.0.setup.scientific())
     }
+
+    /// Immutable revision-bearing views of both undo and redo contents. This
+    /// clones shared snapshot handles only, not object maps or captured buffers.
+    /// Intended for cold bounded retention/reference audits, not frame rendering.
+    pub fn snapshots(&self) -> impl Iterator<Item = crate::ExperimentSnapshot> + '_ {
+        self.undo
+            .iter()
+            .chain(&self.redo)
+            .map(|entry| entry.checkpoint.snapshot())
+    }
 }
 
 impl Default for EditHistory {

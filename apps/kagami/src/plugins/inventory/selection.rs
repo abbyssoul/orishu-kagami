@@ -56,7 +56,7 @@ impl PluginStore {
         Ok(InventoryRevisionGuard { _lock: lock })
     }
     /// Freeze explicit choices from one inventory revision into self-contained
-    /// selected inputs. The nonblocking inventory lock covers resolution, reads,
+    /// selected inputs. The shared nonblocking inventory lock covers resolution, reads,
     /// independent closure validation and lease acquisition; no JIT or guest runs
     /// under it. Later disable/removal cannot rewrite these bytes. Adoption of new
     /// intent must separately guard the document and current availability.
@@ -67,7 +67,9 @@ impl PluginStore {
         instances: &[SelectedKernel],
         limits: SelectionLimits,
     ) -> Result<PrepareSelectionOutcome, Error> {
-        let _lock = self.dir.lock("inventory.lock", false)?;
+        // This path only reads immutable packages and acquires shared leases.
+        // Exclude writers, not concurrent document-reference or revision readers.
+        let _lock = self.dir.lock("inventory.lock", true)?;
         let index = self.index()?;
         if index.revision != request.expected_inventory_revision {
             return Ok(PrepareSelectionOutcome::Unresolved(

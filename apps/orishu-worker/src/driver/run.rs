@@ -11,6 +11,7 @@ use std::sync::{
 
 const IDLE_POLL: Duration = Duration::from_millis(50);
 const PUBLICATION_WAIT: Duration = Duration::from_secs(5);
+const OBSERVATION_CAPACITY: usize = 8;
 
 /// Small immutable internal projection of the last owner-accepted boundary.
 /// This is not a formation-v1 wire resource, an observation frame or a checkpoint.
@@ -52,7 +53,17 @@ impl RunView {
 /// separate adapter; a lost reply is not evidence that a command did not commit.
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
-    /// The one operation slot is already occupied; no step backlog is accepted.
+    /// The accepted boundary no longer matches the caller's explicit intent.
+    /// No guest computation or publication was attempted for this request.
+    #[error("worker run boundary changed (expected {expected}, actual {actual})")]
+    StaleBoundary {
+        /// Boundary named by the caller, never silently refreshed.
+        expected: u64,
+        /// Boundary observed inside the serialized executor.
+        actual: u64,
+    },
+    /// The command slot or independent bounded observer ingress is occupied.
+    /// Observer requests never acquire command capacity; no step backlog exists.
     #[error("worker run is busy")]
     Busy,
     /// The lifetime was revoked or the executor exited.
@@ -77,12 +88,24 @@ impl Drop for OperationSlot {
     }
 }
 enum Request {
-    Step(OperationControl, oneshot::Sender<Result<RunView, RunError>>),
-    Stop(OperationControl, oneshot::Sender<Result<RunView, RunError>>),
+    Step(
+        Option<u64>,
+        OperationControl,
+        oneshot::Sender<Result<RunView, RunError>>,
+    ),
+    Stop(
+        Option<u64>,
+        OperationControl,
+        oneshot::Sender<Result<RunView, RunError>>,
+    ),
+}
+enum Observation {
     Field(
         orishu_workload::ComponentInstanceId,
+        Option<u64>,
         oneshot::Sender<Result<FieldSnapshot, RunError>>,
     ),
+    Objects(u64, oneshot::Sender<Result<ObjectSnapshot, RunError>>),
 }
 struct Pending {
     request: Request,
@@ -90,13 +113,15 @@ struct Pending {
     _slot: OperationSlot,
 }
 
-/// Client of one retained executor. Clones share one non-waiting operation slot.
+/// Client of one retained executor. Clones share one non-waiting command slot
+/// and an independent eight-request observer ingress. Commands have priority.
 /// Dropping all handles unloads after current work finishes; explicit `unload`
 /// additionally interrupts active guest work and invalidates every clone.
 #[derive(Clone)]
 pub struct RunHandle {
     input: blocking::SyncSender<Pending>,
     occupied: Arc<AtomicBool>,
+    observations: blocking::SyncSender<Observation>,
     fence: ExecutionFence,
     owner: Handle,
     scope: RunScope,
@@ -142,20 +167,60 @@ impl RunHandle {
     }
     /// Accept at most one explicit fixed step. Dropping the response future does
     /// not undo/cancel accepted work; use the supplied control for cancellation.
+    /// This unconditional internal call is not a safe network retry primitive;
+    /// identified adapters should preserve a precondition with `step_at`.
     pub async fn step(&self, control: OperationControl) -> Result<RunView, RunError> {
+        self.step_expected(None, control).await
+    }
+    /// Advance only from the exact accepted boundary supplied by the caller.
+    /// The executor checks it while holding its operation slot, before guest
+    /// work or publication reservation. Adapters must not substitute a read of
+    /// `view` followed by unguarded `step`: that check would race another caller.
+    /// A lost reply followed by the same expected boundary cannot advance twice.
+    /// A stale refusal does not prove which caller advanced the run; identified
+    /// command receipts remain the adapter's responsibility.
+    pub async fn step_at(
+        &self,
+        expected_boundary: u64,
+        control: OperationControl,
+    ) -> Result<RunView, RunError> {
+        self.step_expected(Some(expected_boundary), control).await
+    }
+    async fn step_expected(
+        &self,
+        expected_boundary: Option<u64>,
+        control: OperationControl,
+    ) -> Result<RunView, RunError> {
         let control = runtime!(control.with_parent(self.fence.cancellation()))?;
         runtime!(control.check())?;
         let (reply, receive) = oneshot::channel();
-        self.submit(Request::Step(control, reply))?;
+        self.submit(Request::Step(expected_boundary, control, reply))?;
         receive.await.map_err(|_| RunError::Closed)?
     }
     /// Terminal stop, serialized with steps. A busy run refuses; callers may
     /// cancel the active operation first. No resume or implicit reinitialization.
     pub async fn stop(&self, control: OperationControl) -> Result<RunView, RunError> {
+        self.stop_expected(None, control).await
+    }
+    /// Terminal stop only at the exact accepted boundary, checked inside the
+    /// same executor slot as steps. Repeating a stop at an already stopped,
+    /// matching boundary is harmless. This is not the future resumable pause.
+    pub async fn stop_at(
+        &self,
+        expected_boundary: u64,
+        control: OperationControl,
+    ) -> Result<RunView, RunError> {
+        self.stop_expected(Some(expected_boundary), control).await
+    }
+    async fn stop_expected(
+        &self,
+        expected_boundary: Option<u64>,
+        control: OperationControl,
+    ) -> Result<RunView, RunError> {
         let control = runtime!(control.with_parent(self.fence.cancellation()))?;
         runtime!(control.check())?;
         let (reply, receive) = oneshot::channel();
-        self.submit(Request::Stop(control, reply))?;
+        self.submit(Request::Stop(expected_boundary, control, reply))?;
         receive.await.map_err(|_| RunError::Closed)?
     }
     /// Acquire a bounded immutable field lease from the last accepted boundary.
@@ -164,9 +229,43 @@ impl RunHandle {
         &self,
         instance: orishu_workload::ComponentInstanceId,
     ) -> Result<FieldSnapshot, RunError> {
+        self.field_expected(instance, None).await
+    }
+    /// Lease only the exact requested committed field boundary. Selection is
+    /// checked inside the retained executor, never a separate racy view read.
+    pub async fn acquire_field_at(
+        &self,
+        instance: orishu_workload::ComponentInstanceId,
+        boundary: u64,
+    ) -> Result<FieldSnapshot, RunError> {
+        self.field_expected(instance, Some(boundary)).await
+    }
+    async fn field_expected(
+        &self,
+        instance: orishu_workload::ComponentInstanceId,
+        boundary: Option<u64>,
+    ) -> Result<FieldSnapshot, RunError> {
         let (reply, receive) = oneshot::channel();
-        self.submit(Request::Field(instance, reply))?;
+        self.observe(Observation::Field(instance, boundary, reply))?;
         receive.await.map_err(|_| RunError::Closed)?
+    }
+    /// Bounded immutable complete-object lease at exactly this boundary. Pending
+    /// acquisition uses observer-only capacity and cannot occupy the step slot.
+    pub async fn acquire_objects_at(&self, boundary: u64) -> Result<ObjectSnapshot, RunError> {
+        let (reply, receive) = oneshot::channel();
+        self.observe(Observation::Objects(boundary, reply))?;
+        receive.await.map_err(|_| RunError::Closed)?
+    }
+    fn observe(&self, request: Observation) -> Result<(), RunError> {
+        if !self.fence.is_current() {
+            return Err(RunError::Closed);
+        }
+        self.observations
+            .try_send(request)
+            .map_err(|error| match error {
+                blocking::TrySendError::Full(_) => RunError::Busy,
+                blocking::TrySendError::Disconnected(_) => RunError::Closed,
+            })
     }
     /// Revoke immediately; physical runtime/lease disposal happens off-owner.
     /// Already leased immutable observations retain their original provenance.
@@ -185,9 +284,11 @@ impl ValidatedAdmission {
         runtime!(control.check())?;
         let completion = reserve(&self.owner)?;
         let (input, receiver) = blocking::sync_channel(1);
+        let (observations, observer_requests) = blocking::sync_channel(OBSERVATION_CAPACITY);
         let handle = RunHandle {
             input,
             occupied: Arc::new(AtomicBool::new(false)),
+            observations,
             fence,
             owner: self.owner.clone(),
             scope: self.admitted.run.scope().clone(),
@@ -209,17 +310,37 @@ impl ValidatedAdmission {
             if reply.send(Ok(())).is_err() {
                 return;
             }
-            execution.serve(receiver);
+            execution.serve(receiver, observer_requests);
         });
         receive.await.map_err(|_| RunError::Closed)??;
         Ok(handle)
     }
-    fn serve(&mut self, receiver: blocking::Receiver<Pending>) {
+    fn serve(
+        &mut self,
+        receiver: blocking::Receiver<Pending>,
+        observers: blocking::Receiver<Observation>,
+    ) {
         while self.lease.fence().is_current() {
-            let pending = match receiver.recv_timeout(IDLE_POLL) {
+            // Commands have priority over every observer acquisition. Observers
+            // never own the command slot, block on capacity, run a guest here,
+            // or wait for their consumer while the executor serves them.
+            let pending = match receiver.try_recv() {
                 Ok(pending) => pending,
-                Err(blocking::RecvTimeoutError::Timeout) => continue,
-                Err(blocking::RecvTimeoutError::Disconnected) => return,
+                Err(blocking::TryRecvError::Disconnected) => return,
+                Err(blocking::TryRecvError::Empty) => {
+                    if let Ok(request) = observers.try_recv() {
+                        if !self.lease.fence().is_current() {
+                            return;
+                        }
+                        self.observe_owned(request);
+                        continue;
+                    }
+                    match receiver.recv_timeout(IDLE_POLL) {
+                        Ok(pending) => pending,
+                        Err(blocking::RecvTimeoutError::Timeout) => continue,
+                        Err(blocking::RecvTimeoutError::Disconnected) => return,
+                    }
+                }
             };
             if !self.lease.fence().is_current() {
                 return;
@@ -227,8 +348,10 @@ impl ValidatedAdmission {
             let fence = self.lease.fence();
             let Pending { request, _slot } = pending;
             let terminal = match request {
-                Request::Step(control, reply) => {
-                    let result = self.step_owned(&fence, control);
+                Request::Step(expected, control, reply) => {
+                    let result = self
+                        .check_boundary(expected)
+                        .and_then(|()| self.step_owned(&fence, control));
                     let terminal = matches!(result, Err(RunError::Publication));
                     if terminal {
                         fence.cancellation().cancel();
@@ -237,8 +360,10 @@ impl ValidatedAdmission {
                     let _ = reply.send(result);
                     terminal
                 }
-                Request::Stop(control, reply) => {
-                    let result = self.stop_owned(&fence, control);
+                Request::Stop(expected, control, reply) => {
+                    let result = self
+                        .check_boundary(expected)
+                        .and_then(|()| self.stop_owned(&fence, control));
                     let terminal = matches!(result, Err(RunError::Publication));
                     if terminal {
                         fence.cancellation().cancel();
@@ -246,13 +371,6 @@ impl ValidatedAdmission {
                     drop(_slot);
                     let _ = reply.send(result);
                     terminal
-                }
-                Request::Field(instance, reply) => {
-                    let result = runtime!(self.admitted.run.acquire_field(&instance))
-                        .map_err(RunError::from);
-                    drop(_slot);
-                    let _ = reply.send(result);
-                    false
                 }
             };
             if terminal {
@@ -260,6 +378,37 @@ impl ValidatedAdmission {
                 return;
             }
         }
+    }
+    fn observe_owned(&self, request: Observation) {
+        match request {
+            Observation::Field(instance, expected, reply) => {
+                if reply.is_closed() {
+                    return;
+                }
+                let result = self.check_boundary(expected).and_then(|()| {
+                    runtime!(self.admitted.run.acquire_field(&instance)).map_err(RunError::from)
+                });
+                let _ = reply.send(result);
+            }
+            Observation::Objects(expected, reply) => {
+                if reply.is_closed() {
+                    return;
+                }
+                let result = self.check_boundary(Some(expected)).and_then(|()| {
+                    runtime!(self.admitted.run.acquire_objects()).map_err(RunError::from)
+                });
+                let _ = reply.send(result);
+            }
+        }
+    }
+    fn check_boundary(&self, expected: Option<u64>) -> Result<(), RunError> {
+        let actual = self.admitted.run.state().boundary();
+        if let Some(expected) = expected
+            && expected != actual
+        {
+            return Err(RunError::StaleBoundary { expected, actual });
+        }
+        Ok(())
     }
     fn step_owned(
         &mut self,

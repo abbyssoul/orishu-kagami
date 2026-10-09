@@ -133,6 +133,76 @@ fn response(request: &SampleRequest<'_>, context: &InstanceContext) -> Vec<u8> {
 }
 
 #[test]
+fn committed_field_descriptor_roundtrips_and_preserves_exact_query_context() {
+    let ctx = context();
+    let mut snapshot = metadata(&ctx).snapshot;
+    snapshot.source = SnapshotSource::Committed {
+        workload: ArtifactDigest::sha256_of(b"workload")
+            .to_string()
+            .parse()
+            .unwrap(),
+        run: ArtifactDigest::sha256_of(b"run"),
+        epoch: 3,
+        boundary: 11,
+        time_seconds: n(0.75),
+    };
+    let field = FieldObservation::new(snapshot, ctx.clone()).unwrap();
+    let bytes = field.to_cbor().unwrap();
+    assert_eq!(FieldObservation::from_cbor(&bytes).unwrap(), field);
+    let meta = field
+        .request(45, vec![ctx.observables[0].channel.clone()])
+        .unwrap();
+    assert_eq!(meta.snapshot, field.snapshot);
+    assert_eq!(
+        meta.context,
+        ArtifactDigest::sha256_of(&ctx.to_cbor().unwrap())
+    );
+    let packet = query(&meta, &points());
+    read(&packet).check_context(&ctx).unwrap();
+    for end in 0..bytes.len() {
+        assert!(FieldObservation::from_cbor(&bytes[..end]).is_err());
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(FieldObservation::from_cbor(&trailing).is_err());
+    assert!(FieldObservation::from_cbor(&vec![0; MAX_FIELD_OBSERVATION_BYTES + 1]).is_err());
+    for mutation in 0..6 {
+        let mut bad = field.clone();
+        match mutation {
+            0 => bad.api_version = "orishu.simulation.field-observation/v2".parse().unwrap(),
+            1 => {
+                bad.snapshot.source = SnapshotSource::Authored {
+                    revision: ArtifactDigest::sha256_of(b"authored"),
+                }
+            }
+            2 => {
+                if let SnapshotSource::Committed { epoch, .. } = &mut bad.snapshot.source {
+                    *epoch = 0;
+                }
+            }
+            3 => {
+                if let SnapshotSource::Committed { time_seconds, .. } = &mut bad.snapshot.source {
+                    *time_seconds = n(-1.0);
+                }
+            }
+            4 => bad.snapshot.state.byte_length = bad.context.bounds.state_bytes + 1,
+            5 => bad.context.execution_contract = orishu_plugin::ExecutionContractId::Dynamics,
+            _ => unreachable!(),
+        }
+        assert!(bad.to_cbor().is_err());
+        let mut unvalidated = vec![];
+        ciborium::into_writer(&bad, &mut unvalidated).unwrap();
+        assert!(FieldObservation::from_cbor(&unvalidated).is_err());
+    }
+    // Reject noncanonical maps/unknown fields, not just a wrong version.
+    let mut value = serde_json::to_value(&field).unwrap();
+    value["ambient"] = true.into();
+    let mut unknown = vec![];
+    ciborium::into_writer(&value, &mut unknown).unwrap();
+    assert!(FieldObservation::from_cbor(&unknown).is_err());
+}
+
+#[test]
 fn flat_ranges_preserve_exact_channels_points_and_shapes_and_reuse_storage() {
     let ctx = context();
     let meta = metadata(&ctx);

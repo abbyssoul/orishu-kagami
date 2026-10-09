@@ -75,6 +75,10 @@ An existing exact pin wins; missing/disabled/incompatible pins become unavailabl
 without replacement. New dependencies consider contributions from enabled plugins'
 default releases and exact compatible providers already selected in that experiment.
 Non-default installed releases are selectable explicitly, not automatic candidates.
+The implemented shared `explicit_provider_page` query and Kagami's scientific
+provider browser expose enabled compatible installed alternatives separately from
+automatic candidates. Browsing never installs a binding or changes defaults;
+the chosen exact binding still passes normal resolution and workload validation.
 One eligible provider resolves automatically; more than one produces a bounded
 `AmbiguousProvider` outcome with exact candidate references. Zero gives a structured
 unavailability reason. The caller explicitly selects and retries against current
@@ -491,6 +495,23 @@ entities enter initialization. Domain/compute-parameter changes and manual inspe
 MCP reinitialization do the same. A shared-domain edit regenerates all affected
 fields or accepts none. Presentation-only changes do not regenerate state.
 
+The Unix copied-setup form now offers a separately confirmed field-only parameter
+edit through the same local initialization lane. It retains other field captures
+and Dynamics history, requires the copied document context and inventory revision
+to remain current, and refuses unrelated pending domain/timestep/model edits.
+Whole-setup Apply remains the explicit all-field/history reset path. Both adopt
+one validated revision and undo/redo retained bytes, never rerun initialization.
+
+Initial-object edits that invalidate the selected Dynamics history now have a
+shared non-adoptable preparation and a Unix background history-initialization
+adapter. It preserves field captures and exact selection, bounds command structure/
+text and history inputs/output, and accepts original edits plus regenerated history
+as one ordinary guarded revision. Preparation cannot return a publishable experiment
+snapshot. Existing object/component/property UI actions use it only when history
+coherence requires it; no initialization is added to unrelated valid edits. The
+current app adapter is object-only: changes to variables that affect scientific
+configuration need an affected-capture plan, not an implicit all-field reset.
+
 Use an effect token containing document identity, expected revision and proposed
 operation to guard asynchronous initialization. Results from replaced/edited
 documents are rejected as stale. The old revision remains readable until acceptance;
@@ -518,6 +539,101 @@ to block scientific stepping. Mandatory retained result requirements, if introdu
 later, need a distinct reliable-result contract rather than reusing ideal probes.
 
 ## 8. Selected workload closure and provenance (R6)
+
+### Standalone authoring dependency lock
+
+Provider intent must not require a field, domain or initialized scientific setup.
+The shared `orishu_plugin::authoring_lock::SelectionLock` implements a standalone
+bounded representation, separate from the workload evidence descriptor below:
+
+```text
+{
+  apiVersion: "orishu.plugin-authoring-lock/v1",
+  selection: {
+    roots: ContributionRef[],
+    contributions: ContributionRef[],
+    bindings: {requirement: {consumer: ContributionRef, slot: LocalContributionId},
+               provider: ContributionRef}[]
+  }
+}
+```
+
+The [structural JSON Schema](../crates/orishu-plugin/schema/authoring-lock-v1.schema.json)
+reuses the adjacent declaration schema's exact identifier definitions. Schema
+validation alone does not establish graph closure, budgets or availability.
+
+All fields are required; nulls, duplicate map keys and unknown fields refuse.
+References use section 2's exact identities. Roots/members are unique and sorted
+by `(release digest bytes, extensionPoint, localId)`; bindings are unique and
+sorted by `(consumer, slot)`. Every endpoint/root belongs to the member set, every
+member is reachable from a root, and the graph is acyclic. Retain every resolved
+dependency edge, including same-release edges. Empty intent has three empty arrays.
+JSON is human-readable; canonical CBOR uses the shared workload encoding rules
+and an explicit projection, not Rust field layout. Noncanonical CBOR refuses.
+This envelope introduces no new workload digest, artifact kind or run identity.
+
+Caller-owned `LockLimits` default to 1 MiB for the complete representation, 4096
+entries independently per array, one million logical graph-work units and a
+32-node longest dependency path (hard ceiling 64). Structural work is charged as
+`3 * (members + bindings) + roots`; validation uses flat graph storage and
+O((members + bindings) log members) work. Byte/tree bounds apply before typed
+construction; JSON additionally refuses an excess array entry before reading it.
+The JSON writer stops at the caller's byte ceiling. Limits are not persisted.
+
+The lock is structural provider intent, **not declaration evidence or permission
+to execute**. `Inventory::resolve_lock` takes the receiving inventory's current
+revision explicitly, checks its own bounds and declarations, and requires exact
+equality with the stored closure before returning `Resolved`. Structural work and
+declaration traversal are each bounded by the receiver's `max_work`. Missing,
+disabled or incompatible pins remain structured availability failures; defaults
+cannot replace them. A structurally closed graph missing a declared edge cannot
+silently acquire that edge from the current inventory. A repair is a new explicit
+authoring proposal through normal resolution. No code, schema evidence, inventory
+revision, enablement preference, domain or scientific state is embedded here.
+
+**Integration status:** shared codecs and strict inventory revalidation are
+implemented. The document authority now accepts complete component-root locks
+atomically, preserves them through undo/redo, charges shared canonical retention
+weight and reports dependency-only release references. [Container v5](experiment-container-v5.md)
+persists them without requiring scientific setup; model wire v4 exposes the read
+projection. Captured scientific evidence and scene compilation must agree with
+all locked members/edges. Existing unlocked JSON v3/container v4 bytes are unchanged.
+[Catalog v3](catalog-template-v3.md) now preserves template-scoped locks through
+materialization and atomic document merging. Common consumers require identical
+complete bindings, including absence; conflicts expose both optional choices and
+never replace pins. Shared explicit closure extraction supports root pruning.
+The [Unix existing-component choice form](component-provider-choices.md) now
+independently revalidates and leases an exact lock, guards adoption, restores
+selected schema capabilities and saves intent without initializing physics. Saved
+component bindings feed whole-physics proposals. Native removal now submits
+explicitly pruned locks with the object/component edit and required history
+replacement. First unavailable attachment and new locked roots now resolve before
+atomic schema/component/lock adoption. Native exact Add also captures complete
+choices in previously unlocked uncaptured documents. Bounded quantity/text/boolean
+inputs now cover every uncaptured attachment, including repeated roots. Selected
+property inspection is read-only; final admission rechecks exact declarations and
+ordinary value constraints, without accepting partial schema or object changes.
+Explicit uncaptured replacement accepts detach/new values/scoped lock atomically,
+preserving shared choices without implicit property conversion. Ordinary native
+captured attachment now uses staged values/choices and input-specific consent for
+guarded atomic component/lock/evidence/history adoption, preserving fields and
+providers. Explicit captured provider replacement now has a guarded full-reset
+backend: complete new component/physics intent and schemas are accepted atomically
+after fresh initialization, with no old buffers supplied to new kernels. Native
+selected-component replacement and binding-only reset now stage component intent
+before complete physics, freeze the displayed resolved graph and require consent
+tied to both input generations. The guarded captured-addition backend now accepts
+compound creations/new definitions and exact-fingerprint catalog instantiation,
+sharing pure materialization with the session authority. Complete supplied locks
+must preserve existing and template provider choices; fields survive and copied
+data/history/schemas adopt atomically. Native single-template loading/selection,
+bounded instance inputs and explicit provider/history consent now use that path.
+The catalog authority owns load/reload and immutable snapshots; selected schemas
+revalidate unavailable source content without changing its fingerprint. Arbitrary
+compound planning, catalog-file editing and MCP/headless adapters remain open;
+transient UI choices are not durable intent.
+
+### Execution evidence
 
 Compilation freezes resolved quantities, exact contribution bindings, field state,
 integrator/history definitions, graph/profile, selected code and runtime inputs.
@@ -592,6 +708,10 @@ distribution MVP into a cluster plugin manager or registry.
 Proposed inventory stores immutable content-addressed blobs and release manifests,
 plus a versioned index of installed releases, defaults, logical enablement and local
 origin metadata. Source paths belong only to origin metadata, never release identity.
+Implemented Unix refinement: inventory v2 records bounded first-known local origin;
+v1 remains readable and upgrades on accepted mutation only. CLI v2 and native
+inspection expose it without following the location. See
+[the concrete local profile](plugin-authoring-tools.md#store-and-reader-safety).
 One process-wide/cross-process lock serializes mutations; readers consume an immutable
 index revision. Stage writes, verify, flush, atomically replace the index and flush
 its parent. Crash recovery ignores unreferenced staging; readers see old or new
@@ -679,8 +799,12 @@ Source inspected for this draft, not merely task status:
   with focused tests; they do not install packages or admit executable code.
   Kagami now has initial Unix source/package IO and durable inventory/CLI
   management; [tooling documentation](plugin-authoring-tools.md) records exact
-  source/index formats and limitations. Authoring/UI/MCP and runtime integration,
-  source-local symbolic compilation and full crash-injection evidence remain.
+  source/index formats and limitations. [Source v2](plugin-source-v2.md) now lowers
+  explicit local contract/artifact aliases in dependency order to the same exact
+  release format. Inventory/cache/index and bundle publication now have Linux
+  process-death and injected-error evidence; matching cached entries re-establish
+  file/directory durability before a new index. Root provisioning and broader
+  storage/syscall faults, remaining authoring/UI/MCP and runtime integration stay open.
 
 Proposed dependency ownership:
 

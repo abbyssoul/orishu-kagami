@@ -46,7 +46,9 @@ serde_json.workspace = true
 [target.'cfg(unix)'.dependencies]
 # App-local package IO: safe descriptor-relative, no-follow opens/atomic rename.
 # Pin the already-resolved version; no filesystem capability enters shared types.
-rustix = { version = "=1.1.4", features = ["fs"] }
+rustix = { workspace = true, features = ["fs"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+# Actual CLI wire fixtures use the protocol's existing CBOR implementation.
+ciborium = "=0.2.2"

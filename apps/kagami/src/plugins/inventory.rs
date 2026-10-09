@@ -12,6 +12,9 @@ use std::{
 
 const INDEX_BYTES: usize = 256 * 1024;
 
+#[cfg(test)]
+mod durability;
+
 /// One immutable release registration. Enablement is logical-plugin-wide.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -24,11 +27,16 @@ pub struct InstalledRelease {
     pub enabled: bool,
     /// Exactly one installed release per logical plugin is the default.
     pub is_default: bool,
+    /// First known local input for this registration; never a fetch instruction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<super::LocalOrigin>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum Version {
     #[serde(rename = "orishu.plugin-inventory/v1")]
     V1,
+    #[serde(rename = "orishu.plugin-inventory/v2")]
+    V2,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -40,7 +48,7 @@ struct Index {
 impl Default for Index {
     fn default() -> Self {
         Self {
-            api_version: Version::V1,
+            api_version: Version::V2,
             revision: 0,
             releases: BoundedList(Vec::new()),
         }
@@ -51,6 +59,9 @@ impl Index {
         let mut ids = BTreeSet::new();
         let mut logical = BTreeMap::new();
         for entry in &self.releases.0 {
+            if self.api_version == Version::V1 && entry.origin.is_some() {
+                return Err(invalid("v1 inventory cannot contain origin metadata"));
+            }
             if !ids.insert(entry.release) {
                 return Err(invalid("duplicate installed release"));
             }
@@ -157,6 +168,8 @@ pub struct PluginStore {
 
 mod selection;
 pub use selection::{InventoryRevisionGuard, PrepareSelectionOutcome, PreparedSelection};
+mod authoring;
+pub use authoring::{PrepareAuthoringLockOutcome, PreparedAuthoringLock};
 
 /// Keeps required release bytes available to an open document or accepted run.
 /// OS-managed shared locks disappear on process exit; no stale PID lease cleanup.
@@ -164,6 +177,43 @@ pub use selection::{InventoryRevisionGuard, PrepareSelectionOutcome, PreparedSel
 pub struct ReleaseLease {
     _lock: File,
     release: PluginReleaseId,
+}
+
+/// Coarse cross-process barrier while an open document's exact reference set is
+/// changing. The already-open descriptor is reused; marking an edit uses only a
+/// nonblocking advisory lock syscall, never package reads or filesystem scans.
+#[derive(Debug)]
+pub struct ReferenceGate {
+    file: File,
+    held: bool,
+}
+impl ReferenceGate {
+    pub(crate) fn hold(&mut self) -> Result<(), Error> {
+        if !self.held {
+            rustix::fs::flock(
+                &self.file,
+                rustix::fs::FlockOperation::NonBlockingLockShared,
+            )
+            .map_err(|e| {
+                if e == rustix::io::Errno::WOULDBLOCK {
+                    Error::new(
+                        Code::Busy,
+                        "plugin removal is publishing; retry the document action",
+                    )
+                } else {
+                    Error::from(std::io::Error::from(e))
+                }
+            })?;
+            self.held = true;
+        }
+        Ok(())
+    }
+    pub(crate) fn release(&mut self) -> Result<(), Error> {
+        rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock)
+            .map_err(|e| Error::from(std::io::Error::from(e)))?;
+        self.held = false;
+        Ok(())
+    }
 }
 impl ReleaseLease {
     /// Exact retained release, even if later de-registered with acknowledgement.
@@ -174,7 +224,7 @@ impl ReleaseLease {
 
 /// Requested mutation. Installation packages enter through `install`, after
 /// declaration verification; these operations never execute kernels.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "command",
     rename_all = "kebab-case",
@@ -316,6 +366,9 @@ impl PluginStore {
         })
     }
     fn publish(&self, mut index: Index) -> Result<u64, Error> {
+        // Read-only access never migrates. The next accepted mutation atomically
+        // upgrades v1 alongside its normal revision and preserves exact pins.
+        index.api_version = Version::V2;
         index.validate()?;
         if index.releases.0.len() > 256 {
             return Err(Error::new(
@@ -403,8 +456,14 @@ impl PluginStore {
                 release: id,
                 enabled,
                 is_default: default,
+                origin: package.origin.clone(),
             });
+        } else if let Some(entry) = index.releases.0.iter_mut().find(|e| e.release == id)
+            && entry.origin.is_none()
+        {
+            entry.origin = package.origin.clone();
         }
+        index.api_version = Version::V2;
         index.validate()?;
         let blobs = self.dir.child("blobs".as_ref(), false)?;
         for (digest, bytes) in &package.blobs {
@@ -424,6 +483,7 @@ impl PluginStore {
         let mut index = self.index()?;
         index.expected(expected_revision)?;
         let mut removal_guard = None;
+        let mut reference_guard = None;
         match command {
             InventoryCommand::SetDefault { plugin_id, release } => {
                 if !index
@@ -457,6 +517,9 @@ impl PluginStore {
                 release,
                 ack_open_references,
             } => {
+                reference_guard = Some(self.dir.lock("references.lock", false).map_err(|e| {
+                    if e.code == Code::Busy { Error::new(Code::Busy, "an open document is reconciling plugin references; wait or retry explicitly") } else { e }
+                })?);
                 let entry = index
                     .releases
                     .0
@@ -491,13 +554,32 @@ impl PluginStore {
         }
         let result = self.publish(index);
         drop(removal_guard);
+        drop(reference_guard);
         result
+    }
+    /// Mark an inventory-aware document as not yet reconciled. Removal cannot
+    /// bypass this guard even with acknowledgement: its precise users are unknown.
+    pub fn reference_gate(&self) -> Result<ReferenceGate, Error> {
+        Ok(ReferenceGate {
+            file: self.dir.lock("references.lock", true)?,
+            held: true,
+        })
     }
     /// Retain an installed release while a document/run uses it. Acquisition and
     /// de-registration serialize through the inventory lock. Disable is allowed;
     /// availability is separately validated when accepting new authored intent.
     pub fn lease(&self, release: PluginReleaseId) -> Result<ReleaseLease, Error> {
-        let _lock = self.dir.lock("inventory.lock", false)?;
+        self.lease_if_installed(release)?
+            .ok_or_else(|| invalid("release is not installed"))
+    }
+    /// Distinguish an absent registration from corrupt-index/IO/lock failure.
+    /// Shared inventory locking serializes acquisition against removal while
+    /// remaining compatible with a completed effect's revision read guard.
+    pub fn lease_if_installed(
+        &self,
+        release: PluginReleaseId,
+    ) -> Result<Option<ReleaseLease>, Error> {
+        let _lock = self.dir.lock("inventory.lock", true)?;
         if !self
             .index()?
             .releases
@@ -505,16 +587,16 @@ impl PluginStore {
             .iter()
             .any(|e| e.release == release)
         {
-            return Err(invalid("release is not installed"));
+            return Ok(None);
         }
         let lock = self
             .dir
             .child("leases".as_ref(), false)?
             .lock(&hex(release), true)?;
-        Ok(ReleaseLease {
+        Ok(Some(ReleaseLease {
             _lock: lock,
             release,
-        })
+        }))
     }
     /// Load and independently reverify the exact immutable package. A retained
     /// lease can still read after acknowledged de-registration (no physical GC).
@@ -523,8 +605,17 @@ impl PluginStore {
     }
     /// Inspect an installed release, checking all stored bytes before returning.
     pub fn inspect(&self, release: PluginReleaseId) -> Result<Package, Error> {
-        let lease = self.lease(release)?;
-        self.retained_package(&lease)
+        let _guard = self.dir.lock("inventory.lock", true)?;
+        let index = self.index()?;
+        let entry = index
+            .releases
+            .0
+            .iter()
+            .find(|e| e.release == release)
+            .ok_or_else(|| invalid("release is not installed"))?;
+        let mut package = self.package(release)?;
+        package.origin = entry.origin.clone();
+        Ok(package)
     }
     fn package(&self, id: PluginReleaseId) -> Result<Package, Error> {
         let limits = Limits::default();
@@ -552,7 +643,11 @@ impl PluginStore {
         }
         let borrowed = blobs.iter().map(|(k, v)| (*k, v.as_slice())).collect();
         let release = VerifiedRelease::verify(root, &borrowed, &limits)?;
-        Ok(Package { release, blobs })
+        Ok(Package {
+            release,
+            blobs,
+            origin: None,
+        })
     }
     /// Resolve against verified disk content and process-only enable overrides.
     /// Loading is explicitly bounded across releases; this cold operation is not
@@ -563,6 +658,48 @@ impl PluginStore {
         overrides: &[(PluginId, bool)],
     ) -> Result<resolution::ResolutionOutcome, Error> {
         Ok(self.resolve_authoring(request, overrides)?.outcome)
+    }
+
+    /// Revision-bound exact alternatives, using the shared resolver's eligibility
+    /// rules and page bound. This is discovery only, never a provider selection.
+    pub fn candidate_page(
+        &self,
+        request: &resolution::ResolutionRequest,
+        overrides: &[(PluginId, bool)],
+        requirement: &resolution::RequirementKey,
+        offset: usize,
+    ) -> Result<resolution::CandidatePageResponse, Error> {
+        let index = self.index()?;
+        if index.revision != request.expected_inventory_revision {
+            return Ok(resolution::CandidatePageResponse::StaleRevision {
+                expected: request.expected_inventory_revision,
+                actual: index.revision,
+            });
+        }
+        self.with_inventory(index, overrides, |_, _, inventory| {
+            Ok(inventory.candidate_page(request, requirement, offset)?)
+        })
+    }
+
+    /// Explicit browsing includes enabled compatible non-default releases but
+    /// grants neither automatic eligibility nor execution permission.
+    pub fn explicit_provider_page(
+        &self,
+        request: &resolution::ResolutionRequest,
+        overrides: &[(PluginId, bool)],
+        requirement: &resolution::RequirementKey,
+        offset: usize,
+    ) -> Result<resolution::CandidatePageResponse, Error> {
+        let index = self.index()?;
+        if index.revision != request.expected_inventory_revision {
+            return Ok(resolution::CandidatePageResponse::StaleRevision {
+                expected: request.expected_inventory_revision,
+                actual: index.revision,
+            });
+        }
+        self.with_inventory(index, overrides, |_, _, inventory| {
+            Ok(inventory.explicit_provider_page(request, requirement, offset)?)
+        })
     }
 
     /// Resolve and project selected component schemas from the same verified

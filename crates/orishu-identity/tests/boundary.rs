@@ -8,8 +8,8 @@
 //! constructor's own unit tests.
 
 use orishu_identity::{
-    CertFingerprint, ClusterName, FormationId, MembershipTombstone, NodeId, VersionTuple,
-    WorkerName,
+    CertFingerprint, ClusterName, FormationId, MembershipTombstone, NodeId, ProtocolRange,
+    VersionTuple, WorkerName,
 };
 
 /// A CBOR byte string of `len` bytes, so a wrong-length digest can be presented
@@ -85,6 +85,30 @@ fn fingerprint_of_the_exact_length_still_parses() {
     // unrelated reason.
     let exact = cbor_byte_string(32);
     assert!(ciborium::from_reader::<CertFingerprint, _>(exact.as_slice()).is_ok());
+}
+
+#[test]
+fn protocol_range_with_min_above_max_is_refused_in_json() {
+    // The derived deserialization used to bypass `ProtocolRange::new`, admitting
+    // an unsatisfiable range. It must be refused, and a valid range must parse.
+    assert!(serde_json::from_str::<ProtocolRange>(r#"{"min":5,"max":1}"#).is_err());
+    assert!(serde_json::from_str::<ProtocolRange>(r#"{"min":1,"max":5}"#).is_ok());
+    assert!(serde_json::from_str::<ProtocolRange>(r#"{"min":3,"max":3}"#).is_ok());
+}
+
+#[test]
+fn protocol_range_with_min_above_max_is_refused_in_cbor() {
+    use std::collections::BTreeMap;
+
+    let encode = |min: u32, max: u32| {
+        let map: BTreeMap<&str, u32> = BTreeMap::from([("min", min), ("max", max)]);
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&map, &mut bytes).unwrap();
+        bytes
+    };
+
+    assert!(ciborium::from_reader::<ProtocolRange, _>(encode(5, 1).as_slice()).is_err());
+    assert!(ciborium::from_reader::<ProtocolRange, _>(encode(1, 5).as_slice()).is_ok());
 }
 
 #[test]

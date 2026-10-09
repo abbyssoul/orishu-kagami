@@ -45,6 +45,7 @@ pub(crate) struct ExperimentState {
     pub(crate) objects: Arc<BTreeMap<ObjectId, Object>>,
     pub(crate) variables: Arc<BTreeMap<VariableId, Variable>>,
     pub(crate) setup: Arc<Setup>,
+    pub(crate) dependencies: Option<Arc<orishu_plugin::authoring_lock::SelectionLock>>,
 }
 
 impl ExperimentState {
@@ -54,6 +55,7 @@ impl ExperimentState {
             objects: Arc::new(BTreeMap::new()),
             variables: Arc::new(BTreeMap::new()),
             setup: Arc::new(Setup::default()),
+            dependencies: None,
         }
     }
 }
@@ -179,6 +181,12 @@ impl ExperimentSnapshot {
         &self.0.setup
     }
 
+    /// Standalone exact component-provider intent. Absence preserves legacy
+    /// authoring semantics; it never selects providers from the local inventory.
+    pub fn dependencies(&self) -> Option<&Arc<orishu_plugin::authoring_lock::SelectionLock>> {
+        self.0.dependencies.as_ref()
+    }
+
     /// Every variable definition, in identity order.
     pub fn variables(&self) -> &BTreeMap<VariableId, Variable> {
         &self.0.variables
@@ -233,6 +241,9 @@ impl ExperimentSnapshot {
 pub struct ExperimentCheckpoint(pub(crate) Arc<ExperimentState>);
 
 impl ExperimentCheckpoint {
+    pub(crate) fn snapshot(&self) -> ExperimentSnapshot {
+        ExperimentSnapshot(self.0.clone())
+    }
     /// The revision these contents were captured at.
     ///
     /// Provenance, not identity: restoring them produces a *new*, later

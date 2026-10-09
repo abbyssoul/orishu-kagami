@@ -66,7 +66,9 @@ use crate::variable::{VariableId, VariableSpec};
 /// spellings remain readable but never resolve to exact pins implicitly.
 /// Version 3 adds scientific setup read projections with external state
 /// descriptors. Initialization results are not ordinary wire commands.
-pub const WIRE_VERSION: u32 = 3;
+/// Version 4 adds standalone component provider intent to read projections.
+/// Adopting validated locks is not an ordinary raw JSON command.
+pub const WIRE_VERSION: u32 = 4;
 
 /// Why a well-formed message could not be converted into a command.
 ///
@@ -396,7 +398,8 @@ impl WireCommand {
     /// byte arrays disguised as an ordinary editing intent.
     pub fn of(command: &ExperimentCommand) -> Option<Self> {
         Some(match command {
-            ExperimentCommand::AdoptScientificSetup(_) => return None,
+            ExperimentCommand::AdoptScientificSetup(_)
+            | ExperimentCommand::AdoptDependencies(_) => return None,
             ExperimentCommand::CreateObject(spec) => Self::CreateObject {
                 spec: Box::new(WireObjectSpec::of(spec)),
             },
@@ -625,6 +628,10 @@ pub struct WireObject {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WireSnapshot {
+    /// Complete standalone provider intent, absent on legacy drafts. A decoded
+    /// read projection is not a validated lock or an authoring command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependencies: Option<orishu_plugin::authoring_lock::LockDescription>,
     /// The representation version these contents are written in.
     pub version: u32,
     /// The revision they are.
@@ -640,6 +647,7 @@ impl WireSnapshot {
     pub fn of(snapshot: &ExperimentSnapshot) -> Self {
         Self {
             version: WIRE_VERSION,
+            dependencies: snapshot.dependencies().map(|lock| lock.describe()),
             revision: snapshot.revision(),
             objects: snapshot
                 .objects()

@@ -68,7 +68,8 @@ pub enum PluginCommand {
         ack_open_references: bool,
     },
 }
-/// Execute and display a bounded v1 outcome. A failed operation returns nonzero;
+/// Execute and display a bounded v2 outcome (including local origin metadata).
+/// A failed operation returns nonzero;
 /// successfully printing its diagnostic is not command acceptance.
 pub fn run(args: PluginArgs) -> std::process::ExitCode {
     let json = args.json;
@@ -77,10 +78,10 @@ pub fn run(args: PluginArgs) -> std::process::ExitCode {
     if json {
         let output = match result {
             Ok(value) => {
-                serde_json::json!({"apiVersion":"kagami.plugin-command/v1","ok":true,"result":value})
+                serde_json::json!({"apiVersion":"kagami.plugin-command/v2","ok":true,"result":value})
             }
             Err(error) => {
-                serde_json::json!({"apiVersion":"kagami.plugin-command/v1","ok":false,"error":error})
+                serde_json::json!({"apiVersion":"kagami.plugin-command/v2","ok":false,"error":error})
             }
         };
         println!("{}", serde_json::to_string(&output).expect("JSON outcome"));
@@ -110,8 +111,7 @@ fn execute(_: PluginArgs) -> Result<serde_json::Value, Error> {
 fn execute(args: PluginArgs) -> Result<serde_json::Value, Error> {
     use super::{InventoryCommand, Package, PluginStore};
     use PluginCommand as C;
-    let summary =
-        |p: &Package| serde_json::json!({"release":p.release().id(),"manifest":p.release().root()});
+    let summary = |p: &Package| serde_json::json!({"release":p.release().id(),"manifest":p.release().root(),"localOrigin":p.origin()});
     // Read-only file operations do not initialize or mutate the installed store.
     match &args.command {
         C::Validate { path } => return Ok(summary(&Package::load(path)?)),
@@ -151,10 +151,7 @@ fn execute(args: PluginArgs) -> Result<serde_json::Value, Error> {
             bundle,
             expect_release,
         } => {
-            let package = Package::from_bundle(&super::package::read_file(
-                &bundle,
-                orishu_plugin::bundle::BundleLimits::default().max_bytes,
-            )?)?;
+            let package = Package::load_bundle(&bundle)?;
             store.install(revision, &package, None, expect_release)?
         }
         C::Update {
@@ -162,10 +159,7 @@ fn execute(args: PluginArgs) -> Result<serde_json::Value, Error> {
             bundle,
             expect_release,
         } => {
-            let package = Package::from_bundle(&super::package::read_file(
-                &bundle,
-                orishu_plugin::bundle::BundleLimits::default().max_bytes,
-            )?)?;
+            let package = Package::load_bundle(&bundle)?;
             store.install(revision, &package, Some(&plugin_id), expect_release)?
         }
         C::SetDefault { plugin_id, release } => store.submit(

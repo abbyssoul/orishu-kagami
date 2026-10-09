@@ -164,6 +164,36 @@ pub fn update(
     schemas: &SchemaRegistry,
     limits: &Limits,
 ) -> Result<Candidate, Rejection> {
+    let candidate = fold(experiment, commands, schemas, limits)?;
+    validate_scientific(&candidate.experiment.state, limits)?;
+    Ok(Candidate {
+        experiment: candidate.experiment,
+        report: candidate.report,
+    })
+}
+
+// Not a Candidate: scientific coherence has not been validated yet.
+struct FoldedEdit {
+    experiment: Experiment,
+    report: CommitReport,
+}
+
+fn fold(
+    experiment: &Experiment,
+    commands: &[ExperimentCommand],
+    schemas: &SchemaRegistry,
+    limits: &Limits,
+) -> Result<FoldedEdit, Rejection> {
+    fold_against(experiment, commands, schemas, limits, None)
+}
+
+fn fold_against(
+    experiment: &Experiment,
+    commands: &[ExperimentCommand],
+    schemas: &SchemaRegistry,
+    limits: &Limits,
+    replacement: Option<&orishu_plugin::selected::VerifiedDeclarations>,
+) -> Result<FoldedEdit, Rejection> {
     if commands.len() > limits.max_commands_per_batch {
         return Err(Rejection::BatchTooLarge {
             found: commands.len(),
@@ -188,9 +218,8 @@ pub fn update(
 
     let work = evaluate(&mut state, &batch, schemas, limits)?;
 
-    validate_structure(&state, limits)?;
+    crate::validate::validate_structure_against(&state, limits, replacement)?;
     validate_governed(&state, &batch.touched, schemas)?;
-    validate_scientific(&state, limits)?;
 
     state.revision = experiment.revision().next();
     let report = CommitReport {
@@ -201,13 +230,226 @@ pub fn update(
         work,
         label: ExperimentCommand::batch_label(commands),
     };
-    Ok(Candidate {
+    Ok(FoldedEdit {
         experiment: Experiment {
             state: Arc::new(state),
             counters,
         },
         report,
     })
+}
+
+/// A validated authoring proposal whose initial numerical history is not yet
+/// coherent. It cannot be adopted, serialized or used as an experiment snapshot.
+/// Only initialization inputs are exposed. Acceptance must resubmit the original
+/// commands plus a complete capture through normal revision-guarded `update`.
+///
+/// ```compile_fail
+/// fn cannot_publish(proposal: kagami_document::update::HistoryEdit) {
+///     let _ = proposal.snapshot(); // An incoherent draft is not an experiment.
+/// }
+/// ```
+pub struct HistoryEdit {
+    experiment: Experiment,
+    limits: Limits,
+}
+
+/// Authored inputs for an explicit whole-scientific reset. Old opaque captures
+/// are not inputs to the new kernels. This is neither an experiment snapshot nor
+/// an adoptable candidate: acceptance requires the original commands and a newly
+/// initialized complete setup through the normal authority.
+///
+/// ```compile_fail
+/// fn cannot_publish(proposal: kagami_document::update::ScientificReset) {
+///     let _ = proposal.snapshot();
+/// }
+/// ```
+pub struct ScientificReset {
+    experiment: Experiment,
+    declarations: orishu_plugin::selected::VerifiedDeclarations,
+    limits: Limits,
+}
+impl ScientificReset {
+    /// Proposed authored variables, not accepted document state.
+    pub fn variables(&self) -> Result<VariablesSystem, Rejection> {
+        compile_document_variables(&self.experiment.state, &self.limits)
+    }
+    /// Proposed objects projected under the newly selected integrator, using the
+    /// original experiment's real allocation counters. No old history is exposed.
+    pub fn initial_dynamics(
+        &self,
+        instance: &orishu_workload::ComponentInstanceId,
+        bulk: orishu_plugin::execution::BulkLimits,
+    ) -> Result<Vec<u8>, Rejection> {
+        Ok(crate::scientific::initial_dynamics(
+            &self.experiment.snapshot(),
+            &self.declarations,
+            instance,
+            &self.variables()?,
+            &self.limits,
+            bulk,
+        )?)
+    }
+}
+
+/// Fold explicit authoring edits for a complete scientific reset. Structure,
+/// schemas, values, expressions, complete lock roots and their agreement with
+/// the new verified selection remain mandatory. Old configuration/history
+/// coherence is deliberately not required: every capture must be initialized
+/// afresh. Scientific setup/domain/timestep commands are refused here; those
+/// belong to the separately supplied initialization request and final capture.
+pub fn prepare_scientific_reset(
+    experiment: &Experiment,
+    commands: &[ExperimentCommand],
+    schemas: &SchemaRegistry,
+    selected: &orishu_plugin::selected::VerifiedSelection,
+    limits: &Limits,
+) -> Result<ScientificReset, Rejection> {
+    if commands.len() >= limits.max_commands_per_batch {
+        return Err(Rejection::BatchTooLarge {
+            found: commands.len().saturating_add(1),
+            limit: limits.max_commands_per_batch,
+        });
+    }
+    let declarations = selected.declarations();
+    let candidate = fold_against(experiment, commands, schemas, limits, Some(&declarations))?;
+    if !Arc::ptr_eq(&experiment.state.setup, &candidate.experiment.state.setup) {
+        return Err(crate::scientific::ScientificError::Mismatch.into());
+    }
+    Ok(ScientificReset {
+        experiment: candidate.experiment,
+        declarations,
+        limits: *limits,
+    })
+}
+
+impl HistoryEdit {
+    /// Selected physics and unchanged captured fields. Extended preparation can
+    /// add declaration evidence, but never replace existing kernels or bindings.
+    pub fn setup(&self) -> &crate::scientific::ScientificSetup {
+        self.experiment
+            .state
+            .setup
+            .scientific()
+            .expect("preparation requires scientific setup")
+    }
+
+    /// The proposed document's bounded variable environment, not authority.
+    pub fn variables(&self) -> Result<VariablesSystem, Rejection> {
+        compile_document_variables(&self.experiment.state, &self.limits)
+    }
+
+    /// Canonical initial entity packet for the exact selected integrator. IDs
+    /// use the source experiment's allocation counters, including deleted IDs.
+    pub fn initial_dynamics(
+        &self,
+        instance: &orishu_workload::ComponentInstanceId,
+        bulk: orishu_plugin::execution::BulkLimits,
+    ) -> Result<Vec<u8>, Rejection> {
+        Ok(crate::scientific::initial_dynamics(
+            &self.experiment.snapshot(),
+            self.setup().declarations(),
+            instance,
+            &self.variables()?,
+            &self.limits,
+            bulk,
+        )?)
+    }
+}
+
+/// Prepare ordinary edits for integrator-history initialization without accepting
+/// an inconsistent experiment. Structure, schema governance, expressions and
+/// captured configurations are checked normally; only history matching is deferred.
+/// Replacing physics/domain/timestep is outside this operation. Failed preparation
+/// neither mutates the source nor consumes identities. Reserve one command slot
+/// for the eventual complete scientific capture before calling this function.
+pub fn prepare_history_edit(
+    experiment: &Experiment,
+    commands: &[ExperimentCommand],
+    schemas: &SchemaRegistry,
+    limits: &Limits,
+) -> Result<HistoryEdit, Rejection> {
+    if commands.len() >= limits.max_commands_per_batch {
+        return Err(Rejection::BatchTooLarge {
+            found: commands.len().saturating_add(1),
+            limit: limits.max_commands_per_batch,
+        });
+    }
+    let candidate = fold(experiment, commands, schemas, limits)?;
+    if !Arc::ptr_eq(&experiment.state.setup, &candidate.experiment.state.setup) {
+        return Err(crate::scientific::ScientificError::Mismatch.into());
+    }
+    let setup = candidate
+        .experiment
+        .state
+        .setup
+        .scientific()
+        .ok_or(crate::scientific::ScientificError::Mismatch)?;
+    let variables = compile_document_variables(&candidate.experiment.state, limits)?;
+    setup.validate_configurations(&variables, limits)?;
+    Ok(HistoryEdit {
+        experiment: candidate.experiment,
+        limits: *limits,
+    })
+}
+
+/// Prepare a component-graph extension with unchanged executable physics.
+/// Existing roots, members, complete provider bindings and kernel instances must
+/// survive exactly; this is not a provider/kernel migration operation. Captured
+/// field bytes and settings are reused only after verification against the new
+/// declaration set. Only integrator-history coherence is deferred.
+///
+/// Like [`prepare_history_edit`], this exposes no adoptable experiment. The caller
+/// must submit its commands plus the complete new capture through normal guarded
+/// authority validation, with independently verified schema capabilities.
+pub fn prepare_extended_history_edit(
+    experiment: &Experiment,
+    commands: &[ExperimentCommand],
+    schemas: &SchemaRegistry,
+    selected: &orishu_plugin::selected::VerifiedSelection,
+    limits: &Limits,
+) -> Result<HistoryEdit, Rejection> {
+    use crate::scientific::{ScientificError, ScientificSetup};
+    if commands.len() >= limits.max_commands_per_batch {
+        return Err(Rejection::BatchTooLarge {
+            found: commands.len().saturating_add(1),
+            limit: limits.max_commands_per_batch,
+        });
+    }
+    let old = experiment
+        .state
+        .setup
+        .scientific()
+        .ok_or(ScientificError::Mismatch)?;
+    let previous = old.declarations().descriptor();
+    let next = selected.descriptor();
+    if previous.kernel_instances != next.kernel_instances
+        || previous
+            .roots
+            .iter()
+            .any(|r| next.roots.binary_search(r).is_err())
+        || previous
+            .contributions
+            .iter()
+            .any(|r| next.contributions.binary_search(r).is_err())
+        || next
+            .bindings
+            .iter()
+            .filter(|b| previous.contributions.binary_search(&b.consumer).is_ok())
+            .ne(previous.bindings.iter())
+    {
+        return Err(ScientificError::Mismatch.into());
+    }
+    let setup = ScientificSetup::capture(
+        selected,
+        old.domain().clone(),
+        old.time_step(),
+        old.captures().values().cloned().collect(),
+        limits.scientific,
+    )?;
+    let mut base = experiment.clone();
+    Arc::make_mut(&mut base.state).setup = Arc::new(Setup::Scientific(Arc::new(setup)));
+    prepare_history_edit(&base, commands, schemas, limits)
 }
 
 /// Build a candidate that restores previously captured contents.
@@ -269,6 +511,11 @@ fn apply(
     limits: &Limits,
 ) -> Result<(), Rejection> {
     match command {
+        ExperimentCommand::AdoptDependencies(lock) => {
+            lock.validate(limits.dependencies)
+                .map_err(crate::dependencies::DependencyError::from)?;
+            state.dependencies = Some(lock.clone());
+        }
         ExperimentCommand::CreateObject(spec) => {
             let id = counters.next_object();
             let mut components = BTreeMap::new();

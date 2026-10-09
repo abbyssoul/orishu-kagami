@@ -409,12 +409,25 @@ impl ScientificSetup {
         variables: &VariablesSystem,
         limits: &crate::Limits,
     ) -> Result<(), ScientificError> {
+        self.validate_configurations(variables, limits)?;
         for capture in self.captures.values() {
-            let (properties, dynamics) = match &self.payloads[&capture.context.contribution] {
-                Payload::FieldModels(m) => (&m.scientific.configuration, None),
-                Payload::Integrators(m) => {
-                    (&m.scientific.configuration, Some(&m.scientific.dynamics))
-                }
+            if capture.context.execution_contract == ExecutionContractId::Dynamics {
+                self.check_history(capture, state, variables, limits)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Preparation may defer history coherence, never configuration coherence.
+    pub(crate) fn validate_configurations(
+        &self,
+        variables: &VariablesSystem,
+        limits: &crate::Limits,
+    ) -> Result<(), ScientificError> {
+        for capture in self.captures.values() {
+            let properties = match &self.payloads[&capture.context.contribution] {
+                Payload::FieldModels(m) => &m.scientific.configuration,
+                Payload::Integrators(m) => &m.scientific.configuration,
                 _ => unreachable!("checked executable capture"),
             };
             let source_bound = |source: &str| -> Result<(), ScientificError> {
@@ -467,9 +480,6 @@ impl ScientificSetup {
             if configuration.as_slice() != &*capture.configuration {
                 return Err(ScientificError::Reinitialize);
             }
-            if dynamics.is_some() {
-                self.check_history(capture, state, variables, limits)?;
-            }
         }
         Ok(())
     }
@@ -516,7 +526,7 @@ impl ScientificSetup {
 /// Ephemeral authority retention accounting. Allocation identity is used only
 /// inside this process-local calculation, never as scientific or persisted ID.
 /// Kept strong references prevent address reuse while the tally is alive.
-/// This counts exact shared byte buffers and canonical metadata weights, not
+/// This counts exact shared byte buffers and scientific/provider-lock canonical metadata weights, not
 /// allocator overhead, whole object graphs or the process's total RSS.
 #[derive(Debug)]
 pub struct ScientificRetention {
@@ -525,6 +535,7 @@ pub struct ScientificRetention {
     refused: bool,
     buffers: BTreeMap<usize, Arc<[u8]>>,
     captures: BTreeMap<usize, Arc<BTreeMap<ComponentInstanceId, KernelCapture>>>,
+    dependencies: BTreeMap<usize, Arc<orishu_plugin::authoring_lock::SelectionLock>>,
 }
 impl ScientificRetention {
     /// Start an empty bounded tally. Zero permits no scientific retained data.
@@ -535,6 +546,7 @@ impl ScientificRetention {
             refused: false,
             buffers: BTreeMap::new(),
             captures: BTreeMap::new(),
+            dependencies: BTreeMap::new(),
         }
     }
     /// Charge one setup, sharing both metadata and byte-buffer allocations with
@@ -546,6 +558,26 @@ impl ScientificRetention {
         let result = self.include_inner(setup);
         self.refused = result.is_err();
         result
+    }
+    /// Charge standalone provider-intent metadata once per shared allocation.
+    /// This joins the same authority-wide retention ceiling as captured state.
+    pub fn include_dependencies(
+        &mut self,
+        lock: &Arc<orishu_plugin::authoring_lock::SelectionLock>,
+    ) -> Result<(), ScientificError> {
+        if self.refused {
+            return Err(ScientificError::Retention);
+        }
+        let key = Arc::as_ptr(lock) as usize;
+        if self.dependencies.contains_key(&key) {
+            return Ok(());
+        }
+        if let Err(error) = self.charge(lock.canonical_byte_length()) {
+            self.refused = true;
+            return Err(error);
+        }
+        self.dependencies.insert(key, lock.clone());
+        Ok(())
     }
     fn include_inner(&mut self, setup: &ScientificSetup) -> Result<(), ScientificError> {
         let key = Arc::as_ptr(&setup.captures) as usize;

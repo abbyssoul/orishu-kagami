@@ -8,9 +8,11 @@ use iced::{Rectangle, widget::shader};
 pub struct Uniforms {
     pub view_proj: [[f32; 4]; 4],
     pub camera_pos: [f32; 4],
+    pub viewport: [f32; 4],
 }
 
 pub struct GridAxisPipeline {
+    markers: crate::markers::MarkerPipeline,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     grid_pipeline: wgpu::RenderPipeline,
@@ -134,6 +136,7 @@ impl GridAxisPipeline {
         });
 
         Self {
+            markers: crate::markers::MarkerPipeline::new(device, format, &pipeline_layout),
             uniform_buffer,
             bind_group,
             grid_pipeline,
@@ -145,6 +148,28 @@ impl GridAxisPipeline {
 
     pub fn write_uniforms(&self, queue: &wgpu::Queue, uniforms: &Uniforms) {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
+    }
+    /// Reuse GPU instance/depth allocations and upload only a changed immutable batch.
+    pub fn prepare_markers(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: Option<&std::sync::Arc<crate::MarkerBatch>>,
+        size: iced::Size<u32>,
+    ) {
+        self.markers.prepare(device, queue, batch, None, size);
+    }
+
+    /// Prepare object and direction glyphs sharing one depth-tested pass.
+    pub fn prepare_glyphs(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        markers: Option<&std::sync::Arc<crate::MarkerBatch>>,
+        arrows: Option<&std::sync::Arc<crate::ArrowBatch>>,
+        size: iced::Size<u32>,
+    ) {
+        self.markers.prepare(device, queue, markers, arrows, size);
     }
 
     pub fn render(
@@ -186,6 +211,9 @@ impl GridAxisPipeline {
         pass.set_pipeline(&self.axis_pipeline);
         pass.set_vertex_buffer(0, self.axis_vertices.slice(..));
         pass.draw(0..AXIS_VERTICES.len() as u32, 0..1);
+        drop(pass);
+        self.markers
+            .render(encoder, target, clip_bounds, &self.bind_group);
     }
 }
 

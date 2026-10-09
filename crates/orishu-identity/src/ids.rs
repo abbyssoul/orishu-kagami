@@ -201,11 +201,43 @@ impl std::fmt::Display for ProtocolVersion {
 ///
 /// Kept as a value type rather than two loose integers so that an admission
 /// gate cannot accidentally compare against only one bound.
+///
+/// Deserialization goes through [`ProtocolRange::new`], so a wire value with
+/// `min` greater than `max` is refused rather than admitted as an
+/// unsatisfiable range. The invariant holds no matter how the value entered
+/// the domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", try_from = "ProtocolRangeWire")]
 pub struct ProtocolRange {
     min: ProtocolVersion,
     max: ProtocolVersion,
+}
+
+/// The unvalidated wire shape of a [`ProtocolRange`], decoded before the
+/// `min <= max` invariant is checked.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProtocolRangeWire {
+    min: ProtocolVersion,
+    max: ProtocolVersion,
+}
+
+/// A protocol range whose minimum exceeded its maximum on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("protocol range minimum {min} exceeds maximum {max}")]
+pub struct InvalidProtocolRange {
+    /// The offending lower bound.
+    pub min: ProtocolVersion,
+    /// The offending upper bound.
+    pub max: ProtocolVersion,
+}
+
+impl TryFrom<ProtocolRangeWire> for ProtocolRange {
+    type Error = InvalidProtocolRange;
+
+    fn try_from(wire: ProtocolRangeWire) -> Result<Self, Self::Error> {
+        Self::new(wire.min, wire.max).map_err(|(min, max)| InvalidProtocolRange { min, max })
+    }
 }
 
 impl ProtocolRange {

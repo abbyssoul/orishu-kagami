@@ -4,7 +4,10 @@ Status: **fixed-profile library owner, selected-workload admission and worker
 formation reservation, off-owner admission and retained single-node execution/
 publication, owner-issued run identity, lease-bound complete-body input and internal
 durable receipt journal/daemon-owned admission coordinator and opt-in public
-load/receipt/current-run routes implemented; public run control remains gated**.
+load/receipt/current-run and manual command/status routes with Kagami headless
+controls implemented; bounded whole-object HTTP reads/shared client implemented;
+field queries and initial window manual controls/numeric observations implemented;
+observation streams and continuous execution remain gated**.
 Owner: **O-RUNTIME**. Target: M2 admission foundations and M3 execution; required
 input to M5 distributed execution, not work implicitly completed by M4.
 
@@ -55,8 +58,24 @@ after final receipt IO failure. Explicit scientific enablement now installs the
 coordinator before serving and exposes authenticated complete-upload, receipt
 lookup and retained-run discovery. The shared client now submits and retrieves
 bounded correlated facts, with actual worker/restart evidence. Reusable hot-path
-storage, runtime membership, durable formats, public run control/observations
-and Kagami adapters remain open.
+storage, runtime membership, durable formats, broader run control/observations
+and complete Kagami window integration remain open. Headless Kagami commands now submit and
+retrieve through the shared client without changing membership or authoring state.
+The retained executor now accepts exact-boundary `step_at`/`stop_at` preconditions,
+checked within its single operation slot before guest work/publication capacity.
+Stale requests cannot become a second step after a lost reply. This is an internal
+prerequisite, not an identified public command or durable receipt implementation.
+Shared [identified run-command types and a separate Unix journal](../run-command-receipts-v1.md)
+now implement step/terminal-finish intent, correlated status/outcomes, exact replay,
+conflict checks and conservative recovery. They share the sealed load-journal IO
+implementation without changing load files. Explicit internal daemon installation
+now composes retained execution, exact status and durable outcome ownership, with
+real-kernel failure/replay/shutdown tests. Opt-in command startup and
+[HTTP/shared-client controls](../protocol-scientific-command-v1.md) now have
+real-worker step/finish/restart evidence. Kagami headless manual controls now have
+cross-application execution/reconciliation evidence. Initial window controls and
+numeric observation now have real-worker evidence; full submission/rendering is
+tracked by [K-RUN](implement-kagami-run-workflow.md). Sustained retention remains open.
 
 Contracts: [architecture](../architecture.md), [workloads](../workloads.md),
 [workload protocol](../protocol-workload.md),
@@ -101,7 +120,9 @@ authoring initialization without a cluster connection.
    missing output or cancellation cannot expose partial committed state.
    **Internal retained executor implemented:** one non-queuing operation slot,
    reserved-capacity boundary-zero/step/stop publication through the formation
-   owner, terminal unload and isolated bounded field leases. Lost publication
+   owner, terminal unload and isolated bounded field/object leases. Observation
+   acquisition now has independent bounded ingress with command priority and
+   exact-boundary checks; it cannot acquire the scientific command slot. Lost publication
    coordination terminates the execution lifetime. Shared `advance_with_commit`
    keeps private state unchanged on gate refusal and cannot roll back after gate
    acceptance. A bounded Unix durable identified receipt journal is implemented
@@ -109,9 +130,26 @@ authoring initialization without a cluster connection.
    Internal daemon admission/receipt/run ownership is now composed and retained
    by `RunningWorker`; request loss does not discard it. Continuous control,
    distributed/reset allocation and aggregate/hot-path hardening remain open.
-   Opt-in startup and public load/retrieval are implemented; public stepping,
-   stop/unload and observations are not. The shared load/retrieval client is
-   implemented; Kagami adapters remain open.
+   Opt-in startup, public load/retrieval and manual step/terminal-finish/status are
+   implemented; public pause/resume/unload and continuous observations are not.
+   Bounded exact-boundary object reads and field descriptor/sample queries now
+   have authenticated public routes and shared-client validation, with independent
+   observer budgets and off-executor sampling; see the
+   [field wire profile](../protocol-field-observation-v1.md). The shared load/retrieval client is
+   implemented and used by Kagami headless commands and captured-revision window
+   submission. Initial window observation/manual controls use the shared client.
+   Public controls must retain complete run/operation intent and use executor-side
+   boundary preconditions, never read-then-unconditionally-step or auto-refresh a
+   failed precondition. Add bounded command reconciliation before serving mutations.
+   The command model/journal and detached daemon-owned coordinator are implemented,
+   including lost replies, final-write failures, exact-run replacement, journal
+   reopen and shutdown tests. Automatic opt-in startup and authenticated bounded
+   routes/shared clients, Kagami headless and initial window controls are now
+   implemented; complete streaming/rendering adapters next. The fixed 256-record
+   snapshot policy is a manual-control foundation, not sufficient history retention
+   or per-tick IO for continuous interactive execution.
+   Do not equate the internal terminal stop with the planned resumable pause or
+   step-budget exhaustion; preserve that distinction in the public lifecycle.
 4. Integrate O-STORAGE checkpoint/result identities and S-OBSERVE projections
    through their reviewed interfaces. Only committed state is observable;
    resume validates completeness and compatibility before adoption. Slow

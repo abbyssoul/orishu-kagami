@@ -116,6 +116,7 @@ pub mod container;
 pub mod default_view;
 pub mod document;
 pub mod identity;
+pub mod instantiation;
 pub mod outcome;
 pub mod persist;
 pub mod store;
@@ -125,6 +126,8 @@ pub mod workspace;
 
 pub use authority::{
     DocumentAuthority, MAX_COMMAND_HISTORY, MAX_EVENT_HISTORY, MAX_REPLAY_COMMANDS,
+    PluginReferenceError, PluginReferenceLimits, PluginReferenceReport, PluginReferenceSnapshot,
+    PluginReferenceUse,
 };
 pub use command::{ExperimentCommandEnvelope, InstantiationSpec, SessionCommand};
 pub use default_view::{

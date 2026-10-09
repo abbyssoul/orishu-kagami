@@ -47,8 +47,22 @@ slice-1 implementation on 2026-09-16:
   `PluginStore::resolve_authoring` supplies schemas from the same verified inventory
   snapshot used for selection. Unix startup now discovers component vocabulary,
   applies process-only overrides and supplies it to the app's authority; Add uses
-  declared defaults as explicit commands. Dependency-choice dialogs, live reload
-  and open-document leases remain. The registry is not itself the provider inventory.
+  declared defaults as explicit commands. The native panel now adds inventory
+  inspection/install/update/default/enablement and explicit guarded live refresh.
+  The component provider dialog now saves guarded choices and stages unavailable
+  first attachment/new locked roots with atomic schema/component/lock adoption.
+  Native exact Add now captures complete choices in previously unlocked uncaptured
+  documents too. Captured-provider migration and automatic watching remain. The registry is not
+  itself the provider inventory.
+  The shared authority now supplies a bounded exact-release reference query over
+  current objects/scientific selection, undo/redo and accepted requests, surfaced
+  by the native References action. A separate window-lifetime adapter now adopts
+  exact release leases off-thread under a coarse removal gate. Reference generation
+  covers receipt-only changes as well as experiment revisions; stale results cannot
+  unlock newer state, and acquisition failures require explicit retry. Native removal
+  now stages exact release/revision and offers explicit open-reference acknowledgement,
+  never physical deletion. This does not discover unopened files or watch external
+  changes; other adapters still need equivalent lifetime integration.
 - `crates/kagami-document/src/capability.rs` supplies structural capability checks,
   not the accepted exact scientific-contract compatibility protocol.
 - `crates/orishu-workload/src/ids.rs` and catalog types already have identifiers;
@@ -59,9 +73,17 @@ slice-1 implementation on 2026-09-16:
   digest/CBOR primitives without changing workload bytes. Pure provider resolution
   and stored-ZIP byte validation/packing now exist with focused tests. Kagami's
   app-local Unix adapter supplies source-directory loading, a durable inventory,
-  leases and CLI management. [Current limitations](../plugin-authoring-tools.md)
-  include source-local symbolic compilation, origin capture, management UI/MCP
-  adoption, non-Unix IO and exhaustive crash injection. Exact pins are supported by
+  leases and CLI management. [Source v2](../plugin-source-v2.md) now lowers explicit
+  local contract/artifact aliases in dependency order without inventory lookup or
+  guest execution; equivalent exact source has identical package bytes.
+  [Current limitations](../plugin-authoring-tools.md) include remaining management
+  UI/MCP parity and non-Unix IO. Linux publication-barrier error/process-death
+  coverage now exists, including cache-reuse flush ordering, v1 migration and
+  no-overwrite bundle output; root provisioning and broader storage/syscall fault
+  coverage remain. Unix inventory v2 now
+  retains bounded first-known local acquisition origin, exposed by CLI v2 and
+  native Inspect, without changing package/workload bytes; v1 upgrades only on an
+  accepted management mutation. Exact pins are supported by
   catalog v2 / experiment JSON v3, with explicit old-format compatibility. Captured
   candidate initialization is now connected to installed selected artifacts through
   the app-local worker sandbox adapter, with exact release leases and shared context
@@ -77,7 +99,16 @@ slice-1 implementation on 2026-09-16:
   the Unix form accepts explicit models/domain/grid/timestep and uses declared
   compute defaults or schema-driven quantity/boolean/text overrides. Copying
   captured settings retains exact pins/instance IDs/policies without execution.
-  Targeted field-parameter editing, dependency-choice UI and scientific MCP parity,
+  Scientific-setup dependency UI now provides bounded read-only checks, exact
+  candidate paging and explicit local provider choices, guarded against stale
+  document/form/inventory context. Normal capture/export persists resolved pins.
+  Explicit installed-provider browsing now includes compatible enabled non-default
+  releases without changing automatic eligibility or inventory defaults.
+  Field-only parameter edits now preserve other field/history captures, with
+  separate reset consent and copied-revision guards. The existing-component Unix
+  choice form now saves guarded/leased provider intent without physics setup.
+  Uncaptured attachment/replacement now uses staged dependency/property choices.
+  Captured-provider migration and scientific MCP parity,
   remaining effect/IO reservations, full authoring migration and runtime product
   integration remain. An internal
   document numerical projection now resolves exact Dynamics/source/response roles
@@ -88,7 +119,7 @@ slice-1 implementation on 2026-09-16:
   checks. Unix headless `kagami export` now publishes a new self-contained
   [portable workload](../workload-bundle-v1.md) from captured files; the actual
   CLI output is admitted/advanced with real kernels without an inventory in tests.
-  Emitter/dynamic-membership support, window export, client submission and public run control
+  Emitter/dynamic-membership support and the full run workflow
   remain open; this does not complete the whole application workflow.
 - Worker-side execution is now implemented behind an internal adapter:
   [O-RUNTIME](implement-single-node-workload-runtime.md) verifies the portable
@@ -107,8 +138,36 @@ slice-1 implementation on 2026-09-16:
   [load/receipt/current-run routes](../protocol-scientific-load-v1.md).
   The shared bounded scientific client now submits/looks up/discovers runs with
   exact receipt correlation and real-worker restart evidence.
-  Public run control/observations, Kagami submission adapters and the complete
+  Unix Kagami headless submission/receipt/discovery now uses this client, preserving
+  explicit identity, secure credential loading and uncertainty without auto-retry.
+  Full rendering adapters, durable client recovery and the complete
   Kagami-to-daemon workflow remain open.
+  [Run-command facts and their separate journal](../run-command-receipts-v1.md)
+  now preserve guarded step/terminal-finish intent, correlated outcomes and
+  conservative recovery. Explicit internal daemon command ownership and guarded
+  execution are implemented with real-kernel failure/replay tests. Opt-in command
+  startup, authenticated routes and shared-client controls are now implemented;
+  Kagami headless manual controls now preserve exact intent and historical/live
+  reporting through these methods. Bounded authenticated complete-object reads
+  and their shared client now preserve exact source and isolated observer budgets.
+  Kagami headless `workload objects` now reports those exact projections with
+  source/force-phase semantics. Exact field descriptors and batched sampling now
+  have bounded authenticated worker/shared-client delivery with off-executor guest
+  work; see [the wire profile](../protocol-field-observation-v1.md). Initial window
+  manual controls and numeric object/force observations now use these shared
+  clients; see [K-RUN](implement-kagami-run-workflow.md). The window now inspects
+  explicit field instances and samples exact declared channels/point batches,
+  exposing bounded numeric values, precision, quality and invalidity. One-shot
+  normalized vector-3 direction glyphs now add explicit channel/frame interpretation,
+  scale conversion and invalid/zero/range omissions. Streams,
+  flow-line rendering and persistent instrument/MCP field adoption remain
+  prerequisites to the complete researcher workflow.
+  Kagami headless `workload field/sample` now reports exact descriptors and typed
+  point readings through the same client, with explicit stale/invalidity semantics.
+  Unix window preparation/export now shares the headless snapshot compiler and
+  guards candidate adoption against changed document/inventory. Explicit load
+  retains exact intent/bytes for reconciliation, with receipt-qualified source
+  lineage and separate exact-run inspection; no automatic initialize or lock.
 - `crates/orishu-workload/src/graph.rs` exposes `ComponentInstance` with a list
   of roles. These are existing API/format names, not proof of the new one-execution-
   contract-per-kernel rule. Reconcile role/phase metadata with a kernel's contract
@@ -257,6 +316,73 @@ security follow-up and post-launch registry work do not block this local MVP.
    outcomes and migrations. Unavailable contributions preserve authored data.
    Resolve the current logical `PluginComposition` representation through the
    approved format migration, not a serde rename. UI/MCP use the same authority.
+   Component-only authoring: `ObjectComponent` pins its component contribution,
+   and document locks now retain dependency bindings independently of the
+   `ScientificSetup` descriptor. Catalog materialization now carries that intent;
+   the Unix existing-component form now independently revalidates, leases and
+   guards adoption without physics setup. Cover save/open,
+   undo/redo, catalog materialization, release references, export and disabled/missing
+   providers together; do not accept a transient UI binding as persisted intent or
+   require creating unrelated physics merely to retain a component choice.
+   Shared foundation is now implemented in `orishu-plugin::authoring_lock`:
+   versioned bounded JSON/canonical-CBOR, closed acyclic exact provider intent and
+   strict inventory revalidation without default substitution. Document commands,
+   model wire v4 and [container v5](../experiment-container-v5.md) now retain it,
+   with atomic root/captured-selection checks, undo/redo and shared retention
+   weight, dependency-only reference reporting and scene-export reconciliation.
+   [Catalog v3](../catalog-template-v3.md) now adds scoped locks, canonical
+   fingerprints and atomic document merging without replacing choices. Shared
+   explicit closure extraction supports root pruning; tests cover offline
+   nonempty template materialization, undo and shared provider retention.
+   [Component-only adoption](../component-provider-choices.md) now restores
+   selected schema capabilities, preserves offline intent/undo and feeds saved
+   bindings into whole-physics proposals. A real two-body Newtonian/Euler fixture
+   now retains a nonempty component lock through capture, offline reopen, export
+   and fresh inventory-free execution. Native object/component removal now submits
+   explicit closure pruning with the edit and required history regeneration.
+   Unavailable first attachment and new locked roots now resolve before atomic
+   schema/component/lock acceptance, preserving accepted edges. Native exact Add
+   captures complete choices for previously unlocked uncaptured documents.
+   Explicit uncaptured replacement now accepts detach/new values/scoped lock
+   atomically, preserving surviving shared choices and promoted dependency roots.
+   It uses new defaults/user values, never inferred conversion of old properties.
+   Captured replacement now has shared non-adoptable preparation and a guarded
+   `reset_components` full-reset backend: explicit new values, complete component
+   intent and new physics initialize afresh and accept with schemas atomically.
+   Native selected-component replacement and binding-only changes now stage intent
+   and complete physics separately, preview the loss of all old state, and require
+   consent naming both input generations. Apply freezes the displayed resolved
+   graph and uses guarded backend revalidation. Changed component inputs discard
+   staged physics; physics edits revoke consent. Cancellation and context guards
+   persist through actual completion. The guarded addition backend now prepares
+   compound objects/new definitions and fingerprint-pinned catalog materialization
+   with complete locks, retained fields and atomic history/schema adoption. Next
+   complete MCP resolution/guarded adoption and general composition planning.
+   Native single-template selection now loads/reloads through the catalog authority,
+   supplies bounded instance inputs/provider choices/history consent and explicitly
+   revalidates source availability under selected schemas before atomic adoption.
+   Never repurpose ordinary Add
+   consent or silently convert old values.
+   Do not close this authoring slice on existing-root repair alone.
+   Bounded property entry now covers every uncaptured exact attachment, including
+   repeated roots: selected-schema inspection is read-only, values retain source
+   and false/empty/unset distinctions, and normal authority acceptance checks
+   requiredness, units/expressions/constraints. Property messages and pending
+   effects are identity-guarded; unchanged locks reuse their retained allocation.
+   Captured additions now have shared preparation and a guarded
+   `ScientificEffects::extend_components` lane: independent lock/schema/selection
+   verification, unchanged existing roots/bindings/kernels/fields, regenerated
+   history and atomic schema/command admission. Every native exact Add now stages
+   properties/choices, including repeated roots; captured additions require consent
+   tied to those inputs. Guarded handoff retains cancellation/staleness protection
+   across dependency checking and scientific preparation. Success clears the
+   proposal; failure needs fresh consent/retry. Do not allow the addition-only
+   path to replace an existing provider/kernel. `compose_scene` and
+   `instantiate_template` now share this path; the latter shares the pure session
+   materializer and real counters, retaining one immutable catalog snapshot and
+   refusing incompatible incoming template choices. Native single-template
+   selection/consent is connected; arbitrary compound planning, catalog-file editing
+   and headless composition adapters are still required.
 5. **Workload integration.** With S-WORKLOAD/X-COMPOSITION/X-FIELDS, compile the
    selected transitive closure and independently validate it at admission. Preserve
    graph/state ownership and dynamics integration semantics. No worker plugin
@@ -270,9 +396,11 @@ security follow-up and post-launch registry work do not block this local MVP.
    Newtonian/Euler kernels in a fresh runtime without an inventory. This is partial
    slice delivery. Shared scene composition/source evidence now also survives
    captured-document compilation and independent admission. Unix headless portable
-   export now feeds that path from actual saved files. Window export controls,
-   worker endpoints/delivery, emitter/dynamic-membership adoption and runtime
-   hardening remain required.
+   export now feeds that path from actual saved files, and guarded window preparation
+   uses the same compiler. Explicit window export and identified load use frozen
+   bytes with reconciliation through implemented worker endpoints. Emitter/dynamic-
+   membership adoption, durable client recovery, full rendering and runtime hardening
+   remain required.
 6. **Product adapters and external-author journey.** Generic host-owned authoring
    controls, inventory UI/MCP parity, CLI documentation and an external plugin
    example using the same validation path as built-ins. No custom visual extension
@@ -363,11 +491,26 @@ fixture, but a fixture must not be reported as a working physics plugin.
   initialization refusal, existing dynamic/static objects, save and portable
   export. The complete-setup form now edits schema-driven parameters, copies
   captured settings with exact pins, and passes retained inputs to the shared
-  compiler. It explicitly resets all initial fields/history on Apply. Targeted
-  parameter edits preserving unrelated field state, dependency-choice dialogs,
-  scientific MCP and history regeneration after entity edits remain outstanding. More than
-  one simultaneous field is supported by the adapter but not yet covered by a
-  real multi-field GUI integration fixture.
+  compiler. Whole-setup Apply explicitly resets all initial fields/history. The
+  field-only parameter path now preserves unrelated field/history buffers and
+  refuses stale copied context or other pending domain/timestep/model edits.
+  A real two-family native-message fixture covers parameter refusal, successful
+  capture, exact buffer retention, undo/redo, cancellation, offline file reopen,
+  portable export and fresh runtime admission/advance without inventory.
+  Existing-component provider choice/adoption now has a Unix form independent
+  of initialized physics. Ordinary captured Add is wired to consented history
+  extension. Coordinated component replacement after capture has a full-reset
+  backend and native selected-component/binding-only two-stage consent workflow.
+  Guarded compound/catalog preparation and native single-template selection/consent
+  now exist. Arbitrary compound planning and scientific MCP/headless adapters remain
+  outstanding.
+  Object-edit history regeneration now has
+  shared non-adoptable preparation and guarded background execution, wired to
+  existing Unix object/component/property actions. Initial pose/velocity compound
+  edits use the same effect API; dedicated gesture/MCP adapters and
+  configuration-affecting variable edits remain open.
+  Manual multi-field window interaction/visual QA remains separate from the
+  tested native-message path.
 
 - Field creation before/after entity creation produces the same initial setup
   given identical final authored values. Test a non-zero natural default, no

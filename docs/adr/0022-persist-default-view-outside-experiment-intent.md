@@ -85,6 +85,30 @@ and may own a successor draft while another Kagami client observes the run.
 
 ## Consequences
 
+### External-run attachment refinement — 2026-09-17
+
+The initial remote adapter can observe a run submitted elsewhere while an unrelated
+draft is open. It must not label that draft as the run's initial conditions. Its
+return action is **Return to open authoring document**, which restores the untouched
+draft and sends no worker command. The first adapter presents identified numeric
+objects/forces rather than drawing the unrelated authoring scene as a run frame.
+The window now also prepares/submits a captured revision. It retains a process-local
+source incarnation and revision with the frozen workload, then associates them
+with a run only through its exact Accepted receipt. This is not a claim that the
+currently open draft still equals that source. Inspecting/observing the accepted
+run remains explicit; Pending or historical acceptance alone never enters a frame.
+Durable lineage and recovery remain K-RUN work.
+
+The session's opaque run label is only a mode/display key (currently the canonical
+descriptor digest). The adapter retains the full typed run identity for every
+network read and command. No persisted document format or scientific authority
+changes. Observation camera/projection/scale changes now affect bounded 3D position
+markers and remain ephemeral; the alternative numeric table always retains SI
+values. Markers come only from the validated run snapshot, never the open draft.
+Scale reprojection cannot alter run bytes or request a scientific step.
+
+### General consequences
+
 - Projection survives reopening without contaminating scientific identity.
 - UI copy and controls always make it clear whether an action edits initial
   intent or only the observed run projection.
@@ -111,3 +135,5 @@ and may own a successor draft while another Kagami client observes the run.
 
 Tracked by [Persist and recover experiment documents](../tasks/kagami/persist-experiment-documents.md)
 and [Implement Kagami viewport workflows](../tasks/kagami/implement-kagami-viewport-workflows.md).
+Remote attachment and remaining submission/rendering work are tracked by
+[K-RUN](../tasks/implement-kagami-run-workflow.md).

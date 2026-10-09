@@ -1,4 +1,4 @@
-//! Scientific experiment file version 4: `document.json` plus immutable blobs.
+//! Experiment containers v4/v5: `document.json` plus immutable blobs.
 //!
 //! This pure codec restores captured state without installed code or a runtime.
 //! The returned `ExperimentDocument` is normalized to the existing in-memory
@@ -24,7 +24,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod locked;
 mod metadata;
+pub use locked::LOCKED_CONTAINER_VERSION;
 pub use metadata::MetadataLimits;
 
 /// On-disk scientific container version; JSON v1–v3 remain separate readable forms.
@@ -33,6 +35,8 @@ pub const CONTAINER_VERSION: u32 = 4;
 /// Explicit byte/count limits applied before copying opaque blobs into a draft.
 #[derive(Clone, Copy, Debug)]
 pub struct ContainerLimits {
+    /// Standalone exact provider-intent envelope, before graph construction.
+    pub dependencies: orishu_plugin::authoring_lock::LockLimits,
     /// Strict archive framing/physical byte limits.
     pub archive: ArchiveLimits,
     /// Exact selected declaration closure limits.
@@ -45,6 +49,7 @@ pub struct ContainerLimits {
 impl Default for ContainerLimits {
     fn default() -> Self {
         Self {
+            dependencies: orishu_plugin::authoring_lock::LockLimits::default(),
             archive: ArchiveLimits {
                 max_bytes: 512 * 1024 * 1024,
                 max_entries: 8192,
@@ -95,9 +100,9 @@ fn framing(source: orishu_plugin::Error) -> DocumentError {
     }
 }
 
-/// Encode a scientific draft, preserving captured bytes and exact declaration
+/// Encode a scientific or standalone-provider-locked draft, preserving captured bytes and exact declaration
 /// evidence. Executables and unrelated plugin contributions are not embedded.
-/// Legacy drafts use the JSON writer; choosing a scientific domain is an edit.
+/// Unlocked legacy drafts use JSON; a lock does not change their domain semantics.
 /// No kernel executes here and no current inventory is consulted.
 pub fn encode(
     document: &ExperimentDocument,
@@ -115,35 +120,15 @@ pub fn encode(
             supported: FORMAT_VERSION,
         });
     }
+    if document.dependencies.is_some() {
+        return locked::encode(document, limits);
+    }
     let setup = document
         .experiment
         .setup
         .scientific()
         .ok_or_else(|| malformed("container requires explicit scientific setup"))?;
-    let description = setup.describe();
-    if description.kernels.len() > limits.scientific.kernels {
-        return Err(limit());
-    }
-    let evidence = setup
-        .declarations()
-        .blobs(&limits.selection.declarations)
-        .map_err(malformed)?;
-    let mut blobs: BTreeMap<_, &[u8]> = evidence
-        .iter()
-        .map(|(id, bytes)| (*id, bytes.as_slice()))
-        .collect();
-    for (id, capture) in setup.captures() {
-        let d = description
-            .kernels
-            .iter()
-            .find(|d| &d.context.instance == id)
-            .expect("constructed capture");
-        blobs.insert(d.context.configuration.digest, &capture.configuration);
-        blobs.insert(d.state.digest, &capture.state);
-        if let (Some(identity), Some(bytes)) = (&d.history_entities, &capture.history_entities) {
-            blobs.insert(identity.digest, bytes);
-        }
-    }
+    let (description, blobs) = capture_blobs(setup, limits)?;
     let root = Container {
         format: FORMAT.into(),
         format_version: CONTAINER_VERSION,
@@ -162,11 +147,49 @@ pub fn encode(
         limit: limits.archive.root_bytes,
     };
     serde_json::to_writer_pretty(&mut writer, &root).map_err(malformed)?;
+    let borrowed = blobs
+        .iter()
+        .map(|(id, bytes)| (*id, bytes.as_ref()))
+        .collect();
     let bytes =
-        archive::pack(Root::Document, &writer.bytes, &blobs, limits.archive).map_err(framing)?;
+        archive::pack(Root::Document, &writer.bytes, &borrowed, limits.archive).map_err(framing)?;
     // A stricter caller policy must not produce an unreadable document.
     decode(&bytes, limits)?;
     Ok(bytes)
+}
+
+type CapturedBlobs = BTreeMap<ArtifactDigest, Arc<[u8]>>;
+fn capture_blobs(
+    setup: &ScientificSetup,
+    limits: ContainerLimits,
+) -> Result<(ScientificDescription, CapturedBlobs), DocumentError> {
+    let description = setup.describe();
+    if description.kernels.len() > limits.scientific.kernels {
+        return Err(limit());
+    }
+    let mut blobs: CapturedBlobs = setup
+        .declarations()
+        .blobs(&limits.selection.declarations)
+        .map_err(malformed)?
+        .into_iter()
+        .map(|(id, bytes)| (id, Arc::from(bytes)))
+        .collect();
+    for (id, capture) in setup.captures() {
+        let d = description
+            .kernels
+            .iter()
+            .find(|d| &d.context.instance == id)
+            .expect("constructed capture");
+        blobs.insert(
+            d.context.configuration.digest,
+            capture.configuration.clone(),
+        );
+        blobs.insert(d.state.digest, capture.state.clone());
+        if let (Some(identity), Some(bytes)) = (&d.history_entities, &capture.history_entities) {
+            blobs.insert(identity.digest, bytes.clone());
+        }
+    }
+    Ok((description, blobs))
 }
 
 struct BoundedWriter {
@@ -204,15 +227,44 @@ pub fn decode(bytes: &[u8], limits: ContainerLimits) -> Result<ExperimentDocumen
             expected: FORMAT,
         });
     }
+    if header.format_version == LOCKED_CONTAINER_VERSION {
+        return locked::decode(archive.root, &archive.blobs, limits);
+    }
     if header.format_version != CONTAINER_VERSION {
         return Err(DocumentError::UnsupportedVersion {
             found: header.format_version,
-            supported: CONTAINER_VERSION,
+            supported: LOCKED_CONTAINER_VERSION,
         });
     }
     metadata::check(archive.root, limits)?;
     let root: Container = serde_json::from_slice(archive.root).map_err(malformed)?;
-    let d = &root.experiment.setup;
+    let setup = restore_scientific(
+        &root.experiment.setup,
+        &archive.blobs,
+        limits,
+        BTreeSet::new(),
+    )?;
+    Ok(ExperimentDocument {
+        dependencies: None,
+        format: FORMAT.into(),
+        format_version: FORMAT_VERSION,
+        metadata: root.metadata,
+        default_view: root.default_view,
+        experiment: StoredExperiment {
+            counters: root.experiment.counters,
+            setup: Setup::Scientific(Arc::new(setup)),
+            objects: root.experiment.objects,
+            variables: root.experiment.variables,
+        },
+    })
+}
+
+fn restore_scientific(
+    d: &ScientificDescription,
+    blobs: &BTreeMap<ArtifactDigest, &[u8]>,
+    limits: ContainerLimits,
+    mut used: BTreeSet<ArtifactDigest>,
+) -> Result<ScientificSetup, DocumentError> {
     if d.api_version != "kagami.scientific-setup/v1" {
         return Err(DocumentError::Invalid {
             source: kagami_document::scientific::ScientificError::Mismatch.into(),
@@ -221,13 +273,12 @@ pub fn decode(bytes: &[u8], limits: ContainerLimits) -> Result<ExperimentDocumen
     if d.kernels.len() > limits.scientific.kernels {
         return Err(limit());
     }
-    let declarations =
-        selected::verify_declarations(d.selection.clone(), &archive.blobs, limits.selection)
-            .map_err(|error| scientific(error.into()))?;
+    let declarations = selected::verify_declarations(d.selection.clone(), blobs, limits.selection)
+        .map_err(|error| scientific(error.into()))?;
     let evidence = declarations
         .blobs(&limits.selection.declarations)
         .map_err(malformed)?;
-    let mut used: BTreeSet<ArtifactDigest> = evidence.keys().copied().collect();
+    used.extend(evidence.keys().copied());
     let mut total = 0usize;
     // Check aggregate references before allocating *any* owned opaque bytes.
     for k in &d.kernels {
@@ -235,8 +286,7 @@ pub fn decode(bytes: &[u8], limits: ContainerLimits) -> Result<ExperimentDocumen
             .into_iter()
             .chain(k.history_entities.iter())
         {
-            let bytes = archive
-                .blobs
+            let bytes = blobs
                 .get(&identity.digest)
                 .ok_or_else(|| malformed("referenced scientific blob is absent"))?;
             if identity.byte_length != bytes.len() as u64 {
@@ -252,10 +302,10 @@ pub fn decode(bytes: &[u8], limits: ContainerLimits) -> Result<ExperimentDocumen
             used.insert(identity.digest);
         }
     }
-    if used.len() != archive.blobs.len() || archive.blobs.keys().any(|id| !used.contains(id)) {
+    if used.len() != blobs.len() || blobs.keys().any(|id| !used.contains(id)) {
         return Err(malformed("container contains unrelated blobs"));
     }
-    for (digest, bytes) in &archive.blobs {
+    for (digest, bytes) in blobs {
         if !digest.matches(bytes) {
             return Err(malformed("container blob digest mismatch"));
         }
@@ -265,7 +315,7 @@ pub fn decode(bytes: &[u8], limits: ContainerLimits) -> Result<ExperimentDocumen
     let mut get = |id: ArtifactDigest| {
         owned
             .entry(id)
-            .or_insert_with(|| Arc::from(archive.blobs[&id]))
+            .or_insert_with(|| Arc::from(blobs[&id]))
             .clone()
     };
     let captures = d
@@ -293,16 +343,5 @@ pub fn decode(bytes: &[u8], limits: ContainerLimits) -> Result<ExperimentDocumen
     if setup.describe() != *d {
         return Err(malformed("captured scientific descriptors disagree"));
     }
-    Ok(ExperimentDocument {
-        format: FORMAT.into(),
-        format_version: FORMAT_VERSION,
-        metadata: root.metadata,
-        default_view: root.default_view,
-        experiment: StoredExperiment {
-            counters: root.experiment.counters,
-            setup: Setup::Scientific(Arc::new(setup)),
-            objects: root.experiment.objects,
-            variables: root.experiment.variables,
-        },
-    })
+    Ok(setup)
 }
