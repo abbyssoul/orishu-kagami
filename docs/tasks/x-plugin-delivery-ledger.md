@@ -69,7 +69,8 @@ choices, object-edit history regeneration, explicit component replacement and na
 single-template creation. Do not reimplement these from older checkpoint handoffs.
 Remaining work includes general compound/migration and catalog-editing/headless
 adapters, gesture/configuration-variable effects, other shell pending-effect/IO
-reservations, complete run visualization and durable client recovery. Coordinate
+reservations and complete run visualization. Durable client recovery is
+implemented (see the 2026-10-09 checkpoint). Coordinate
 MCP adoption with its separate owner. Source v2 also closes the explicit local
 alias/topological-lowering gap; remaining management hardening stays below.
 Headless captured-file export and worker delivery/manual control are implemented;
@@ -3875,3 +3876,32 @@ The [source format](../plugin-source-v2.md), authoring guide, ADR 0027, architec
 context, task and roadmap now record this delivered gate. Remaining inventory crash
 injection/non-Unix IO, authoring adapters and runtime/recovery/delivery gates stay
 open. The overall goal remains active.
+
+### Durable Kagami client run intent — 2026-10-09
+
+K-RUN slice 3 is implemented under [ADR 0033](../adr/0033-persist-kagami-client-run-intent.md)
+and the [run-intent format](../kagami-run-intents-v1.md). The window records each
+submission (frozen bytes first, then the ledger) and each run command before it
+sends it, and records the validated reply afterwards. A restart restores the
+recorded operations and sends nothing. Reconcile and resubmit keep the original
+identity; a restored upload sends stored bytes only after closure/root
+verification. Recorded intent for another worker address is refused with the
+`--host` that reconciles it. A second instance, full or read-only storage, a
+damaged or newer record and an incomplete write disable submit and run commands
+with a specific tooltip reason. Observation stays available.
+
+Supporting changes: descriptor-relative file IO moved to `crate::files` with a
+neutral error that keeps the OS error; `Controller::check`/`check_submit` are the
+single source of action availability; the dev profile optimizes dependencies
+(`opt-level = 2`, line-table debug info). Debug Wasmtime/Cranelift previously made
+the real-Component Kagami suite exceed its deadlines under the default runner,
+and full dependency debug info made the test build about 50 GB. A lock-retake
+test race with process-spawning tests is serialized by `files::faults::serial`.
+
+Validation: `make check` passed before this slice (2,088 tests). The slice adds
+ledger, journal (including 15 SIGKILL cuts and injected failures at every write
+barrier), controller and window-flow tests; Kagami all-target tests, Clippy and
+the renderer smoke passed. The real-worker window journey now includes three
+restart cases. Manual window verification of the tooltips is outstanding. No
+worker, wire, workload or kernel format changed. Non-Unix builds disable
+submission and run commands; they were not compiled locally.

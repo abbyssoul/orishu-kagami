@@ -50,6 +50,8 @@ Start here:
 - [Identified run-command receipts v1](run-command-receipts-v1.md) — shared guarded
   step/terminal-finish facts, separate journal and internal daemon coordinator;
   historical outcomes independent of live status.
+- [Kagami run intents v1](kagami-run-intents-v1.md) — the local write-ahead journal
+  that restores Kagami submissions and run commands after a restart.
 - [Scientific-command HTTP v1](protocol-scientific-command-v1.md) — opt-in
   authenticated step/terminal-finish, receipt/status routes and shared client.
 - [Scientific-load HTTP v1](protocol-scientific-load-v1.md) — opt-in authenticated

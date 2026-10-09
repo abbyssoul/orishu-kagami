@@ -107,9 +107,17 @@ does not provision or lock it. A lost reply retains the original operation and
 frozen bytes for **Reconcile original load** or **Resubmit identical frozen
 workload**. Do not equate Pending or missing history with refusal. New preparation
 is blocked until final submission history is explicitly cleared. Clearing history
-is local and does not stop or unload the worker. Load recovery is currently
-memory-only: export a copy before submission if durable retry material is needed,
-and record the displayed identity before closing with an unresolved operation.
+is local and does not stop or unload the worker.
+
+Kagami records each submission (with its frozen bytes) and each run command in
+a local journal before it sends it. The journal is in `KAGAMI_RUN_STATE_DIR`,
+else `$XDG_STATE_HOME/kagami/runs`, else `~/.local/state/kagami/runs`. It holds
+no credential. After a restart, the panel shows the recorded operations and
+sends nothing automatically; reconcile or resubmit them explicitly. Only one
+Kagami instance can hold the journal. Another instance, a full or read-only
+disk, or a damaged record disables submission and run commands, and the
+disabled buttons show the reason. Observation stays available. See
+[Kagami run intents v1](../../docs/kagami-run-intents-v1.md).
 
 After an Accepted receipt, **Inspect accepted run** checks that exact execution,
 then **Observe this exact run** enters Observation. The panel distinguishes its

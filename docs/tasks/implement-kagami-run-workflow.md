@@ -4,9 +4,10 @@ Status: **in progress**. Headless export/load/control/read adapters and initial
 window attachment/numeric reads/manual controls are implemented. Unix window
 captured-revision preparation, new-file export and identified upload/reconciliation
 are implemented, together with committed-object 3D position markers and one-shot
-numeric field descriptor/channel/point queries with normalized direction glyphs. Capability
-negotiation, durable client recovery, field/instrument rendering and complete
-local/proxy parity remain open. Work package: **K-RUN**.
+numeric field descriptor/channel/point queries with normalized direction glyphs. Durable
+client recovery of window submissions and run commands is implemented (slice 3).
+Capability negotiation, field/instrument rendering and complete local/proxy parity
+remain open. Work package: **K-RUN**.
 
 ## Outcome and authorities
 
@@ -50,11 +51,10 @@ Return restores the untouched open draft
 and sends no worker command. Remote finish is separate and visibly terminal.
 
 Credentials/TLS inputs are process-local launch options. Nothing connects on
-startup without a user run action. Command reconciliation intent currently lives
-only in memory; the panel exposes the operation/run/boundary and warns to record
-it before closing. Durable client recovery remains an explicit slice below, not a
-claim implied by the server's durable journal. No automatic command retries,
-formation locks, run replacement or provider substitution are permitted.
+startup without a user run action. Submission and command intent is recorded in
+the durable client journal before it is sent; see the slice 3 checkpoint below.
+No automatic command retries, formation locks, run replacement or provider
+substitution are permitted.
 
 ## Window field-query checkpoint
 
@@ -116,8 +116,51 @@ and 128 MiB final archive, plus bounded document/projection/codec intermediates.
 The one upload lane retains that archive and makes at most one additional 128 MiB
 cold IO copy for the shared ownership-taking client. These are explicit local
 budgets, not an aggregate RSS guarantee. A submitted bundle blocks new preparation
-until its final history is explicitly cleared. Client intent/bytes and source
-incarnation are memory-only, never credentials or new workload identity fields.
+until its final history is explicitly cleared. Client intent, bytes and source
+incarnation are client journal state, never credentials or new workload identity
+fields.
+
+## Durable client intent checkpoint (slice 3)
+
+[ADR 0033](../adr/0033-persist-kagami-client-run-intent.md) and the
+[run-intent format](../kagami-run-intents-v1.md) record the decision and format.
+`run::intents` is the pure ledger and codec; `run::journal` is the Unix storage;
+`run::Recovery` connects the window controller to it.
+
+- The controller records a submission (bytes first, then ledger) or a run command
+  on its job thread before it sends anything. It records the validated reply
+  afterwards. The window mirrors the durable ledger. A reply that cannot be
+  recorded keeps the operation unresolved and says so.
+- After a restart, the panel restores recorded operations and sends nothing.
+  Reconcile and resubmit keep the original identity. A restored upload sends the
+  stored bytes only after full closure/root verification.
+- An operation recorded for another worker address is shown but refused, with
+  the `--host` value that reconciles it.
+- One process holds the journal. A second instance, full or read-only storage,
+  a damaged or newer record, and a write that did not complete disable submit
+  and run commands with a specific reason. Observation stays available.
+- `Controller::check` and `check_submit` give one reason per unavailable action.
+  The panel shows it in a tooltip, and `act` refuses with the same text.
+- The accepted submission keeps its source incarnation/revision across restarts
+  until it is cleared, so exact-run lineage is durable for that period.
+
+Evidence: ledger codec/transition tests; journal tests for reopen, a second
+instance, damaged/newer/oversized records, refused transitions, cleanup, an
+injected failure and a real SIGKILL at each of 15 write barriers, and storage
+error classification including a real permission-denied directory; controller
+tests for reasons and restoration bound to its worker; the window lost-reply
+flow across a restart (no credential or credential path in the record, a second
+instance refused, resubmission of stored bytes); and the real-worker window
+journey with three restart cases (restored lineage, a command applied before
+its reply was recorded, and a command recorded but not sent).
+
+Limits: the journal holds one submission and one command. It is Unix-only.
+Credential rotation needs no journal change, because the journal holds no
+credential and each request reads the token file; there is no dedicated
+rotation test. Window close needs no special treatment, because intent is
+already durable. Kagami without writable storage cannot submit or control runs;
+a volatile mode for read-only media is a possible future change at
+`Journal::open`.
 
 ## Remaining bounded slices
 
@@ -128,16 +171,12 @@ incarnation are memory-only, never credentials or new workload identity fields.
    choice UI and unsupported-emitter diagnostics without implicit migration.
 2. **Submission lineage and connection capability.** Retain the association between
    submitted document revision and accepted run without making it editable run
-   state. The session currently retains local incarnation/revision and exact
-   accepted-descriptor association. Extend that association to durable recovery
-   without mistaking a successor draft for the submitted one. Check supported
-   client/scientific profiles explicitly; report a
+   state. The client journal now keeps the source incarnation/revision and exact
+   accepted-descriptor association across restarts until the user clears the
+   submission. Keep lineage after clearing only through a reviewed history
+   design. Check supported client/scientific profiles explicitly; report a
    formation-only worker without pretending connectivity implies execution.
-3. **Durable client intent recovery.** Define a bounded process-local connection/
-   operation journal outside experiment/workload identity, without credentials.
-   Restore exact pending intent after restart; never mint replacement IDs or
-   infer acceptance from status. Add close/disconnect treatment and corruption,
-   crash, credential-rotation and multiple-window tests. Preserve server authority.
+3. **Durable client intent recovery.** Implemented; see the checkpoint above.
 4. **Render projection and instruments.** Initial bounded position markers and
    SceneScale omission reporting are implemented. Extend presentation records with
    stable picking/follow identities and physical shapes when schemas supply them.

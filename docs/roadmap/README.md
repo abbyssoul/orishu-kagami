@@ -114,8 +114,9 @@ Recheck the affected task's source and acceptance evidence before assigning work
   to externally submitted runs displays numeric objects/forces and supports
   manual step/finish/reconciliation. Unix window captured-document preparation,
   export and identified submission are also implemented. Committed-object position
-  markers now provide the initial 3D projection; field visualization, streaming,
-  durable client recovery and playback remain open; see [K-RUN](../tasks/implement-kagami-run-workflow.md).
+  markers now provide the initial 3D projection. Window submissions and run
+  commands are recorded durably and restored after a restart. Field visualization,
+  streaming and playback remain open; see [K-RUN](../tasks/implement-kagami-run-workflow.md).
 - Workload, catalog and MCP foundations have implemented slices; their work-package
   rows below distinguish remaining integration. Resumable observation streaming
   and historical playback are not implemented by one-shot scientific reads.
@@ -266,7 +267,7 @@ slices and acceptance criteria before implementation begins.
 | O-ARTIFACT-ADMIN | [Node artifact inventory, pre-positioning, safe eviction/purge and digest admission policy](../tasks/implement-artifact-cache-administration.md) | O/P/N | Backlog follow-up to workload delivery; security/protocol design gates remain open; does not expand X-PLUGIN local-package MVP or imply worker plugin installation | O-STORAGE; S-WORKLOAD; O-RUNTIME; O-API-SHAPE/O-CLIENT; N-TRANSFER/N-PURGE; CLI/TUI adapters coordinated with P-MONITOR |
 | O-API-SHAPE | Resolve imported [client-API compaction findings](../orishu-runtime-future-work.md#client-api-compaction-review) and version the initial resource surface | O/P/S | **Decision/task specification required before O-CLIENT**; the `metadata.uid` spelling is decided and implemented (`ResourceUid`, node resources project their `NodeId`) | S-IDENTITY; runtime data model; storage authority model |
 | O-CLIENT | Implement authenticated client API and align `orishuctl` with real server behavior | O/P | **Task specification required** | O-API-SHAPE; O-RUNTIME; O-STORAGE; S-OBSERVE |
-| K-RUN | [Kagami authoring, submission and run observation](../tasks/implement-kagami-run-workflow.md) | K/V | In progress: headless export/submission, captured-revision window preparation/export/submission, external-run attachment, numeric object observations, bounded 3D position markers, one-shot exact-boundary field inspection/point sampling, explicitly mapped normalized direction glyphs and manual controls/reconciliation implemented. Capability negotiation, durable client recovery, field flow lines/magnitude mapping, instruments and local/proxy parity remain | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
+| K-RUN | [Kagami authoring, submission and run observation](../tasks/implement-kagami-run-workflow.md) | K/V | In progress: headless export/submission, captured-revision window preparation/export/submission, external-run attachment, numeric object observations, bounded 3D position markers, one-shot exact-boundary field inspection/point sampling, explicitly mapped normalized direction glyphs and manual controls/reconciliation and durable client recovery ([ADR 0033](../adr/0033-persist-kagami-client-run-intent.md)) implemented. Capability negotiation, field flow lines/magnitude mapping, instruments and local/proxy parity remain | K-DOCUMENT; S-WORKLOAD; O-CLIENT; S-OBSERVE |
 | K-PREVIEW | Local preview of a supported pinned workload through the same sandbox lifecycle and observation semantics | K/O/V | **Task specification required** | K-DOCUMENT; S-WORKLOAD; O-WASM; S-OBSERVE; coordinate projection interface with K-RUN |
 | V-LIVE | [Resumable live observation streaming](../tasks/implement-resumable-observation-streaming.md) slices 3–6 | V/O | Ready after shared frame types | S-OBSERVE; O-RUNTIME; O-CLIENT |
 | V-REPLAY | [Time-addressable run playback](../tasks/implement-time-addressable-run-playback.md) | V/O/K | Ready after stored observations | S-OBSERVE; O-STORAGE; O-CLIENT; K-RUN |

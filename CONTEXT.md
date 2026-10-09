@@ -207,8 +207,12 @@ attribution. Explicit scientific startup now opens both journals and serves
 The shared client correlates these facts without retry or identity substitution;
 Kagami headless and initial window manual controls now use these shared methods;
 complete observation-stream delivery/adoption remains open. Window detach sends
-no worker command, and pending command intent survives detach in memory. Durable
-client recovery remains [K-RUN work](docs/tasks/implement-kagami-run-workflow.md).
+no worker command. Kagami records each window submission and run command in a
+local [run-intent journal](docs/kagami-run-intents-v1.md) before it sends it
+(ADR 0033). The journal is client state outside the experiment and the workload
+identity, and it holds no credential. After a restart, Kagami restores the
+recorded operations for explicit reconciliation and sends nothing automatically.
+Without a usable journal, Kagami observes runs but cannot submit or control them.
 Unix window preparation now freezes one captured revision and selected closure
 under document/incarnation/inventory guards. Explicit new-file export and load
 submission consume those bytes without re-selection or initialization. Pending

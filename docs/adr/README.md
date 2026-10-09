@@ -37,3 +37,4 @@ consequences, and status.
 - [0030 — Retain durable worker load receipts before admission](0030-retain-durable-worker-load-receipts.md) (**accepted implementation refinement; Unix journal and daemon coordinator implemented**)
 - [0031 — Expose bounded identified scientific load over opt-in HTTP](0031-expose-bounded-identified-scientific-load-http.md) (**accepted; load/receipt/current-run routes implemented; public stepping and observations remain open**)
 - [0032 — Retain identified run-command outcomes before execution](0032-retain-identified-run-command-outcomes.md) (**shared facts, Unix journal, daemon coordination, opt-in HTTP, shared client and Kagami headless controls implemented; window controls remain gated**)
+- [0033 — Persist Kagami client run intent outside experiment and workload identity](0033-persist-kagami-client-run-intent.md) (**accepted; Unix journal and window integration implemented**)
