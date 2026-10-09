@@ -11,6 +11,7 @@ use orishu::{
 use std::{path::PathBuf, sync::Arc, thread::JoinHandle};
 pub mod fields;
 pub mod geometry;
+pub mod intents;
 
 /// Process-local connection inputs, never persisted in experiment/run metadata.
 #[derive(Clone, Debug)]
