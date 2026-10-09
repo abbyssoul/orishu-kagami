@@ -1,6 +1,20 @@
 //! Test-only, per-thread publication barriers. No production environment switch.
 use super::Error;
-use std::{cell::RefCell, io::Write};
+use std::{
+    cell::RefCell,
+    io::Write,
+    sync::{Mutex, MutexGuard, PoisonError},
+};
+
+/// A spawned child briefly shares this process's descriptor table until `exec`
+/// closes CLOEXEC descriptors. A lock that a parallel test released can still
+/// be held through that child's copy, so an immediate retry reports Busy.
+/// Tests that spawn processes and tests that release and retake a lock hold
+/// this guard.
+static SPAWN_SERIAL: Mutex<()> = Mutex::new(());
+pub(crate) fn serial() -> MutexGuard<'static, ()> {
+    SPAWN_SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {

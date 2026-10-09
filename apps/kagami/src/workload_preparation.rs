@@ -16,7 +16,7 @@ use std::{
 };
 
 const INPUT_BYTES: usize = 128 * 1024 * 1024;
-const BUNDLE_BYTES: usize = 128 * 1024 * 1024;
+pub(crate) const BUNDLE_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {

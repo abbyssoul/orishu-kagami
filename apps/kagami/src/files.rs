@@ -69,6 +69,9 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Name prefix of an unpublished file. Readers never treat it as content.
+const STAGING_PREFIX: &str = ".stage-";
+
 fn os(error: rustix::io::Errno) -> Error {
     std::io::Error::from(error).into()
 }
@@ -132,6 +135,46 @@ impl Directory {
         )
         .map_err(os)?;
         Ok(Self(File::from(fd)))
+    }
+    /// Names of at most `max` entries, without `.` and `..`. A larger directory
+    /// is refused rather than listed in part.
+    pub(crate) fn names(&self, max: usize) -> Result<Vec<std::ffi::OsString>, Error> {
+        use std::os::unix::ffi::OsStrExt;
+        let mut names = Vec::new();
+        for entry in fs::Dir::read_from(&self.0).map_err(os)? {
+            let entry = entry.map_err(os)?;
+            let name = entry.file_name().to_bytes();
+            if name == b"." || name == b".." {
+                continue;
+            }
+            if names.len() == max {
+                return Err(limit());
+            }
+            names.push(OsStr::from_bytes(name).to_owned());
+        }
+        Ok(names)
+    }
+    /// Remove one non-directory entry and flush the directory. An absent name is
+    /// not an error.
+    pub(crate) fn remove(&self, name: &OsStr) -> Result<(), Error> {
+        single(name)?;
+        match fs::unlinkat(&self.0, name, AtFlags::empty()) {
+            Ok(()) | Err(rustix::io::Errno::NOENT) => (),
+            Err(e) => return Err(os(e)),
+        }
+        self.0.sync_all()?;
+        Ok(())
+    }
+    /// Remove staging files that an interrupted publication left. Call this only
+    /// while holding the exclusive lock of every writer in this directory.
+    pub(crate) fn remove_staging(&self, max: usize) -> Result<(), Error> {
+        use std::os::unix::ffi::OsStrExt;
+        for name in self.names(max)? {
+            if name.as_bytes().starts_with(STAGING_PREFIX.as_bytes()) {
+                self.remove(&name)?;
+            }
+        }
+        Ok(())
     }
     fn parent(&self, path: &Path) -> Result<(Self, std::ffi::OsString), Error> {
         let mut parts = path.components().peekable();
@@ -242,7 +285,7 @@ impl Directory {
     }
     fn publish(&self, name: &str, bytes: &[u8], replace: bool) -> Result<(), Error> {
         single(name.as_ref())?;
-        let temp = format!(".stage-{}", uuid::Uuid::new_v4());
+        let temp = format!("{STAGING_PREFIX}{}", uuid::Uuid::new_v4());
         let fd = fs::openat(
             &self.0,
             temp.as_str(),

@@ -1,22 +1,13 @@
 //! Real process interruption and injected-IO evidence at publication barriers.
 //! Process death does not simulate loss of the kernel's page cache or power loss.
 use super::*;
-use crate::files::faults::{self, Action, Event, Phase};
+use crate::files::faults::{self, Action, Event, Phase, serial};
 use std::{
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
-    sync::{Mutex, MutexGuard, PoisonError, mpsc},
+    sync::mpsc,
     time::Duration,
 };
-
-/// A spawned child briefly shares this process's descriptor table until `exec`
-/// closes CLOEXEC descriptors. An inventory lock released by a parallel test can
-/// therefore still be held by that child's copy and refuse an immediate retry
-/// with Busy. Serialize lock-sensitive tests with the spawning tests.
-static SPAWN_SERIAL: Mutex<()> = Mutex::new(());
-fn serial() -> MutexGuard<'static, ()> {
-    SPAWN_SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 fn package(version: u8) -> Package {
     let limits = Limits::default();
