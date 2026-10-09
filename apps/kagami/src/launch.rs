@@ -14,6 +14,8 @@ pub struct LaunchOptions {
     pub operator_token_file: Option<PathBuf>,
     /// Additional worker TLS trust for this process only.
     pub ca_cert: Option<PathBuf>,
+    /// Durable run-intent journal, or why submissions and commands are off.
+    pub run_recovery: crate::run::Recovery,
     /// Quit by itself after this long, instead of running until the window
     /// closes — for automated testing on a machine where a windowed run has
     /// previously misbehaved.

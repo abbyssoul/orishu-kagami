@@ -573,6 +573,7 @@ fn window_model(socket: &Path, token: &Path) -> kagami::model::Model {
     kagami::model::Model::new(kagami::launch::LaunchOptions {
         cluster_address: orishu::client::ClusterAddress::UnixSocket(socket.into()),
         operator_token_file: Some(token.into()),
+        run_recovery: kagami::run::Recovery::open(&token.parent().unwrap().join("runs")),
         ..Default::default()
     })
 }

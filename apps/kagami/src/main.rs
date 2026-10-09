@@ -124,7 +124,15 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Only an instance with run access records intent, so another instance
+    // without it never holds the journal lock.
+    let run_recovery = if cli.operator_token_file.is_some() {
+        kagami::run::Recovery::open_default()
+    } else {
+        Default::default()
+    };
     let options = LaunchOptions {
+        run_recovery,
         cluster_address: cli.host.unwrap_or_default(),
         operator_token_file: cli.operator_token_file,
         ca_cert: cli.ca_cert,

@@ -212,13 +212,16 @@ impl Model {
                 options.scientific_plugins.clone(),
             ),
             run_attach_guard: None,
-            run: crate::run::Controller::new(options.operator_token_file.map(|token_file| {
-                crate::run::Connection {
-                    address: options.cluster_address.clone(),
-                    token_file,
-                    ca_cert: options.ca_cert,
-                }
-            })),
+            run: crate::run::Controller::new(
+                options
+                    .operator_token_file
+                    .map(|token_file| crate::run::Connection {
+                        address: options.cluster_address.clone(),
+                        token_file,
+                        ca_cert: options.ca_cert,
+                    }),
+                options.run_recovery,
+            ),
             #[cfg(unix)]
             inventory_revision: options.scientific_plugins.as_ref().map(|p| p.revision),
             #[cfg(unix)]

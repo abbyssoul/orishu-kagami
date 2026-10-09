@@ -3,7 +3,7 @@
 use kagami::{
     message::{Message, WorkspaceIntent},
     model::Model,
-    run::{Action, Connection, Controller},
+    run::{Action, Connection, Controller, Recovery},
     update::update,
     workload_preparation::Action as Workload,
 };
@@ -34,6 +34,24 @@ fn poll(model: &mut Model) {
 fn action(model: &mut Model, action: Action) {
     let _ = update(model, Message::Run(action));
     poll(model);
+}
+
+/// Open the journal as a restarted process would. A process that the worker
+/// test spawns in parallel can hold a copy of the released lock descriptor
+/// until its `exec`, so a brief InUse is retried.
+fn reopen(path: &std::path::Path) -> Recovery {
+    let end = Instant::now() + Duration::from_secs(5);
+    loop {
+        let recovery = Recovery::open(path);
+        match &recovery {
+            Recovery::Unavailable(reason)
+                if reason.contains("Another Kagami instance") && Instant::now() < end =>
+            {
+                std::thread::sleep(Duration::from_millis(10))
+            }
+            _ => return recovery,
+        }
+    }
 }
 
 fn plugins(model: &mut Model, action: kagami::plugins::window::Action) {
@@ -154,11 +172,23 @@ pub fn lost_reply(model: &mut Model, expected: &[u8]) {
             stream.write_all(&bytes).unwrap();
         }
     });
-    model.run = Controller::new(Some(Connection {
+    let journal = dir.path().join("runs");
+    let connection = Connection {
         address: ClusterAddress::UnixSocket(socket),
-        token_file: token,
+        token_file: token.clone(),
         ca_cert: None,
-    }));
+    };
+    model.run = Controller::new(Some(connection.clone()), Recovery::open(&journal));
+    // A second instance observes only; it explains why it cannot submit.
+    let other = Controller::new(Some(connection.clone()), Recovery::open(&journal));
+    assert!(
+        other
+            .check_submit()
+            .unwrap_err()
+            .contains("Another Kagami instance")
+    );
+    assert!(other.check(&Action::Discover).is_ok());
+    drop(other);
     let _ = update(
         model,
         Message::Workload(Workload::Formation("formation-a".into())),
@@ -167,6 +197,39 @@ pub fn lost_reply(model: &mut Model, expected: &[u8]) {
     poll(model);
     let original = model.run.submission().unwrap().request.clone();
     assert!(model.run.submission().unwrap().unresolved());
+    let recorded = std::fs::read(journal.join("intents.json")).unwrap();
+    let contains = |needle: &[u8]| recorded.windows(needle.len()).any(|w| w == needle);
+    assert!(contains(
+        String::from(original.operation_id().clone()).as_bytes()
+    ));
+    assert!(!contains("a".repeat(64).as_bytes()), "no credential");
+    assert!(
+        !contains(token.as_os_str().as_encoded_bytes()),
+        "no credential path"
+    );
+
+    // Restart. Against another worker, the recovered intent is shown but not
+    // reconciled; against the same worker, it is restored without its bytes in
+    // memory, and nothing is sent automatically.
+    model.run = Controller::new(None, Recovery::default());
+    let elsewhere = Connection {
+        address: ClusterAddress::UnixSocket(dir.path().join("other.sock")),
+        ..connection.clone()
+    };
+    model.run = Controller::new(Some(elsewhere), reopen(&journal));
+    assert_eq!(model.run.submission().unwrap().request, original);
+    assert!(
+        model
+            .run
+            .check(&Action::ReconcileLoad)
+            .unwrap_err()
+            .contains("--host")
+    );
+    model.run = Controller::new(None, Recovery::default());
+    model.run = Controller::new(Some(connection), reopen(&journal));
+    assert_eq!(model.run.submission().unwrap().request, original);
+    assert!(model.run.notice.contains("Recovered"));
+    assert!(!model.run.is_pending());
     let _ = update(
         model,
         Message::Workload(Workload::Name("changed-after-submit".into())),
@@ -200,6 +263,9 @@ pub fn lost_reply(model: &mut Model, expected: &[u8]) {
     action(model, Action::ClearLoad);
     assert!(model.run.submission().is_none());
     server.join().unwrap();
+    let recorded: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(journal.join("intents.json")).unwrap()).unwrap();
+    assert!(recorded["load"].is_null());
     let _ = update(
         model,
         Message::Workload(Workload::Name("ui-created".into())),
@@ -281,7 +347,10 @@ pub fn real_worker(model: &mut Model) {
         token_file: token,
         ca_cert: None,
     };
-    model.run = Controller::new(Some(connection.clone()));
+    model.run = Controller::new(
+        Some(connection.clone()),
+        Recovery::open(&dir.path().join("runs")),
+    );
     let before = model.document.snapshot().clone();
     let view = model.document.authoring_view();
     let root = model

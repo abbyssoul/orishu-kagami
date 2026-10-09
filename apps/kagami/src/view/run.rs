@@ -5,18 +5,38 @@ use crate::{
 };
 use iced::{
     Element, Length,
-    widget::{button, column, container, row, scrollable, text},
+    widget::{button, column, container, row, scrollable, text, tooltip},
 };
 mod fields;
 
-fn control(label: &'static str, action: Action, enabled: bool) -> Element<'static, Message> {
-    button(text(label))
-        .on_press_maybe(enabled.then_some(Message::Run(action)))
-        .into()
+/// A run action. A disabled action explains itself in a tooltip.
+fn control<'a>(
+    label: &'a str,
+    action: Action,
+    availability: Result<(), &'a str>,
+) -> Element<'a, Message> {
+    available(button(text(label)), Message::Run(action), availability)
+}
+fn available<'a>(
+    button: iced::widget::Button<'a, Message>,
+    message: Message,
+    availability: Result<(), &'a str>,
+) -> Element<'a, Message> {
+    match availability {
+        Ok(()) => button.on_press(message).into(),
+        Err(reason) => tooltip(
+            button,
+            container(text(reason).size(12))
+                .padding(6)
+                .max_width(320)
+                .style(container::rounded_box),
+            tooltip::Position::Bottom,
+        )
+        .into(),
+    }
 }
 pub(super) fn panel(model: &Model) -> Element<'_, Message> {
     let run = &model.run;
-    let ready = run.configured() && !run.is_pending();
     let lineage = run.source_revision().map(|revision| format!("Submitted from this session's captured revision {revision}. The current draft may have changed since submission."))
         .unwrap_or_else(|| "External or unassociated run. The open draft is not claimed as its initial conditions.".into());
     let mut content = column![
@@ -32,14 +52,18 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
     }
     if !run.configured() {
         content = content.push(text("Enable access at launch with --operator-token-file (and --ca-cert for extra TLS trust).").size(12));
+    } else if let Some(reason) = run.recording_blocked() {
+        content = content.push(
+            text(format!(
+                "Submissions and run commands are disabled; observation stays available. {reason}"
+            ))
+            .size(12),
+        );
     }
     content = content.push(control(
         "Inspect retained run",
         Action::Discover,
-        ready
-            && !run.attached()
-            && run.command().is_none()
-            && !run.submission().is_some_and(|s| s.unresolved()),
+        run.check(&Action::Discover),
     ));
     if let Some(status) = run.status() {
         let identity = status.descriptor().identity();
@@ -48,10 +72,11 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
             content = content.push(control(
                 "Observe this exact run",
                 Action::Observe,
-                ready
-                    && model.is_authoring()
-                    && run.command().is_none()
-                    && !run.submission().is_some_and(|s| s.unresolved()),
+                if model.is_authoring() {
+                    run.check(&Action::Observe)
+                } else {
+                    Err("Return to the authoring document first.")
+                },
             ));
         }
     }
@@ -69,21 +94,21 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
             .size(11),
         );
         if load.unresolved() {
-            content = content.push(control("Reconcile original load", Action::ReconcileLoad, ready))
-                .push(control("Resubmit identical frozen workload", Action::ResubmitLoad, ready))
-                .push(text("Load intent and frozen bytes are currently memory-only. Record the exact formation/operation/workload before closing. A lost reply is not a refusal.").size(11));
+            content = content.push(control("Reconcile original load", Action::ReconcileLoad, run.check(&Action::ReconcileLoad)))
+                .push(control("Resubmit identical frozen workload", Action::ResubmitLoad, run.check(&Action::ResubmitLoad)))
+                .push(text(format!("Recorded with its frozen bytes for worker {}. After a restart, Kagami restores it for explicit reconciliation. A lost reply is not a refusal.", load.target.address())).size(11));
         } else if !run.attached() {
             if load.accepted().is_some() {
                 content = content.push(control(
                     "Inspect accepted run",
                     Action::InspectLoaded,
-                    ready,
+                    run.check(&Action::InspectLoaded),
                 ));
             }
             content = content.push(control(
                 "Clear final submission history",
                 Action::ClearLoad,
-                ready,
+                run.check(&Action::ClearLoad),
             ));
         }
     }
@@ -91,8 +116,8 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
         content = content
             .push(
                 row![
-                    control("3D positions", Action::NumericView(false), true),
-                    control("Numeric table", Action::NumericView(true), true)
+                    control("3D positions", Action::NumericView(false), Ok(())),
+                    control("Numeric table", Action::NumericView(true), Ok(()))
                 ]
                 .spacing(6),
             )
@@ -102,8 +127,8 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
                 Some(model.current_view().scale()),
                 |s| crate::message::ClientLocal::SetScale(s).into(),
             ));
-        content = content.push(control("Refresh committed values", Action::Refresh, ready))
-            .push(row![control("Step once", Action::Step, run.can_control()), control("Finish run", Action::Finish, run.can_control())].spacing(6))
+        content = content.push(control("Refresh committed values", Action::Refresh, run.check(&Action::Refresh)))
+            .push(row![control("Step once", Action::Step, run.check(&Action::Step)), control("Finish run", Action::Finish, run.check(&Action::Finish))].spacing(6))
             .push(text("Finish is terminal, not pause. These controls change the remote run for every observer.").size(12))
             .push(button(text("Return to open authoring document")).on_press(WorkspaceIntent::EditInitialConditions.into()))
             .push(fields::view(model));
@@ -122,10 +147,10 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
             .push(control(
                 "Reconcile original command",
                 Action::Reconcile,
-                ready,
+                run.check(&Action::Reconcile),
             ))
-            .push(control("Resubmit identical original intent", Action::ResubmitOriginal, ready))
-            .push(text("Record this intent before closing: client reconciliation state is currently in-memory only. Resubmission keeps its original identity and precondition.").size(11));
+            .push(control("Resubmit identical original intent", Action::ResubmitOriginal, run.check(&Action::ResubmitOriginal)))
+            .push(text("This command is recorded. After a restart, Kagami restores it for explicit reconciliation. Resubmission keeps its original identity and precondition.").size(11));
     }
     if let Some(receipt) = run.receipt() {
         content = content.push(
@@ -138,7 +163,7 @@ pub(super) fn panel(model: &Model) -> Element<'_, Message> {
         );
     }
     if !run.attached() {
-        content = content.push(control("Close panel", Action::Close, true));
+        content = content.push(control("Close panel", Action::Close, Ok(())));
     }
     container(scrollable(content))
         .padding(10)
@@ -156,12 +181,20 @@ fn preparation(model: &Model) -> Element<'_, Message> {
     let mut content = column![
         text("Prepare the open experiment").size(15),
         text_input("Workload name", &p.name).on_input(|v| Message::Workload(W::Name(v))),
-        button(text("Prepare captured revision")).on_press_maybe(
-            (p.configured()
-                && !p.is_pending()
-                && !model.run.is_pending()
-                && model.run.submission().is_none())
-            .then_some(Message::Workload(W::Prepare))
+        available(
+            button(text("Prepare captured revision")),
+            Message::Workload(W::Prepare),
+            if !p.configured() {
+                Err("No plugin inventory is open, so no workload can be prepared.")
+            } else if p.is_pending() || model.run.is_pending() {
+                Err("Another request is in progress. Wait until it completes.")
+            } else if model.run.submission().is_some_and(|s| s.unresolved()) {
+                Err("Reconcile the recorded submission first.")
+            } else if model.run.submission().is_some() {
+                Err("Clear the final submission history before you prepare another workload.")
+            } else {
+                Ok(())
+            },
         ),
         text(&p.notice).size(12),
     ]
@@ -175,7 +208,17 @@ fn preparation(model: &Model) -> Element<'_, Message> {
             .push(button(text("Export frozen workload…")).on_press_maybe((!p.is_pending()).then_some(Message::Workload(W::Export))))
             .push(text_input("Exact target formation ID", &p.formation).on_input(|v| Message::Workload(W::Formation(v))))
             .push(text("Submit sends this exact workload. The worker must already be locked and scientifically enabled; Kagami never locks it automatically.").size(11))
-            .push(button(text("Submit frozen workload")).on_press_maybe((!p.is_pending() && model.run.can_submit() && p.formation.parse::<orishu::model::cluster::FormationId>().is_ok()).then_some(Message::Workload(W::Submit))));
+            .push(available(
+                button(text("Submit frozen workload")),
+                Message::Workload(W::Submit),
+                if p.is_pending() {
+                    Err("Another request is in progress. Wait until it completes.")
+                } else if p.formation.parse::<orishu::model::cluster::FormationId>().is_err() {
+                    Err("Enter the exact target formation ID.")
+                } else {
+                    model.run.check_submit()
+                },
+            ));
     }
     container(content).into()
 }
