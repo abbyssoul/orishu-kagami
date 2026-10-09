@@ -258,8 +258,13 @@ impl Controller {
         let (ledger, blocked) = controller.recovery.snapshot();
         controller.blocked = blocked;
         controller.adopt(&ledger);
-        if !ledger.is_empty() {
+        let unresolved =
+            ledger.command().is_some() || ledger.load().is_some_and(|load| !load.is_final());
+        if unresolved {
             controller.notice = "Recovered unresolved run operations from an earlier session. Nothing was sent automatically; reconcile them explicitly.".into();
+        } else if ledger.load().is_some() {
+            controller.notice =
+                "Restored the final submission history from an earlier session.".into();
         }
         controller
     }

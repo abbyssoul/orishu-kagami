@@ -347,10 +347,8 @@ pub fn real_worker(model: &mut Model) {
         token_file: token,
         ca_cert: None,
     };
-    model.run = Controller::new(
-        Some(connection.clone()),
-        Recovery::open(&dir.path().join("runs")),
-    );
+    let journal = dir.path().join("runs");
+    model.run = Controller::new(Some(connection.clone()), Recovery::open(&journal));
     let before = model.document.snapshot().clone();
     let view = model.document.authoring_view();
     let root = model
@@ -517,6 +515,21 @@ pub fn real_worker(model: &mut Model) {
         }),
     );
     plugins(model, PluginAction::Close);
+    // Detach without finishing, then exercise restarts against this worker.
+    let _ = update(
+        model,
+        Message::Workspace(WorkspaceIntent::EditInitialConditions),
+    );
+    assert!(model.is_authoring() && !model.run.attached());
+    restart_journeys(
+        model,
+        &connection,
+        &journal,
+        &runtime,
+        before.revision().get(),
+    );
+    action(model, Action::Observe);
+    assert!(model.run.can_control());
     action(model, Action::Finish);
     let _ = update(
         model,
@@ -526,6 +539,84 @@ pub fn real_worker(model: &mut Model) {
     assert_eq!(model.document.snapshot(), &before);
     assert_eq!(model.document.authoring_view(), view);
     action(model, Action::ClearLoad);
+}
+
+/// Replace the controller as a restarted Kagami process would.
+fn restart(model: &mut Model, connection: &Connection, journal: &std::path::Path) {
+    model.run = Controller::new(None, Recovery::default());
+    model.run = Controller::new(Some(connection.clone()), reopen(journal));
+    assert!(!model.run.is_pending(), "a restart sends nothing");
+}
+
+/// Restart cases against the real worker, with a detached window. The journal
+/// is written directly, as a process that stopped at that point leaves it.
+fn restart_journeys(
+    model: &mut Model,
+    connection: &Connection,
+    journal: &std::path::Path,
+    runtime: &tokio::runtime::Runtime,
+    revision: u64,
+) {
+    use kagami::run::{intents::Target, journal::Journal};
+    use orishu::model::run_command::{
+        RunCommand, RunCommandOutcome, RunCommandRequest, RunCommandState,
+    };
+    // (a) The accepted submission and its source lineage survive a restart.
+    restart(model, connection, journal);
+    assert!(model.run.notice.contains("Restored the final submission"));
+    action(model, Action::InspectLoaded);
+    assert_eq!(model.run.source_revision(), Some(revision));
+    let boundary = model.run.status().unwrap().boundary();
+    let identity = model.run.status().unwrap().descriptor().identity().clone();
+    let target = Target::new(connection.address.clone(), identity.formation_id().clone()).unwrap();
+    let other = HttpClusterClient::new(
+        connection.address.clone(),
+        HttClientOptions {
+            credentials: Some(credential_file::load(&connection.token_file).unwrap()),
+            tls_cert: connection.ca_cert.clone(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let step = |id: &str, at| {
+        RunCommandRequest::new(id.parse().unwrap(), identity.clone(), at, RunCommand::Step).unwrap()
+    };
+
+    // (b) Stopped after sending, before recording the reply: reconciliation
+    // finds the worker's receipt, and the run advanced exactly once.
+    let sent = step("kagami-restart-sent", boundary);
+    model.run = Controller::new(None, Recovery::default());
+    let mut direct = Journal::open(journal).unwrap();
+    direct.begin_command(target.clone(), sent.clone()).unwrap();
+    let receipt = runtime.block_on(other.scientific().command(&sent)).unwrap();
+    assert!(matches!(
+        receipt.state(),
+        RunCommandState::Finished(RunCommandOutcome::Applied { .. })
+    ));
+    drop(direct);
+    restart(model, connection, journal);
+    assert_eq!(model.run.command(), Some(&sent));
+    assert!(model.run.check(&Action::Discover).is_err());
+    action(model, Action::Reconcile);
+    assert!(model.run.command().is_none(), "{}", model.run.notice);
+    action(model, Action::Discover);
+    assert_eq!(model.run.status().unwrap().boundary(), boundary + 1);
+
+    // (c) Stopped after recording, before sending: the worker has no receipt,
+    // and the original intent applies once when resubmitted explicitly.
+    let unsent = step("kagami-restart-unsent", boundary + 1);
+    model.run = Controller::new(None, Recovery::default());
+    let mut direct = Journal::open(journal).unwrap();
+    direct.begin_command(target, unsent.clone()).unwrap();
+    drop(direct);
+    restart(model, connection, journal);
+    action(model, Action::Reconcile);
+    assert_eq!(model.run.command(), Some(&unsent), "absent is not refused");
+    assert!(model.run.receipt().is_none());
+    action(model, Action::ResubmitOriginal);
+    assert!(model.run.command().is_none(), "{}", model.run.notice);
+    action(model, Action::Discover);
+    assert_eq!(model.run.status().unwrap().boundary(), boundary + 2);
 }
 
 fn inspect_fields(model: &mut Model, connection: &Connection, runtime: &tokio::runtime::Runtime) {
