@@ -91,7 +91,7 @@ jobs:
           --format tar.gz
           --binary-dir "target/${{ matrix.target }}/release"
           --binary orishu-worker --binary orishuctl --binary orishu-monitor --binary kagami
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-archive-${{ matrix.target }}-${{ inputs.version }}
           path: dist/orishu-kagami-${{ inputs.version }}-${{ matrix.target }}.tar.gz
@@ -121,7 +121,7 @@ jobs:
           --format zip
           --binary-dir "target/$env:TARGET/release"
           --binary kagami
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-archive-${{ env.TARGET }}-${{ inputs.version }}
           path: dist/kagami-${{ inputs.version }}-${{ env.TARGET }}.zip
@@ -193,7 +193,7 @@ jobs:
           test "$(dpkg-deb --field "$file" Architecture)" = "${{ matrix.arch }}"
           dpkg-deb --fsys-tarfile "$file" | tar -tf - | grep -Fx "./usr/bin/${{ matrix.package }}"
           echo "file=$file" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-deb-${{ matrix.package }}-${{ matrix.arch }}-${{ inputs.version }}
           path: ${{ steps.package.outputs.file }}
