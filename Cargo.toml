@@ -58,7 +58,7 @@ orishu-workload = { path = "crates/orishu-workload" }
 orishu-runtime = { path = "crates/orishu-runtime" }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Descriptor-checked Unix IO in imperative shells only; callers select features.
-rustix = "=1.1.4"
+rustix = "=1.1.5"
 serde = { version = "1", features = ["derive", "rc"] }
 # `float_roundtrip` is load-bearing, not a tuning choice: without it
 # serde_json's fast float parser is not bit-exact, so a saved coordinate,
