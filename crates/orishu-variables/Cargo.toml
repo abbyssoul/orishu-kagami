@@ -11,7 +11,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true }
-reedline = "0.51"
+reedline = "0.52"
 serde_json.workspace = true
 
 [features]
