@@ -1012,9 +1012,15 @@ fn local_origin_survives_reopen_without_entering_release_or_bundle_identity() {
     let dir = tempfile::tempdir().unwrap();
     let inventory = dir.path().join("inventory");
     let original = package("org.example.origins", "one");
-    let first = dir.path().join(std::ffi::OsString::from_vec(
-        b"first-\xff.okplugin".to_vec(),
-    ));
+    // APFS rejects non-UTF-8 names with EILSEQ, so macOS cannot hold such a
+    // file; use a non-ASCII UTF-8 name there instead.
+    let first = dir
+        .path()
+        .join(std::ffi::OsString::from_vec(if cfg!(target_os = "macos") {
+            "first-\u{e9}.okplugin".as_bytes().to_vec()
+        } else {
+            b"first-\xff.okplugin".to_vec()
+        }));
     let second = dir.path().join("second.okplugin");
     // Packaging output currently requires a UTF-8 filename; acquisition still
     // accepts arbitrary Unix filenames supplied by external build tooling.
@@ -1063,7 +1069,11 @@ fn local_origin_survives_reopen_without_entering_release_or_bundle_identity() {
     assert_eq!(json["apiVersion"], "orishu.plugin-inventory/v2");
     assert_eq!(
         json["releases"][0]["origin"]["path"]["encoding"],
-        "unix-bytes-hex"
+        if cfg!(target_os = "macos") {
+            "utf8"
+        } else {
+            "unix-bytes-hex"
+        }
     );
 }
 

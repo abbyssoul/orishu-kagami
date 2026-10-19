@@ -23,7 +23,7 @@ instantiation; digest checks and a byte ceiling precede Component compilation.
 `crates/orishu-runtime` owns the engine; it is intended for both Kagami and the
 worker. It owns no document authority, installer, membership state or network IO.
 The pure plugin crate contains WIT but acquires no engine dependency. Wasmtime
-48.0.2 is pinned in the runtime only, with minimal synchronous Component Model/
+48.0.6 is pinned in the runtime only, with minimal synchronous Component Model/
 Cranelift features and no on-disk code cache. JIT output is never workload identity.
 
 Existing workload/graph/lifecycle strings and canonical bytes have **not** been
