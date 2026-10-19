@@ -75,7 +75,7 @@ subtle = "=2.6.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 orishu = { workspace = true }
 pretty_assertions = "1.4.1"
-salvo = { version = "0.96", default-features = false, features = [
+salvo = { version = "1.0", default-features = false, features = [
     "aws-lc-rs",
     "http1",
     "http2",
