@@ -492,6 +492,10 @@ fn serve_dynamic(
                 Err(e) => panic!("bounded CLI fixture accept: {e}"),
             }
         };
+        // BSD-derived systems (macOS) let an accepted socket inherit the
+        // listener's O_NONBLOCK; Linux does not. Restore blocking reads so
+        // the timeouts below apply instead of spurious WouldBlock errors.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();

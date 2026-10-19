@@ -101,6 +101,10 @@ pub fn lost_reply(model: &mut Model, expected: &[u8]) {
                     Err(e) => panic!("bounded load fixture: {e}"),
                 }
             };
+            // BSD-derived systems (macOS) let an accepted socket inherit the
+            // listener's O_NONBLOCK; Linux does not. Restore blocking reads so
+            // the timeouts below apply instead of spurious WouldBlock errors.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();

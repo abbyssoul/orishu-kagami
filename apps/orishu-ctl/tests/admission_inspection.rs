@@ -149,6 +149,8 @@ fn inspection_preserves_evidence_and_refuses_uncorrelated_reports_without_mutati
                 Err(error) => panic!("{case}: {error}"),
             }
         };
+        // macOS accepted sockets inherit the listener's O_NONBLOCK.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
