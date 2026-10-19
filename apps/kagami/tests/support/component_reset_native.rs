@@ -169,6 +169,18 @@ fn native_fixture() -> NativeFixture {
             .kernels,
         ..Default::default()
     });
+    // Opening the document starts reference reconciliation, which leases
+    // through the store lock. Settle it so later direct store writes in the
+    // tests do not race that worker and fail with `Busy`.
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while source.model.plugin_references.is_pending() {
+        assert!(std::time::Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(5));
+        let _ = update(
+            &mut source.model,
+            Message::Plugins(kagami::plugins::window::Action::Poll),
+        );
+    }
     let object = *source
         .model
         .document

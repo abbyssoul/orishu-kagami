@@ -15,12 +15,12 @@ thiserror.workspace = true
 # Pinned engine, matching Rust 1.97. No WASI, async guest ABI, shared memories,
 # native guest libraries, on-disk compilation cache or profiling capability.
 # See README for the runtime-only dependency and security/update rationale.
-wasmtime = { version = "=48.0.2", default-features = false, features = ["std", "runtime", "cranelift", "component-model", "anyhow"] }
+wasmtime = { version = "=48.0.6", default-features = false, features = ["std", "runtime", "cranelift", "component-model", "anyhow"] }
 
 [dev-dependencies]
 criterion = { workspace = true }
 wat = "=1.261.0"
-wit-component = "=0.254.0"
+wit-component = "=0.254.2"
 
 [[bench]]
 name = "runtime"

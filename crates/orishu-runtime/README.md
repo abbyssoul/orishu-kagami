@@ -10,7 +10,7 @@ The [accepted X-PLUGIN contract](../../docs/plugin-contract-v1-draft.md) and
 required end state. Shared [WIT](../orishu-plugin/wit/simulation.wit) lives with the
 dependency-light plugin contract; only this host crate depends on an engine.
 
-Wasmtime is pinned to 48.0.2 (Rust requirement 1.95, compatible with this workspace's
+Wasmtime is pinned to 48.0.6 (Rust requirement 1.95, compatible with this workspace's
 1.97 toolchain), with only runtime/Cranelift/Component Model/std/error support.
 WASI is not linked. Do not enable threads, async guest execution, filesystem code
 caches or plugin-native loading implicitly. Runtime dependencies do not flow back
