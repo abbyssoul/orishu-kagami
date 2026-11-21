@@ -54,7 +54,7 @@ prost = { version = "=0.14.5", optional = true }
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
 ciborium = "=0.2.2"
 # Already resolved by Salvo; share bounded observation chunks without copying.
-bytes = "=1.12.1"
+bytes = "=1.12.2"
 thiserror = { workspace = true }
 orishu-membership = { workspace = true }
 # Shared scientific admission; no worker-side plugin installation or second engine.
